@@ -1,0 +1,2 @@
+# Fictional test fixture (STRONG_SECRET in tests), not a real credential.
+464bbfb5b461659a98354c9fb3766d05243eedd3:tests/test_security_hardening.py:generic-api-key:15
