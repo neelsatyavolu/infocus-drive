@@ -1,0 +1,194 @@
+server {
+    listen 8790;
+    server_name _;
+
+    # Large file transfers through Cloudflare Tunnel need long body/timeout windows.
+    client_max_body_size 10g;
+    client_body_timeout 3600s;
+    client_header_timeout 120s;
+    send_timeout 3600s;
+    keepalive_timeout 120s;
+
+    # Compress text/JSON/JS/CSS at the gateway. Binary downloads stay uncompressed
+    # because gzip_types omits video/octet-stream and streaming locations disable gzip.
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 5;
+    gzip_min_length 256;
+    gzip_types
+        text/plain
+        text/css
+        text/javascript
+        application/javascript
+        application/json
+        image/svg+xml
+        application/xml;
+
+    # Full UGOS portal under /admin/ (strip prefix when talking to UGOS)
+    location /admin/ {
+        proxy_pass http://192.168.1.50:9999/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        # Fix absolute redirects from UGOS back onto public URL + /admin prefix
+        proxy_redirect http://192.168.1.50:9999/ /admin/;
+        proxy_redirect https://192.168.1.50:9999/ /admin/;
+        proxy_redirect http://192.168.1.50:9443/ /admin/;
+        proxy_redirect http://$host:8790/ /admin/;
+        proxy_redirect http://$host:9999/ /admin/;
+        proxy_redirect http://$host/ /admin/;
+        proxy_redirect / /admin/;
+        # Catch remaining absolute forms
+        proxy_redirect ~^https?://[^/]+:8790(/admin)?(/.*)$ https://$host/admin$2;
+        proxy_redirect ~^https?://[^/]+(/desktop/.*)$ https://$host/admin$1;
+    }
+
+    location = /admin {
+        return 302 /admin/;
+    }
+
+    # Versioned static files (?v= on JS/CSS/PNG). Safe to cache hard; deploys bump v=.
+    location /assets/ {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        proxy_buffering on;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        add_header CDN-Cache-Control "public, max-age=31536000, immutable" always;
+    }
+
+    # Thumbnails are mtime-keyed (?mt=) and private. Do not override origin Cache-Control
+    # — a blanket /api/ no-store made every folder revisit re-download every JPEG.
+    location /api/thumbnail {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        proxy_buffering on;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # Hub A-roll tiles: ffmpeg JPEG via service file token (same cache policy as /api/thumbnail).
+    location /api/service/thumbnail {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        proxy_buffering on;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+    }
+
+    # JSON APIs — buffer + gzip. Keep upload/download streaming on the /api/ catch-all.
+    location ~ ^/api/(files|search|folder-sizes|me|usage|config)$ {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        gzip on;
+        proxy_buffering on;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+    }
+
+    # Auth + API — never cache. Share is selected via header/query; a shared
+    # Cache-Control on /api/files?path= made every share show the first listing.
+    location /api/ {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_max_temp_file_size 0;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+        client_max_body_size 10g;
+
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+    }
+
+    location /auth/ {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+    }
+
+    # Custom InFocus Drive app — stream bodies (do not buffer multi-hundred-MB uploads).
+    location / {
+        proxy_pass http://127.0.0.1:8787;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        # Stream request/response instead of spooling to disk — critical for speed + large uploads.
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_max_temp_file_size 0;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+        client_max_body_size 10g;
+
+        # Don't let CF invent a long TTL for dynamic app shells / assets.
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "public, max-age=60, must-revalidate" always;
+    }
+}

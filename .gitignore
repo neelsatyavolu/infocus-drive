@@ -1,0 +1,22 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+.agmux/
+.claude/
+.grok/
+.superpowers/
+.playwright-mcp/
+config/packages_roster.json
+
+# Persistent email-code authentication state
+config/email_sign_in.sqlite3*
+config/personal_service.enc
+config/personal_folders.sqlite3*
+
+# Private ops notes (original un-sanitized docs; never publish)
+ops-private/
+config/user_map.json
+nginx.conf
