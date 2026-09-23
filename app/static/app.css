@@ -667,6 +667,11 @@ button {
   color: hsl(var(--muted-foreground));
 }
 
+.login__foot-links {
+  display: inline-flex;
+  gap: 14px;
+}
+
 .login__foot a {
   display: inline-flex;
   align-items: center;
