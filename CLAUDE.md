@@ -6,6 +6,17 @@ Project-specific rules for InFocus Drive. Merge with user global preferences.
 
 Custom NAS file browser (web UI at `PUBLIC_BASE_URL`, e.g. `drive.example.com`) for `/volume2/InFocus Drive`. PAUSD Google OAuth → NAS username = local-part. Full detail: `AGENTS.md`, `docs/SYSTEM.md`.
 
+## ⚠️ Public repository — be careful
+
+This repo is **open source (MIT) and public**: https://github.com/neelsatyavolu/infocus-drive. Every commit, commit message, branch, issue and PR is world-readable and effectively permanent (force-pushing does not un-publish it). It runs in production for a school, and its users are minors.
+
+- **Never commit:** secrets/tokens, `.env`, 1Password/secret-manager item or account ids, the NAS LAN IP or internal hostnames, SSH hosts, real student/staff names, usernames or emails, screenshots or exports of real data, `config/user_map.json`, `nginx.conf`, `config/*.sqlite3`, logs, Playwright/browser artifacts.
+- Tests, docs and examples use fictional values (`student1`, `admin@example.org`, `192.168.1.50`, `drive.example.com`).
+- Commit messages must not name real people or accounts.
+- Before every commit: review `git diff --cached` line by line, `git status` for stray files, and run `gitleaks git .`. If something sensitive was committed, stop and tell the user **before** pushing.
+- Security-sensitive code (runs as root, `setuid`, a PAM bridge): don't weaken the existing hardening (session-secret check, inline-file allowlist + CSP sandbox, sign-in lockouts, userd group allowlist). Vulnerabilities are reported privately via GitHub Security Advisories, never in public issues.
+- Private operator notes and the old pre-open-source history live only in gitignored `ops-private/`. Never add it as a remote, copy from it into tracked files, or push it.
+
 ## Code style
 
 - **Surgical changes** — only touch what the task needs.

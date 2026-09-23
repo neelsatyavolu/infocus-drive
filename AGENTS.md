@@ -2,6 +2,8 @@
 
 **Read this first** when starting work on this repo. For deep system detail see [`docs/SYSTEM.md`](docs/SYSTEM.md). For deploy steps see [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
+> **⚠️ This is a public, open-source repo (MIT).** Everything you commit or push is world-readable and permanent. It serves a school, and its users are minors. Never commit secrets, `.env`, secret-manager ids, internal IPs or hostnames, or real student/staff names, usernames or emails (use fictional values like `student1` or `admin@example.org`, including in tests and commit messages). Review `git diff --cached` and run `gitleaks git .` before every commit. Keep private operator notes in gitignored `ops-private/` and never push them. Don't weaken the security hardening. Full rules: [`CLAUDE.md`](CLAUDE.md) → "Public repository".
+
 ## What this is
 
 Custom web file browser for the **InFocus** share on a Ugreen NAS:
