@@ -72,7 +72,7 @@ Please report vulnerabilities privately through GitHub Security Advisories on th
 
 The Drive UI and public share pages load a small script from `analytics.n3el.dev`, a first-party analytics service run by the developer. It counts anonymous page views:
 
-- **Recorded:** the site hostname, the first path segment only (a share link is recorded as `/s/…`; folder paths live in the `#` fragment and are never sent), the referring site's hostname, country, coarse device/browser/OS, and a visitor hash whose salt is deleted daily, so visits can't be linked across days.
+- **Recorded:** the site hostname, the first path segment only, trimmed in the browser before sending (a share link is sent as `/s/…`, so share tokens never leave the page; folder paths live in the `#` fragment and are never sent), the referring site's hostname, country, coarse device/browser/OS, and a visitor hash whose salt is deleted daily, so visits can't be linked across days.
 - **Not recorded:** no cookies or local storage, no IP addresses, no names, emails or usernames, no file or folder names, no file contents.
 - **Opting out:** there is no per-user switch; the counts are cookieless and anonymous. Blocking `analytics.n3el.dev` has no effect on the app.
 
