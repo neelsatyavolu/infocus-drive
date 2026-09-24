@@ -68,6 +68,16 @@ The app runs as root inside its container so it can `setuid` to each NAS user, a
 
 Please report vulnerabilities privately through GitHub Security Advisories on this repo rather than in public issues.
 
+## Privacy & analytics
+
+The Drive UI and public share pages load a small script from `analytics.n3el.dev`, a first-party analytics service run by the developer. It counts anonymous page views:
+
+- **Recorded:** the site hostname, the first path segment only (a share link is recorded as `/s/…`; folder paths live in the `#` fragment and are never sent), the referring site's hostname, country, coarse device/browser/OS, and a visitor hash whose salt is deleted daily, so visits can't be linked across days.
+- **Not recorded:** no cookies or local storage, no IP addresses, no names, emails or usernames, no file or folder names, no file contents.
+- **Opting out:** there is no per-user switch; the counts are cookieless and anonymous. Blocking `analytics.n3el.dev` has no effect on the app.
+
+Self-hosting? Remove the `analytics.n3el.dev` script tag from `app/static/index.html` and `app/static/share.html`.
+
 ## License
 
 [MIT](LICENSE)
