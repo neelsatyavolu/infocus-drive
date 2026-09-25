@@ -257,6 +257,8 @@ def _entry_from_stat(name: str, rel: str, st: os.stat_result) -> dict[str, Any]:
         "is_link": is_link,
         "size": 0 if is_dir else st.st_size,
         "mtime": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        # Exact value for the CLI's `expect_mtime_ns` overwrite guard.
+        "mtime_ns": st.st_mtime_ns,
         "mode": stat.filemode(st.st_mode),
     }
 
@@ -979,6 +981,19 @@ def write_upload(rel_dir: str, filename: str, data: bytes, uid: int, gid: int) -
     )
 
 
+def _check_expected_mtime(dest: Path, expect_mtime_ns: int | None) -> None:
+    if expect_mtime_ns is None:
+        return
+    try:
+        current = dest.stat().st_mtime_ns
+    except FileNotFoundError:
+        current = -1
+    if current != expect_mtime_ns:
+        if expect_mtime_ns == -1:
+            raise FSError("A file with that name already exists", 409)
+        raise FSError("File changed on the Drive since you opened it", 409)
+
+
 def write_upload_stream(
     rel_dir: str,
     filename: str,
@@ -987,6 +1002,7 @@ def write_upload_stream(
     gid: int,
     max_bytes: int = 10 * 1024 * 1024 * 1024,
     expected_bytes: int | None = None,
+    expect_mtime_ns: int | None = None,
 ) -> dict[str, Any]:
     """Stream chunks to disk — avoids holding multi-GB uploads in RAM.
 
@@ -994,6 +1010,8 @@ def write_upload_stream(
     Uses a unique temp name so concurrent same-name uploads cannot clobber each
     other. Only renames into place after a clean stream; if ``expected_bytes`` is
     set, the byte count must match exactly (aborts leave no final file).
+    ``expect_mtime_ns`` (``-1`` = must not exist) refuses with 409 when the
+    target changed since the client last saw it.
     """
     filename = Path(filename).name
     if not filename or filename in (".", ".."):
@@ -1022,6 +1040,7 @@ def write_upload_stream(
                 raise FSError("Parent not found", 404)
             if dest.exists() and dest.is_dir():
                 raise FSError("Cannot overwrite directory")
+            _check_expected_mtime(dest, expect_mtime_ns)
             out = open(tmp, "wb")  # noqa: SIM115 — closed in finally / after pump
 
         assert out is not None
@@ -1045,8 +1064,17 @@ def write_upload_stream(
             )
 
         with as_user(uid, gid), _translate_os_errors():
-            # Atomic replace: overwrites existing file without delete-first.
-            os.replace(tmp, dest)
+            _check_expected_mtime(dest, expect_mtime_ns)
+            if expect_mtime_ns == -1:
+                # Create-only: link() fails atomically if a file appeared since the check.
+                try:
+                    os.link(tmp, dest)
+                except FileExistsError as e:
+                    raise FSError("A file with that name already exists", 409) from e
+                os.unlink(tmp)
+            else:
+                # Atomic replace: overwrites existing file without delete-first.
+                os.replace(tmp, dest)
             try:
                 os.chown(dest, uid, gid)
             except OSError:

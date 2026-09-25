@@ -1,0 +1,69 @@
+name: CLI release
+
+# Push a tag like cli-v0.1.0 to publish a macOS universal `infocus` binary.
+# /cli/install.sh downloads the latest release asset and checks SHA256SUMS.
+on:
+  push:
+    tags: ["cli-v*"]
+  pull_request:
+    paths: ["cli/**", ".github/workflows/cli-release.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: cli/go.mod
+      - name: Vet and test
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          go test -race ./...
+      - name: Build universal binary
+        env:
+          VERSION: ${{ startsWith(github.ref, 'refs/tags/cli-v') && github.ref_name || 'dev' }}
+        run: |
+          VERSION="${VERSION#cli-v}"
+          LDFLAGS="-s -w -X github.com/neelsatyavolu/infocus-drive/cli/internal/app.Version=$VERSION -X github.com/neelsatyavolu/infocus-drive/cli/internal/app.Commit=${GITHUB_SHA:0:7}"
+          mkdir -p dist
+          for arch in arm64 amd64; do
+            GOOS=darwin GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "dist/infocus-$arch" .
+          done
+          lipo -create -output dist/infocus dist/infocus-arm64 dist/infocus-amd64
+          ./dist/infocus version
+          tar -C dist -czf dist/infocus-darwin-universal.tar.gz infocus
+          (cd dist && shasum -a 256 infocus-darwin-universal.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: infocus-darwin-universal
+          path: |
+            cli/dist/infocus-darwin-universal.tar.gz
+            cli/dist/SHA256SUMS
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/cli-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: infocus-darwin-universal
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "InFocus CLI ${GITHUB_REF_NAME#cli-v}" \
+            --notes "Install: curl -fsSL https://<your drive>/cli/install.sh | sh" \
+            infocus-darwin-universal.tar.gz SHA256SUMS

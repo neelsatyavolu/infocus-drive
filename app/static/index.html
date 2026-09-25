@@ -10,11 +10,11 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="preload" as="image" href="/assets/infocus-wordmark.png?v=20260902-share" />
-  <link rel="modulepreload" href="/assets/app.js?v=20260921-ugos-google" />
-  <link rel="modulepreload" href="/assets/api.js?v=20260921-ugos-google" />
-  <link rel="modulepreload" href="/assets/format.js?v=20260921-ugos-google" />
-  <link rel="modulepreload" href="/assets/dom.js?v=20260921-ugos-google" />
-  <link rel="modulepreload" href="/assets/quick.js?v=20260921-ugos-google" />
+  <link rel="modulepreload" href="/assets/app.js?v=20260924-cli2" />
+  <link rel="modulepreload" href="/assets/api.js?v=20260924-cli2" />
+  <link rel="modulepreload" href="/assets/format.js?v=20260924-cli2" />
+  <link rel="modulepreload" href="/assets/dom.js?v=20260924-cli2" />
+  <link rel="modulepreload" href="/assets/quick.js?v=20260924-cli2" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,700;0,800;0,900;1,700;1,800;1,900&amp;family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" />
   <!-- Critical theme paint before app.css — stops reload FOUC (light sidebar / dark main). -->
   <style id="ifd-theme-critical">
@@ -137,6 +137,7 @@
   <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></symbol>
   <!-- Soft-delete bin: tapered wastebasket (distinct from rectangular i-trash) -->
   <symbol id="i-recycle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M4 7h16"/><path d="M18.5 7 17.3 19.2A2 2 0 0 1 15.3 21H8.7a2 2 0 0 1-2-1.8L5.5 7"/><path d="M10 11v5M14 11v5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 17 6-6-6-6M12 19h8"/></symbol>
   <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
@@ -274,6 +275,10 @@
       <button type="button" class="sidebar__tool" id="btn-finder">
         <svg width="15" height="15"><use href="#i-hdd"></use></svg>
         <span>Connect in Finder</span>
+      </button>
+      <button type="button" class="sidebar__tool" id="btn-terminal">
+        <svg width="15" height="15"><use href="#i-terminal"></use></svg>
+        <span>Terminal sign-ins</span>
       </button>
       <button type="button" class="sidebar__tool" id="btn-speedtest">
         <svg width="15" height="15"><use href="#i-refresh"></use></svg>
@@ -507,6 +512,6 @@
 
 <input type="file" id="file-input" multiple hidden />
 <input type="file" id="folder-input" webkitdirectory directory multiple hidden />
-<script src="/assets/app.js?v=20260921-ugos-google" type="module"></script>
+<script src="/assets/app.js?v=20260924-cli2" type="module"></script>
 </body>
 </html>

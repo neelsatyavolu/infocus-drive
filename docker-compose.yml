@@ -16,6 +16,7 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
       EMAIL_SIGN_IN_DB_PATH: /config/email_sign_in.sqlite3
+      CLI_TOKENS_DB_PATH: /config/cli_tokens.sqlite3
       ALLOWED_EMAIL_DOMAINS: ${ALLOWED_EMAIL_DOMAINS:?set it in .env (see .env.example)}
       GOOGLE_HOSTED_DOMAIN: ${GOOGLE_HOSTED_DOMAIN?set it in .env (see .env.example)}
       DRIVE_ROOT: /data/volume2/InFocus Drive

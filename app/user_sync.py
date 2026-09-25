@@ -6,6 +6,7 @@ import json
 import logging
 import re
 import secrets
+import sqlite3
 import string
 import time
 from pathlib import Path
@@ -13,7 +14,9 @@ from typing import Any, Callable
 
 import httpx
 
+import cli_tokens
 from config import get_settings
+from fsops import FSError
 from users import (
     NasUser,
     _csv_lower,
@@ -541,6 +544,14 @@ def revoke_user(
         return {"email": email, "username": username, "status": "absent"}
     if owner is None:
         return {"email": email, "username": username, "status": "absent"}
+    # Only once we know this account is the departing user's: revoke their
+    # terminal (`infocus`) sign-ins first, and keep the account if that fails.
+    try:
+        cli_tokens.revoke_all(username)
+    except (OSError, sqlite3.Error, FSError) as e:
+        log.warning("revoking terminal sign-ins for %s failed: %s", username, e)
+        return {"email": email, "username": username, "status": "error",
+                "detail": "could not revoke terminal sign-ins"}
 
     own = False
     client = ugos

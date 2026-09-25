@@ -76,6 +76,10 @@ app/fsops.py         Path-safe FS under drive root; as_user(uid,gid)
 app/users.py         Email → NAS user
 app/config.py        Settings from env
 app/file_links.py    Signed public file-share tokens
+app/cli_tokens.py    Terminal (`infocus` CLI) sign-ins: PKCE codes + hashed bearer tokens
+app/static/cli-authorize.*  CLI consent page (`/cli/authorize`)
+app/static/cli/install.sh   CLI installer served at `/cli/install.sh`
+cli/                 Go source for the `infocus` CLI (docs/CLI.md)
 app/static/app.js    UI state, tree, DnD, preview, speed test
 app/static/api.js    Fetch/XHR client
 app/static/format.js Sizes, kinds, previewKind()
@@ -97,7 +101,7 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | GET | `/api/files?path=` | List dir |
 | GET | `/api/search?q=&path=&limit=` | Recursive smart search (name/path/kind) |
 | POST | `/api/mkdir` `/rename` `/move` `/delete` | Form fields |
-| POST | `/api/upload` | Multipart; **streamed** to disk (small files) |
+| POST | `/api/upload` | Multipart; **streamed** to disk (small files). Optional `expect_mtime_ns` (`-1` = must not exist) → 409 on conflict |
 | POST | `/api/upload/init` | Start chunked multi-stream upload session |
 | PUT | `/api/upload/chunk?upload_id=&index=` | Raw body ≤32 MiB piece |
 | GET | `/api/upload/status` | Resume: which chunks received |
@@ -111,6 +115,14 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | GET | `/api/speedtest/download?size=` | Synthetic zeros, max 512MiB |
 | POST | `/api/speedtest/upload` | Piece max 32MiB; client multi-streams |
 | GET/POST | `/auth/login` `/auth/callback` `/auth/logout` | OAuth |
+| GET | `/cli/authorize` | CLI consent page (web session; not frameable) |
+| POST | `/api/cli/authorize` | Form POST, web session + same-origin → 303 to the CLI's `127.0.0.1` listener with a one-time code |
+| POST | `/api/cli/token` | Unauthenticated: code + PKCE verifier → `ifd_…` bearer token (rate-limited) |
+| GET/DELETE | `/api/cli/sessions` `/api/cli/sessions/{id}` | List / revoke own terminal sign-ins |
+| POST | `/api/cli/logout` | Revoke the presenting bearer token |
+| GET | `/cli/install.sh` | Unauthenticated CLI installer |
+
+All authenticated `/api/*` routes accept `Authorization: Bearer ifd_…` from the CLI (see [`docs/CLI.md`](docs/CLI.md)) except browser-only ones (`/api/cli/authorize`, `/api/lan-handoff`, `/api/share`, `/api/personal/*`).
 
 ## Frontend modules
 

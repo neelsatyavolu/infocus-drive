@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260921-ugos-google";
-import * as api from "./api.js?v=20260921-ugos-google";
-import { ApiError } from "./api.js?v=20260921-ugos-google";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20260924-cli2";
+import * as api from "./api.js?v=20260924-cli2";
+import { ApiError } from "./api.js?v=20260924-cli2";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260921-ugos-google";
-import { $, el, icon, show } from "./dom.js?v=20260921-ugos-google";
+} from "./format.js?v=20260924-cli2";
+import { $, el, icon, show } from "./dom.js?v=20260924-cli2";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260921-ugos-google";
+} from "./quick.js?v=20260924-cli2";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260921-ugos-google").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20260924-cli2").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3427,6 +3427,82 @@ function openFinderConnectModal() {
   ].filter(Boolean));
 
   openModal(el("div", { class: "modal modal--finder" }, [body]));
+}
+
+function openTerminalSignInsModal() {
+  const origin = state.me?.public_base_url || location.origin;
+  const installCmd = `curl -fsSL ${origin}/cli/install.sh | sh`;
+  const list = el("ul", { class: "cli-sessions" }, [
+    el("li", { class: "cli-sessions__empty", text: "Loading…" }),
+  ]);
+  const when = (seconds) => formatModified(new Date(seconds * 1000).toISOString());
+
+  function row(session) {
+    const revoke = el("button", { type: "button", class: "btn btn--modal", text: "Revoke" });
+    revoke.addEventListener("click", async () => {
+      revoke.disabled = true;
+      try {
+        await api.revokeCliSession(session.id);
+        toast(`Signed out ${session.device}`);
+        await load();
+      } catch (err) {
+        revoke.disabled = false;
+        toast(err.message || "Couldn't revoke that sign-in", "error");
+      }
+    });
+    return el("li", { class: "cli-sessions__row" }, [
+      el("div", { class: "cli-sessions__meta" }, [
+        el("div", { class: "cli-sessions__device", text: session.device }),
+        el("div", {
+          class: "cli-sessions__when",
+          text: `Last used: ${when(session.last_used_at)} · Signed in: ${when(session.created_at)}`,
+        }),
+      ]),
+      revoke,
+    ]);
+  }
+
+  async function load() {
+    try {
+      const { sessions } = await api.listCliSessions();
+      list.replaceChildren(
+        ...(sessions.length
+          ? sessions.map(row)
+          : [el("li", { class: "cli-sessions__empty", text: "No terminals are signed in." })]),
+      );
+    } catch (err) {
+      list.replaceChildren(el("li", { class: "cli-sessions__empty", text: err.message || "Couldn't load sign-ins." }));
+    }
+  }
+
+  const copy = el("button", { type: "button", class: "btn btn--modal", text: "Copy install command" });
+  copy.addEventListener("click", () => copyText(installCmd, copy));
+
+  const body = el("div", { class: "modal__body" }, [
+    el("div", { class: "modal__lead" }, [
+      el("div", { class: "modal__badge" }, [icon("#i-terminal", 17)]),
+      el("div", {}, [
+        el("h3", { text: "Terminal sign-ins" }),
+        el("p", {
+          text: "Computers where you ran infocus login. They can use your files until you revoke them or they go 30 days unused.",
+        }),
+      ]),
+    ]),
+    list,
+    el("p", { class: "modal__hint" }, [
+      document.createTextNode("Install the CLI on a Mac, then run "),
+      el("code", { class: "mono", text: "infocus login" }),
+      document.createTextNode(":"),
+      el("code", { class: "mono cli-sessions__install", text: installCmd }),
+    ]),
+    modalFooter([
+      copy,
+      el("button", { type: "button", class: "btn btn--modal", text: "Close", onclick: closeModal }),
+    ]),
+  ]);
+
+  openModal(el("div", { class: "modal" }, [body]));
+  load();
 }
 
 const SPEEDTEST_MODES = [
@@ -4580,6 +4656,7 @@ function bindEvents() {
 
   $("btn-speedtest")?.addEventListener("click", () => openSpeedTestModal());
   $("btn-finder")?.addEventListener("click", () => openFinderConnectModal());
+  $("btn-terminal")?.addEventListener("click", () => openTerminalSignInsModal());
 
   const searchInput = $("search");
   searchInput.addEventListener("input", (event) => {

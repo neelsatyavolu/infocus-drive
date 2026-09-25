@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import re
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -28,8 +29,9 @@ from chunk_upload import (
     write_chunk,
 )
 from config import get_settings, require_strong_session_secret
+import cli_tokens
 import personal_folders
-from email_auth import router as email_auth_router
+from email_auth import check_origin, router as email_auth_router
 from ugos_sso import router as ugos_sso_router
 from file_links import (
     DEFAULT_DAYS,
@@ -153,11 +155,14 @@ async def asset_cache_headers(request: Request, call_next):  # type: ignore[no-u
         # CDN-Cache-Control keeps Cloudflare from storing private JPEGs at the edge.
         response.headers["Cache-Control"] = "private, max-age=604800"
         response.headers["CDN-Cache-Control"] = "no-store"
-    elif path.startswith("/api/") or path.startswith("/auth/") or path.startswith("/infocus-sso/"):
+    elif path.startswith(("/api/", "/auth/", "/infocus-sso/", "/cli/")):
         # Listings differ by X-Drive-Share / ?share= — must not be shared-cached.
         response.headers["Cache-Control"] = "private, no-store, no-cache, must-revalidate"
         response.headers["CDN-Cache-Control"] = "no-store"
         response.headers["Pragma"] = "no-cache"
+    elif path == "/assets/cli-authorize.html":
+        response.headers.update(_CLI_PAGE_HEADERS)
+        response.headers["Cache-Control"] = "no-store"
     elif path.startswith("/assets/"):
         # Deploy cache-bust is the ?v= query on index.html / module imports.
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
@@ -215,10 +220,36 @@ def _safe_next_url(raw: str | None) -> str:
     return "/"
 
 
-def _require_user(request: Request) -> dict[str, Any]:
+def _bearer_token(request: Request) -> str | None:
+    auth = request.headers.get("authorization") or ""
+    if auth[:7].lower() != "bearer ":
+        return None
+    return auth[7:].strip()
+
+
+def _require_session_user(request: Request) -> dict[str, Any]:
+    """Browser cookie session only — for actions a CLI token must never perform."""
     user = request.session.get("user")
     if not user or "uid" not in user or not _regular_uid(user):
         raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+def _require_user(request: Request) -> dict[str, Any]:
+    """Cookie session, or `Authorization: Bearer ifd_…` from the infocus CLI.
+
+    A bearer is never combined with the cookie: a bad token is a 401 even when
+    the browser session is valid.
+    """
+    token = _bearer_token(request)
+    if token is None:
+        return _require_session_user(request)
+    user = cli_tokens.lookup(token)
+    if user is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Terminal sign-in expired or revoked. Run `infocus login`.",
+        )
     return user
 
 
@@ -237,10 +268,11 @@ def _active_share(request: Request, user: dict[str, Any]) -> str:
     /api/me should omit the share header so a stale client default does not
     wipe a previously chosen share on reload.
     """
+    via_cli = "cli_token_id" in user
     requested = (
         request.query_params.get("share")
         or request.headers.get("X-Drive-Share")
-        or request.session.get("share")
+        or (None if via_cli else request.session.get("share"))
     )
     share = normalize_share_for_user(
         requested,
@@ -248,7 +280,9 @@ def _active_share(request: Request, user: dict[str, Any]) -> str:
         int(user["uid"]),
         int(user["gid"]),
     )
-    request.session["share"] = share
+    if not via_cli:
+        # CLI requests carry the share per call; never mint a cookie for them.
+        request.session["share"] = share
     return share
 
 
@@ -714,7 +748,7 @@ def api_public_config(request: Request) -> dict[str, Any]:
 @app.post("/api/lan-handoff")
 def api_lan_handoff(request: Request) -> dict[str, Any]:
     """Mint a short-lived token so the browser can open the LAN origin signed-in."""
-    user = _require_user(request)
+    user = _require_session_user(request)
     if not (settings.lan_origin or "").strip():
         raise HTTPException(status_code=404, detail="LAN origin not configured")
     payload = {
@@ -773,9 +807,10 @@ def auth_lan_handoff(
 
 @app.get("/api/me")
 def me(request: Request) -> dict[str, Any]:
-    user = request.session.get("user")
     cfg = _public_config(request)
-    if not user or not _regular_uid(user):
+    try:
+        user = _require_user(request)
+    except HTTPException:
         return {"authenticated": False, **cfg}
     smb_host = (settings.smb_hostname or settings.smb_host or "").strip()
     smb_share = (settings.smb_share_infocus or DEFAULT_SHARE).strip()
@@ -825,7 +860,7 @@ def me(request: Request) -> dict[str, Any]:
 @app.post("/api/share")
 async def api_set_share(request: Request) -> dict[str, Any]:
     """Switch the active shared folder (NAS admins only see multiple options)."""
-    user = _require_user(request)
+    user = _require_session_user(request)
     try:
         body = await request.json()
     except Exception:
@@ -851,7 +886,7 @@ async def api_set_share(request: Request) -> dict[str, Any]:
 @app.post("/api/personal/unlock")
 def api_unlock_personal(request: Request, owner: str = Form(...), key: str = Form(..., max_length=65536),
                         key_file: bool = Form(False)) -> dict[str, Any]:
-    user = _require_user(request)
+    user = _require_session_user(request)
     username = str(user.get("username") or "")
     if owner != username:
         raise HTTPException(status_code=403, detail="You cannot unlock this personal folder")
@@ -875,7 +910,7 @@ def api_unlock_personal(request: Request, owner: str = Form(...), key: str = For
 @app.post("/api/personal/auth")
 def api_personal_auth(request: Request, owner: str = Form(...),
                       password: str = Form("", max_length=256), code: str = Form("", max_length=12)) -> dict[str, Any]:
-    user = _require_user(request)
+    user = _require_session_user(request)
     username = str(user.get("username") or "")
     if owner != username:
         raise HTTPException(status_code=403, detail="Sign in as the personal-folder owner")
@@ -1364,6 +1399,7 @@ async def api_upload(
     request: Request,
     path: str = Form(""),
     file: UploadFile = File(...),
+    expect_mtime_ns: int | None = Form(None),
 ) -> dict[str, Any]:
     """Stream upload to disk (no full-file RAM buffer) so large files stay fast/stable."""
     import asyncio
@@ -1434,6 +1470,7 @@ async def api_upload(
                 user["gid"],
                 max_bytes,
                 expected_bytes=expected,
+                expect_mtime_ns=expect_mtime_ns,
             )
 
     pump_task = asyncio.create_task(pump())
@@ -1579,7 +1616,11 @@ async def api_upload_chunk(
 
 
 @app.post("/api/upload/complete")
-def api_upload_complete(request: Request, upload_id: str = Form(...)) -> dict[str, Any]:
+def api_upload_complete(
+    request: Request,
+    upload_id: str = Form(...),
+    expect_mtime_ns: int | None = Form(None),
+) -> dict[str, Any]:
     user = _require_user(request)
     share = _active_share(request, user)
     try:
@@ -1599,6 +1640,7 @@ def api_upload_complete(request: Request, upload_id: str = Form(...)) -> dict[st
                 upload_id,
                 username=str(user.get("username") or ""),
                 uid=int(user["uid"]),
+                expect_mtime_ns=expect_mtime_ns,
             )
     except FSError as e:
         raise _fs_http(e) from e
@@ -1951,6 +1993,146 @@ def api_file_link_file(
 @app.get("/s/{token}")
 def share_page(token: str) -> FileResponse:
     return FileResponse(STATIC / "share.html")
+
+
+# ---------------------------------------------------------------------------
+# Terminal sign-in for the `infocus` CLI (PKCE via a 127.0.0.1 callback)
+# ---------------------------------------------------------------------------
+_CLI_STATE_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
+_CLI_PAGE_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+        # The consent form posts to us, and we 303 it to the CLI's loopback listener.
+        "form-action 'self' http://127.0.0.1:*; base-uri 'none'; frame-ancestors 'none'"
+    ),
+    "X-Frame-Options": "DENY",
+    # The URL carries state/challenge: never send it cross-origin (the loopback
+    # page is another origin). Not "no-referrer" — that makes form POSTs send
+    # `Origin: null`, which check_origin rightly rejects.
+    "Referrer-Policy": "same-origin",
+}
+
+
+def _cli_request_params(port: Any, state: Any, challenge: Any) -> tuple[int, str, str]:
+    try:
+        port_n = int(port)
+    except (TypeError, ValueError):
+        port_n = 0
+    if not 1024 <= port_n <= 65535:
+        raise HTTPException(status_code=400, detail="Invalid callback port")
+    if not _CLI_STATE_RE.fullmatch(str(state or "")):
+        raise HTTPException(status_code=400, detail="Invalid state")
+    if not cli_tokens.valid_challenge(str(challenge or "")):
+        raise HTTPException(status_code=400, detail="Invalid PKCE challenge")
+    return port_n, str(state), str(challenge)
+
+
+@app.get("/cli/authorize")
+def cli_authorize_page() -> FileResponse:
+    # Static page; it validates via /api/me and POST /api/cli/authorize.
+    return FileResponse(STATIC / "cli-authorize.html", headers=_CLI_PAGE_HEADERS)
+
+
+@app.post("/api/cli/authorize")
+def api_cli_authorize(
+    request: Request,
+    port: str = Form(""),
+    state: str = Form(""),
+    challenge: str = Form(""),
+    device: str = Form("", max_length=512),
+    allow: str = Form(""),
+) -> RedirectResponse:
+    """Browser approves a terminal via a plain form POST.
+
+    The one-time code only ever travels in this 303's Location header, which
+    page script (even an XSS on the Drive origin) cannot read.
+    """
+    check_origin(request)
+    user = _require_session_user(request)
+    port_n, state, challenge = _cli_request_params(port, state, challenge)
+    callback = f"http://127.0.0.1:{port_n}/callback"
+    if allow != "1":
+        return RedirectResponse(f"{callback}?{urlencode({'error': 'access_denied', 'state': state})}", status_code=303)
+    try:
+        code = cli_tokens.issue_code(str(user["username"]), str(user.get("email") or ""), device, challenge)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+    return RedirectResponse(f"{callback}?{urlencode({'code': code, 'state': state})}", status_code=303)
+
+
+# Codes are 256-bit and PKCE-bound, so this is abuse control, not brute-force
+# defence: count failures only, so a class behind one campus IP can all sign in.
+_CLI_TOKEN_WINDOW_S = 300.0
+_CLI_TOKEN_MAX_FAILURES = 30
+_cli_token_failures: dict[str, list[float]] = {}
+
+
+def _cli_token_blocked(ip: str) -> bool:
+    now = time.time()
+    recent = [t for t in _cli_token_failures.get(ip, []) if now - t < _CLI_TOKEN_WINDOW_S]
+    if recent:
+        _cli_token_failures[ip] = recent
+    else:
+        _cli_token_failures.pop(ip, None)
+    return len(recent) >= _CLI_TOKEN_MAX_FAILURES
+
+
+@app.post("/api/cli/token")
+async def api_cli_token(request: Request) -> dict[str, Any]:
+    ip = request.client.host if request.client else "unknown"
+    if _cli_token_blocked(ip):
+        raise HTTPException(status_code=429, detail="Too many attempts. Try again in a few minutes.")
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Invalid request")
+    issued = cli_tokens.redeem_code(str(body.get("code") or ""), str(body.get("verifier") or ""))
+    if issued is None:
+        _cli_token_failures.setdefault(ip, []).append(time.time())
+        raise HTTPException(status_code=401, detail="Sign-in code is invalid or expired. Run `infocus login` again.")
+    return {
+        "token": issued["token"],
+        "id": issued["id"],
+        "username": issued["username"],
+        "device": issued["device"],
+        "idle_expiry_days": cli_tokens.IDLE_TTL_S // 86400,
+    }
+
+
+@app.get("/api/cli/sessions")
+def api_cli_sessions(request: Request) -> dict[str, Any]:
+    user = _require_user(request)
+    current = user.get("cli_token_id")
+    rows = cli_tokens.list_for(str(user["username"]))
+    return {"sessions": [{**row, "current": row["id"] == current} for row in rows]}
+
+
+@app.delete("/api/cli/sessions/{token_id}")
+def api_cli_revoke(request: Request, token_id: str) -> dict[str, bool]:
+    user = _require_user(request)
+    if not cli_tokens.revoke(token_id, str(user["username"])):
+        raise HTTPException(status_code=404, detail="Terminal sign-in not found")
+    return {"ok": True}
+
+
+@app.post("/api/cli/logout")
+def api_cli_logout(request: Request) -> dict[str, bool]:
+    token = _bearer_token(request)
+    if not token or not cli_tokens.revoke_token(token):
+        raise HTTPException(status_code=401, detail="Not signed in")
+    return {"ok": True}
+
+
+@app.get("/cli/install.sh")
+def cli_install_script() -> Response:
+    server = settings.public_base_url.rstrip("/")
+    if not re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
+        raise HTTPException(status_code=503, detail="PUBLIC_BASE_URL must be an https origin")
+    script = (STATIC / "cli" / "install.sh").read_text(encoding="utf-8")
+    return Response(script.replace("__INFOCUS_SERVER__", server), media_type="text/x-shellscript")
 
 
 @app.get("/{full_path:path}")

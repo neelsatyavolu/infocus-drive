@@ -226,6 +226,15 @@ export function logout() {
   return request("/auth/logout", { method: "POST" });
 }
 
+/** Terminal (`infocus` CLI) sign-ins for the signed-in user. */
+export function listCliSessions() {
+  return request("/api/cli/sessions", { skipShareHeader: true });
+}
+
+export function revokeCliSession(id) {
+  return request(`/api/cli/sessions/${encodeURIComponent(id)}`, { method: "DELETE", skipShareHeader: true });
+}
+
 /** Mint a public expiring download link for a single file. */
 export function createFileLink(path, days) {
   return request("/api/file-link", {

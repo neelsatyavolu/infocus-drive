@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="color-scheme" content="dark light" />
+  <title>Sign in the terminal · InFocus Drive</title>
+  <link rel="icon" href="/assets/infocus-wordmark.png?v=20260924-cli2" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,700;0,800;1,800&amp;family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+  <link rel="stylesheet" href="/assets/app.css?v=20260924-cli2" />
+  <script type="module" src="/assets/cli-authorize.js?v=20260924-cli2"></script>
+</head>
+<body class="share-body">
+<div class="share">
+  <header class="share__bar">
+    <div class="wordmark">
+      <img src="/assets/infocus-wordmark.png?v=20260924-cli2" alt="InFocus" width="70" height="30" decoding="async" />
+      <span>Drive</span>
+    </div>
+  </header>
+  <main class="share__main">
+    <section class="share__card cli-auth" id="cli-auth" aria-live="polite">
+      <p id="cli-loading">Loading…</p>
+
+      <div id="cli-signin" hidden>
+        <h1 class="cli-auth__title">Sign in to connect your terminal</h1>
+        <p>Sign in to InFocus Drive first. Then come back to this tab — it updates on its own.</p>
+        <div class="cli-auth__actions">
+          <a class="btn btn--primary" id="cli-google" href="/auth/login">Continue with Google</a>
+          <a class="btn" href="/" target="_blank" rel="noopener">Other sign-in options</a>
+        </div>
+      </div>
+
+      <form id="cli-consent" method="post" action="/api/cli/authorize" hidden>
+        <h1 class="cli-auth__title">Allow terminal access?</h1>
+        <p><strong id="cli-device"></strong> wants to use InFocus Drive as <strong id="cli-user"></strong>.</p>
+        <p>Check that your terminal shows this code:</p>
+        <p class="cli-auth__code" id="cli-code" aria-label="Confirmation code"></p>
+        <p class="cli-auth__note">It can list, read, upload, change and delete files you can reach on the Drive. Only allow this if you just ran <code>infocus login</code> on your own computer and the code matches.</p>
+        <input type="hidden" name="port" id="cli-port" />
+        <input type="hidden" name="state" id="cli-state" />
+        <input type="hidden" name="challenge" id="cli-challenge" />
+        <input type="hidden" name="device" id="cli-device-field" />
+        <div class="cli-auth__actions">
+          <button type="submit" class="btn btn--primary" name="allow" value="1">Allow</button>
+          <button type="submit" class="btn" name="allow" value="0">Deny</button>
+        </div>
+      </form>
+
+      <div id="cli-error" hidden>
+        <h1 class="cli-auth__title">Can't connect the terminal</h1>
+        <p id="cli-error-text"></p>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>
