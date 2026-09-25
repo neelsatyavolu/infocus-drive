@@ -1,6 +1,6 @@
-import { el } from "./dom.js?v=20260924-fastboot";
-import { marked } from "./vendor/marked.js?v=20260924-fastboot";
-import DOMPurify from "./vendor/dompurify.js?v=20260924-fastboot";
+import { el } from "./dom.js?v=20260925-brand";
+import { marked } from "./vendor/marked.js?v=20260925-brand";
+import DOMPurify from "./vendor/dompurify.js?v=20260925-brand";
 
 export function isMarkdown(name) {
   return /\.(md|markdown)$/i.test(name);

@@ -5,19 +5,19 @@
    Mirrors the InFocus Design System token set.
    --------------------------------------------------------------------------- */
 :root {
-  --brand-green: #00c72c;
-  --brand-green-deep: #00a024;
-  --brand-red: #e11d2c;
-  --brand-red-deep: #b7121f;
+  --brand-green: #2bb36e;
+  --brand-green-deep: #23955c;
+  --brand-red: #ee3a2a;
+  --brand-red-deep: #c92b1d;
   --brand-amber: #f2a516;
 
-  --brand-green-a10: rgb(0 199 44 / 0.1);
-  --brand-green-a12: rgb(0 199 44 / 0.12);
-  --brand-green-a18: rgb(0 199 44 / 0.18);
-  --brand-green-a30: rgb(0 199 44 / 0.3);
-  --brand-red-a12: rgb(225 29 44 / 0.12);
-  --brand-red-a18: rgb(225 29 44 / 0.18);
-  --brand-red-a40: rgb(225 29 44 / 0.4);
+  --brand-green-a10: rgb(43 179 110 / 0.1);
+  --brand-green-a12: rgb(43 179 110 / 0.12);
+  --brand-green-a18: rgb(43 179 110 / 0.18);
+  --brand-green-a30: rgb(43 179 110 / 0.3);
+  --brand-red-a12: rgb(238 58 42 / 0.12);
+  --brand-red-a18: rgb(238 58 42 / 0.18);
+  --brand-red-a40: rgb(238 58 42 / 0.4);
   --brand-amber-a12: rgb(242 165 22 / 0.12);
   --brand-amber-a40: rgb(242 165 22 / 0.4);
 
@@ -25,36 +25,36 @@
 
   /* Sidebar tokens (dark default; overridden under .light) */
   --sb-bg: #0a0a0a;
-  --sb-fg: #8a8a90;
+  --sb-fg: #8c8f8c;
   --sb-hd: #fafafa;
-  --sb-br: #1c1c1e;
-  --sb-dim: #5a5a60;
-  --sb-hover: #141416;
-  --sb-active-br: #232325;
-  --sb-onpath: #c8c8ce;
-  --sb-surface: #131315;
-  --sb-meter: #1c1c1e;
-  --sb-dash: #2a2a2c;
-  --sb-dash-hover: #3a3a3c;
-  --sb-muted-hover: #b5b5bb;
+  --sb-br: #1c1d1c;
+  --sb-dim: #5c5f5c;
+  --sb-hover: #141514;
+  --sb-active-br: #242524;
+  --sb-onpath: #cacdca;
+  --sb-surface: #141514;
+  --sb-meter: #1c1d1c;
+  --sb-dash: #2b2c2b;
+  --sb-dash-hover: #3b3c3b;
+  --sb-muted-hover: #b7bab7;
 
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-display: "Barlow Condensed", "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* Semantic triplets — dark theme */
-  --background: 0 0% 4%;
+  /* Semantic triplets — dark theme (same values as InFocus Portal) */
+  --background: 120 6% 4%;
   --foreground: 0 0% 98%;
-  --card: 0 0% 5%;
-  --popover: 0 0% 5%;
-  --primary: 133 100% 39%;
+  --card: 120 5% 5%;
+  --popover: 120 5% 5%;
+  --primary: 150 61% 43.5%;
   --primary-foreground: 0 0% 4%;
-  --secondary: 240 4% 8%;
-  --muted: 240 4% 7%;
-  --muted-foreground: 240 5% 65%;
-  --accent: 133 30% 10%;
-  --border: 240 4% 16%;
-  --input: 240 4% 16%;
+  --secondary: 120 4% 8%;
+  --muted: 120 4% 7%;
+  --muted-foreground: 120 4% 65%;
+  --accent: 150 30% 11%;
+  --border: 120 4% 16%;
+  --input: 120 4% 16%;
 
   --chart-4: 220 90% 60%;
   --chart-5: 280 70% 60%;
@@ -62,32 +62,32 @@
 
 .light {
   --background: 0 0% 100%;
-  --foreground: 240 6% 6%;
+  --foreground: 120 3% 6%;
   --card: 0 0% 100%;
   --popover: 0 0% 100%;
-  --primary: 133 100% 39%;
+  --primary: 150 61% 43.5%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 240 5% 96%;
-  --muted: 240 5% 96%;
-  --muted-foreground: 240 4% 40%;
-  --accent: 133 75% 95%;
-  --border: 240 6% 90%;
-  --input: 240 6% 90%;
+  --secondary: 120 2.5% 96%;
+  --muted: 120 2.5% 96%;
+  --muted-foreground: 120 2% 40%;
+  --accent: 150 75% 95%;
+  --border: 120 3% 90%;
+  --input: 120 3% 90%;
 
   /* Light sidebar — matches the rest of the app chrome */
-  --sb-bg: #f6f6f8;
-  --sb-fg: #5c5c66;
-  --sb-hd: #111114;
-  --sb-br: #e4e4ea;
-  --sb-dim: #8a8a94;
-  --sb-hover: #ececef;
-  --sb-active-br: #d0d0d8;
-  --sb-onpath: #3a3a44;
+  --sb-bg: #f7f8f7;
+  --sb-fg: #5e635e;
+  --sb-hd: #121312;
+  --sb-br: #e6e9e6;
+  --sb-dim: #8d928d;
+  --sb-hover: #edeeed;
+  --sb-active-br: #d2d6d2;
+  --sb-onpath: #3d423d;
   --sb-surface: #ffffff;
-  --sb-meter: #e2e2e8;
-  --sb-dash: #c8c8d0;
-  --sb-dash-hover: #9a9aa4;
-  --sb-muted-hover: #3a3a44;
+  --sb-meter: #e3e6e3;
+  --sb-dash: #caceca;
+  --sb-dash-hover: #9da29d;
+  --sb-muted-hover: #3d423d;
 }
 
 /* ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ body {
 }
 
 ::selection {
-  background: rgb(0 199 44 / 0.3);
+  background: rgb(43 179 110 / 0.3);
 }
 
 ::-webkit-scrollbar {
@@ -142,7 +142,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(240 4% 26%);
+  background: hsl(120 2% 26%);
   background-clip: content-box;
   border: 3px solid transparent;
 }
@@ -212,6 +212,12 @@ button {
   height: 30px;
   width: auto;
   display: block;
+}
+
+/* Wordmark pair: white letters on dark, ink letters on light. */
+html:not(.light) .wm-light,
+html.light .wm-dark {
+  display: none;
 }
 
 .wordmark span {
@@ -289,7 +295,7 @@ button {
 .btn--danger {
   border-color: var(--brand-red-a40);
   background: var(--brand-red-a12);
-  color: #ff6470;
+  color: #ff7164;
 }
 
 .btn--danger:hover:not(:disabled) {
@@ -434,7 +440,7 @@ button {
 
 .login__hero::before {
   inset: 0;
-  background: linear-gradient(135deg, rgb(0 199 44 / 0.22) 0%, #0a0a0a 46%, #141416 100%);
+  background: linear-gradient(135deg, rgb(43 179 110 / 0.22) 0%, #0a0a0a 46%, #141514 100%);
   opacity: 0.55;
 }
 
@@ -444,7 +450,7 @@ button {
   width: 420px;
   height: 420px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgb(0 199 44 / 0.18), transparent 68%);
+  background: radial-gradient(circle, rgb(43 179 110 / 0.18), transparent 68%);
 }
 
 .login__hero > * {
@@ -477,7 +483,7 @@ button {
   margin: 0;
   font-size: 15px;
   line-height: 1.55;
-  color: #8a8a90;
+  color: #8c8f8c;
   max-width: 38ch;
   text-wrap: pretty;
 }
@@ -620,7 +626,7 @@ button {
   margin: 0;
   font-size: 13px;
   line-height: 1.4;
-  color: #ff6470;
+  color: #ff7164;
 }
 
 .login__note {
@@ -696,7 +702,7 @@ button {
   justify-content: center;
   background: var(--brand-red-a12);
   border: 1px solid var(--brand-red-a40);
-  color: #ff6470;
+  color: #ff7164;
   margin-bottom: 20px;
 }
 
@@ -1384,7 +1390,7 @@ body.is-resizing-sidebar * {
 .speedtest__sizes button[aria-pressed="true"] {
   border-color: var(--brand-green-a30);
   background: var(--brand-green-a12);
-  color: #7bea95;
+  color: #7beab3;
 }
 
 .speedtest__modes button:disabled,
@@ -1414,7 +1420,7 @@ body.is-resizing-sidebar * {
   border-radius: 50%;
   background: var(--brand-green-a18);
   border: 1px solid var(--brand-green-a30);
-  color: #7bea95;
+  color: #7beab3;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1998,7 +2004,7 @@ body.is-resizing-sidebar * {
   border-radius: 8px;
   background: var(--brand-green-a12);
   border: 1px solid var(--brand-green-a30);
-  color: #7bea95;
+  color: #7beab3;
   font-family: var(--font-display);
   font-style: italic;
   font-weight: 700;
@@ -2309,7 +2315,7 @@ body.is-dnd-move .sidebar__label {
 }
 
 .menu button.danger {
-  color: #ff6470;
+  color: #ff7164;
 }
 
 .menu__sep {
@@ -2717,7 +2723,7 @@ body.is-dnd-move .sidebar__label {
 }
 
 .upload__detail.is-error {
-  color: #ff6470;
+  color: #ff7164;
   white-space: normal;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -2739,7 +2745,7 @@ body.is-dnd-move .sidebar__label {
 }
 
 .upload__status.is-error {
-  color: #ff6470;
+  color: #ff7164;
 }
 
 .upload__status.is-done {
@@ -2973,12 +2979,12 @@ body.is-dnd-move .sidebar__label {
 /* Cinema shell: video and images get a near-full-viewport black stage. */
 .viewer--video,
 .viewer--image {
-  --viewer-chrome: #0b0b0c;
+  --viewer-chrome: #0b0c0b;
   --viewer-stage: #000;
   width: min(1440px, 100%);
   height: calc(100dvh - 24px);
-  border-color: #1c1c1e;
-  color: #f4f4f5;
+  border-color: #1c1d1c;
+  color: #f4f5f4;
 }
 
 .viewer--video {
@@ -3055,7 +3061,7 @@ body.is-dnd-move .sidebar__label {
 
 .viewer--video .viewer__top,
 .viewer--image .viewer__top {
-  border-bottom-color: #1c1c1e;
+  border-bottom-color: #1c1d1c;
 }
 
 .viewer__heading {
@@ -3082,7 +3088,7 @@ body.is-dnd-move .sidebar__label {
 
 .viewer--video .viewer__meta,
 .viewer--image .viewer__meta {
-  color: #8d8d95;
+  color: #8f938f;
 }
 
 .viewer__actions {
@@ -3240,7 +3246,7 @@ body.is-dnd-move .sidebar__label {
   background: rgb(12 12 14 / 0.82);
   border: 1px solid rgb(255 255 255 / 0.1);
   backdrop-filter: blur(12px);
-  color: #f4f4f5;
+  color: #f4f5f4;
 }
 
 .izoom__level {
@@ -3249,7 +3255,7 @@ body.is-dnd-move .sidebar__label {
   min-width: 4em;
   text-align: center;
   font-variant-numeric: tabular-nums;
-  color: #c9c9d1;
+  color: #cbcfcb;
 }
 
 /* ---- shared control primitives (player, zoom bar, doc bars) ---- */
@@ -3295,7 +3301,7 @@ body.is-dnd-move .sidebar__label {
 
 .vctl--play:hover {
   background: var(--brand-green);
-  color: #04140a;
+  color: #04140c;
 }
 
 .vctl--speed {
@@ -3307,7 +3313,7 @@ body.is-dnd-move .sidebar__label {
 }
 
 .vctl.is-on {
-  background: rgb(0 199 44 / 0.16);
+  background: rgb(43 179 110 / 0.16);
   color: var(--brand-green);
 }
 
@@ -3325,7 +3331,7 @@ body.is-dnd-move .sidebar__label {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f4f4f5;
+  color: #f4f5f4;
 }
 
 .vplayer__video {
@@ -3369,7 +3375,7 @@ body.is-dnd-move .sidebar__label {
 
 .vplayer__bigplay:hover {
   background: var(--brand-green);
-  color: #04140a;
+  color: #04140c;
   border-color: transparent;
   transform: translate(-50%, -50%) scale(1.05);
 }
@@ -3431,7 +3437,7 @@ body.is-dnd-move .sidebar__label {
   background: rgb(12 12 14 / 0.92);
   border: 1px solid rgb(242 165 22 / 0.45);
   backdrop-filter: blur(12px);
-  color: #f4f4f5;
+  color: #f4f5f4;
   font-size: 12.5px;
   line-height: 1.4;
   box-shadow: 0 8px 30px rgb(0 0 0 / 0.5);
@@ -3691,7 +3697,7 @@ body.is-dnd-move .sidebar__label {
 .vplayer--audio .vctl--play:hover,
 .abar .vctl--play:hover {
   background: var(--brand-green);
-  color: #04140a;
+  color: #04140c;
 }
 
 /* ---- audio card ---- */
@@ -3774,7 +3780,7 @@ body.is-dnd-move .sidebar__label {
   gap: 0;
   padding: 0 16px;
   background:
-    radial-gradient(circle at 50% 0%, rgb(0 199 44 / 0.05), transparent 55%),
+    radial-gradient(circle at 50% 0%, rgb(43 179 110 / 0.05), transparent 55%),
     hsl(var(--background));
   scrollbar-gutter: stable;
 }
@@ -3826,7 +3832,7 @@ body.is-dnd-move .sidebar__label {
   display: flex;
   padding: 10px 10px 0;
   background:
-    radial-gradient(circle at 50% 0%, rgb(0 199 44 / 0.05), transparent 60%),
+    radial-gradient(circle at 50% 0%, rgb(43 179 110 / 0.05), transparent 60%),
     hsl(var(--background));
 }
 
@@ -3998,7 +4004,7 @@ body.is-dnd-move .sidebar__label {
 
 .viewer--video .viewer__fallback-title,
 .viewer--image .viewer__fallback-title {
-  color: #f4f4f5;
+  color: #f4f5f4;
 }
 
 .viewer__fallback p {
@@ -4080,8 +4086,8 @@ body.is-dnd-move .sidebar__label {
 
 .viewer--video .viewer__hint,
 .viewer--image .viewer__hint {
-  border-top-color: #1c1c1e;
-  color: #71717a;
+  border-top-color: #1c1d1c;
+  color: #737873;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4182,7 +4188,7 @@ body.is-dnd-move .sidebar__label {
 .modal__badge--danger {
   background: var(--brand-red-a12);
   border: 1px solid var(--brand-red-a40);
-  color: #ff6470;
+  color: #ff7164;
 }
 
 .modal__badge--warn {

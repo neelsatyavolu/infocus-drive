@@ -27,7 +27,8 @@ This repo is **open source (MIT) and public**: https://github.com/neelsatyavolu/
 
 ## UI conventions
 
-- Brand green `#00c72c`; Geist + Barlow Condensed.
+- Colors come from the logo (green `#2bb36e`, red `#ee3a2a`); see `DESIGN.md`. Geist + Barlow Condensed.
+- Wordmark on light-theme pages is an `.wm-dark` / `.wm-light` image pair (`DESIGN.md`).
 - Dark default; `.light` on `<html>` for light mode — include sidebar `--sb-*` tokens.
 - Folder click = open; checkbox = select; media click = preview.
 - After UI deploy: bump cache-bust `?v=` on `index.html` **and** `app.js` imports.

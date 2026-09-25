@@ -6,23 +6,24 @@
   <meta name="color-scheme" content="dark" id="meta-color-scheme" />
   <meta name="theme-color" content="#0a0a0a" id="meta-theme-color" />
   <title>InFocus Drive</title>
-  <link rel="icon" href="/assets/infocus-wordmark.png?v=20260902-share" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=20260925-brand" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20260925-brand" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="preload" as="image" href="/assets/infocus-wordmark.png?v=20260902-share" />
-  <link rel="modulepreload" href="/assets/app.js?v=20260924-fastboot" />
-  <link rel="modulepreload" href="/assets/api.js?v=20260924-fastboot" />
-  <link rel="modulepreload" href="/assets/format.js?v=20260924-fastboot" />
-  <link rel="modulepreload" href="/assets/dom.js?v=20260924-fastboot" />
-  <link rel="modulepreload" href="/assets/quick.js?v=20260924-fastboot" />
+  <link rel="preload" as="image" href="/assets/infocus-wordmark.png?v=20260925-brand" />
+  <link rel="modulepreload" href="/assets/app.js?v=20260925-brand" />
+  <link rel="modulepreload" href="/assets/api.js?v=20260925-brand" />
+  <link rel="modulepreload" href="/assets/format.js?v=20260925-brand" />
+  <link rel="modulepreload" href="/assets/dom.js?v=20260925-brand" />
+  <link rel="modulepreload" href="/assets/quick.js?v=20260925-brand" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,700;0,800;0,900;1,700;1,800;1,900&amp;family=Geist:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" />
   <!-- Critical theme paint before app.css — stops reload FOUC (light sidebar / dark main). -->
   <style id="ifd-theme-critical">
     html, body { margin: 0; background: #0a0a0a; color: #fafafa; color-scheme: dark; }
-    html.light, html.light body { background: #ffffff; color: #111114; color-scheme: light; }
+    html.light, html.light body { background: #ffffff; color: #121312; color-scheme: light; }
     /* Sidebar uses --sb-* once CSS loads; pin shell bg so sticky rail never flashes white. */
     .sidebar { background: #0a0a0a !important; }
-    html.light .sidebar { background: #f6f6f8 !important; }
+    html.light .sidebar { background: #f7f8f7 !important; }
     /* Boot splash: paints before JS/CSS modules so cold loads aren't a blank black page. */
     .boot {
       position: fixed; inset: 0; z-index: 9999;
@@ -33,7 +34,7 @@
     }
     .boot[hidden] { display: none !important; }
     .boot.is-done { opacity: 0; visibility: hidden; pointer-events: none; }
-    html.light .boot { background: #ffffff; color: #111114; }
+    html.light .boot { background: #ffffff; color: #121312; }
     .boot__mark { display: flex; align-items: center; gap: 12px; }
     .boot__mark img { height: 32px; width: auto; display: block; }
     .boot__mark span {
@@ -43,22 +44,22 @@
     }
     .boot__label {
       font-size: 13px; font-weight: 500; letter-spacing: 0.02em;
-      color: #8a8a90;
+      color: #8c8f8c;
     }
-    html.light .boot__label { color: #6b6b72; }
+    html.light .boot__label { color: #6d706d; }
     .boot__spin {
       width: 22px; height: 22px; border-radius: 50%;
-      border: 2px solid rgb(0 199 44 / 0.22);
-      border-top-color: #00c72c;
+      border: 2px solid rgb(43 179 110 / 0.22);
+      border-top-color: #2bb36e;
       animation: ifd-boot-spin .7s linear infinite;
     }
     @keyframes ifd-boot-spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) {
-      .boot__spin { animation: none; border-top-color: #00c72c; opacity: .7; }
+      .boot__spin { animation: none; border-top-color: #2bb36e; opacity: .7; }
       .boot { transition: none; }
     }
   </style>
-  <link rel="stylesheet" href="/assets/app.css?v=20260924-fastboot" />
+  <link rel="stylesheet" href="/assets/app.css?v=20260925-brand" />
   <script>
     // Sync theme class + browser color-scheme before first paint (and after bfcache).
     (function () {
@@ -71,7 +72,7 @@
         var scheme = document.getElementById("meta-color-scheme");
         var color = document.getElementById("meta-theme-color");
         if (scheme) scheme.setAttribute("content", light ? "light" : "dark");
-        if (color) color.setAttribute("content", light ? "#f6f6f8" : "#0a0a0a");
+        if (color) color.setAttribute("content", light ? "#f7f8f7" : "#0a0a0a");
       }
       try {
         apply(localStorage.getItem("ifd-theme") === "light" ? "light" : "dark");
@@ -94,7 +95,8 @@
 <!-- Visible until app.js finishes /api/me and shows login or browser. -->
 <div class="boot" id="screen-boot" role="status" aria-live="polite" aria-busy="true">
   <div class="boot__mark">
-    <img src="/assets/infocus-wordmark.png?v=20260902-share" alt="" width="75" height="32" fetchpriority="high" decoding="async" />
+    <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20260925-brand" alt="" width="75" height="32" fetchpriority="high" decoding="async" />
+    <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20260925-brand" alt="" width="75" height="32" loading="lazy" decoding="async" />
     <span>Drive</span>
   </div>
   <div class="boot__spin" aria-hidden="true"></div>
@@ -164,7 +166,8 @@
 <div class="login" id="screen-login" hidden>
   <div class="login__hero">
     <div class="wordmark">
-      <img src="/assets/infocus-wordmark.png?v=20260902-share" alt="InFocus" width="70" height="30" decoding="async" />
+      <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20260925-brand" alt="InFocus" width="70" height="30" decoding="async" />
+      <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20260925-brand" alt="InFocus" width="70" height="30" loading="lazy" decoding="async" />
       <span>Drive</span>
     </div>
     <div class="login__pitch">
@@ -252,7 +255,8 @@
 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar__brand">
-      <img src="/assets/infocus-wordmark.png?v=20260902-share" alt="InFocus" width="56" height="24" decoding="async" />
+      <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20260925-brand" alt="InFocus" width="56" height="24" decoding="async" />
+      <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20260925-brand" alt="InFocus" width="56" height="24" loading="lazy" decoding="async" />
       <span>Drive</span>
     </div>
     <div class="lan-badge" id="lan-badge" hidden aria-live="polite"></div>
@@ -512,6 +516,6 @@
 
 <input type="file" id="file-input" multiple hidden />
 <input type="file" id="folder-input" webkitdirectory directory multiple hidden />
-<script src="/assets/app.js?v=20260924-fastboot" type="module"></script>
+<script src="/assets/app.js?v=20260925-brand" type="module"></script>
 </body>
 </html>
