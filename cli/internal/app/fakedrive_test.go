@@ -31,7 +31,7 @@ type fakeDrive struct {
 	chunks    map[string]map[int][]byte
 	meta      map[string][2]string // upload_id → dir, name
 	failOnce  map[int]bool         // chunk index → return 500 once
-	shares    []string
+	shares    []map[string]any
 	lastShare string
 	loggedOut bool
 }
@@ -40,7 +40,13 @@ func newFakeDrive(t *testing.T) (*fakeDrive, *httptest.Server) {
 	d := &fakeDrive{
 		t: t, files: map[string]*fakeFile{"": {isDir: true}}, clock: 1_000,
 		chunks: map[string]map[int][]byte{}, meta: map[string][2]string{},
-		failOnce: map[int]bool{}, shares: []string{"InFocus Drive", "Photos"},
+		failOnce: map[int]bool{},
+		// Same shape as shares.list_shares_for_user on the real Drive.
+		shares: []map[string]any{
+			{"id": "InFocus Drive", "name": "InFocus Drive", "kind": "shared", "can_read": true, "can_write": true},
+			{"id": "Photos", "name": "Photos", "kind": "shared", "can_read": true, "can_write": false},
+			{"id": "~student1", "name": "My folder", "kind": "personal", "can_read": true, "can_write": true},
+		},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(d.serve))
 	t.Cleanup(srv.Close)

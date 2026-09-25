@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"slices"
 
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/auth"
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/config"
@@ -111,7 +110,11 @@ func cmdWhoami(ctx context.Context, r *runner, args []string) error {
 		return exitError{ExitAuth, "sign-in expired or revoked; run infocus login"}
 	}
 	return r.emit(me, func(w io.Writer) {
-		fmt.Fprintf(w, "%s (%s)\nshare: %s\nserver: %s\n", me.Username, me.Email, me.Share, client.Base.Host)
+		who := me.Username
+		if me.Email != "" {
+			who += " (" + me.Email + ")"
+		}
+		fmt.Fprintf(w, "%s\nshare: %s\nserver: %s\n", who, me.Share, client.Base.Host)
 	})
 }
 
@@ -131,10 +134,17 @@ func cmdShares(ctx context.Context, r *runner, args []string) error {
 	return r.emit(out, func(w io.Writer) {
 		for _, s := range me.Shares {
 			mark := "  "
-			if s == me.Share {
+			if s.ID == me.Share {
 				mark = "* "
 			}
-			fmt.Fprintln(w, mark+s)
+			line := mark + s.ID
+			if s.Name != "" && s.Name != s.ID {
+				line += "  (" + s.Name + ")"
+			}
+			if !s.CanWrite {
+				line += "  [read-only]"
+			}
+			fmt.Fprintln(w, line)
 		}
 	})
 }
@@ -151,15 +161,16 @@ func cmdShare(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
-	if !slices.Contains(me.Shares, args[1]) {
+	share, ok := me.FindShare(args[1])
+	if !ok {
 		return exitError{ExitNotFound, fmt.Sprintf("no share named %q (see infocus shares)", args[1])}
 	}
-	r.cfg.Share = args[1]
+	r.cfg.Share = share.ID
 	if err := config.Save(r.env.ConfigDir, r.cfg); err != nil {
 		return err
 	}
-	return r.emit(map[string]string{"share": args[1]}, func(w io.Writer) {
-		fmt.Fprintf(w, "Now using share %q.\n", args[1])
+	return r.emit(map[string]string{"share": share.ID, "name": share.Name}, func(w io.Writer) {
+		fmt.Fprintf(w, "Now using share %q.\n", share.ID)
 	})
 }
 
@@ -192,8 +203,9 @@ Every command accepts --json: results go to stdout as JSON, errors to stderr as
 not a terminal.
 
 Paths are relative to the share root: "Shows/Episode 1/script.md".
-Use --share NAME (or "infocus share use NAME") for other shares; "infocus shares"
-lists them.
+"infocus --json shares" lists the shares you can open (id, name, can_write).
+Use --share ID (or "infocus share use ID") for another one; personal folders
+have ids like "~username".
 
 Read:
   infocus --json ls "Shows"               folder listing (items[].mtime_ns, size, is_dir)
