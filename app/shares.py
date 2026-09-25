@@ -408,6 +408,16 @@ def _personal_usernames(current: str) -> list[str]:
     return names
 
 
+def _personal_root(owner: str, status: dict[str, Any] | None) -> Path:
+    """Container path of an unlocked (or unencrypted) personal folder."""
+    path = _personal_home_path(owner)
+    if path is not None:
+        if status and status["encrypted"] and not _encrypted_home_mount(path):
+            raise FSError("The unlocked NAS folder is not visible yet. Try again shortly.", 503)
+        return path
+    raise FSError(f"Share not found: {_personal_share_id(owner)}", 404)
+
+
 def share_path(share: str) -> Path:
     """Absolute filesystem path for a named shared folder or ~user personal drive."""
     share = _sanitize_share_id(share)
@@ -423,12 +433,7 @@ def share_path(share: str) -> Path:
                 raise FSError("Personal-folder status unavailable", 503) from e
             if status["locked"]:
                 raise FSError("Personal folder is locked. Enter its encryption key to unlock it.", 423)
-        path = _personal_home_path(owner)
-        if path is not None:
-            if status and status["encrypted"] and not _encrypted_home_mount(path):
-                raise FSError("The unlocked NAS folder is not visible yet. Try again shortly.", 503)
-            return path
-        raise FSError(f"Share not found: {share}", 404)
+        return _personal_root(owner, status)
 
     table = _load_samba_shares()
     if share in table:
@@ -496,6 +501,7 @@ def _probe_share(
     username: str | None,
     groups: set[str],
     meta: dict[str, Any] | None,
+    root: Path | None = None,
 ) -> dict[str, Any] | None:
     """
     Return share metadata if this user may open it.
@@ -503,11 +509,14 @@ def _probe_share(
     Prefer Samba valid users / write list (UGOS often uses skip smb perm = yes,
     so world-writable POSIX modes are *not* the real ACL). Fall back to a
     live listdir as the user when Samba has no valid users line.
+
+    Pass `root` when the caller already resolved it (saves a UGOS status call).
     """
-    try:
-        root = share_path(share)
-    except FSError:
-        return None
+    if root is None:
+        try:
+            root = share_path(share)
+        except FSError:
+            return None
 
     uname = username or ""
     valid = (meta or {}).get("valid_users") or ""
@@ -557,26 +566,45 @@ def _list_personal_shares(
 ) -> list[dict[str, Any]]:
     """Personal folders this POSIX user can actually enter (never auto-created)."""
     owners = [username] if not is_nas_admin(username) else _personal_usernames(username)
+    owners = [owner for owner in owners if owner]
+    return _personal_share_entries(owners, uid, gid, username, groups)
+
+
+def _personal_share_entries(
+    owners: list[str],
+    uid: int,
+    gid: int,
+    username: str,
+    groups: set[str],
+) -> list[dict[str, Any]]:
+    """Share entries for these personal-folder owners (one UGOS status call for all)."""
     posix_meta = {"valid_users": "", "write_list": "", "writeable": True}
+    statuses: dict[str, Any] = {}
+    if owners and personal_folders.configured():
+        try:
+            statuses = personal_folders.folders.statuses(owners)
+        except Exception as e:
+            statuses = {owner: e for owner in owners}
     found: list[dict[str, Any]] = []
     for owner in owners:
-        if not owner:
-            continue
         sid = _personal_share_id(owner)
         status = None
         if personal_folders.configured():
-            try:
-                status = personal_folders.folders.status(owner)
-            except personal_folders.OwnerSignInRequired:
+            status = statuses.get(owner)
+            if isinstance(status, personal_folders.OwnerSignInRequired):
                 status = {"locked": True, "encrypted": True, "expires_at": None, "needs_owner_signin": True}
-            except Exception:
+            elif not isinstance(status, dict):
                 # Keep the entry visible, but never fall through to the unmounted directory.
                 status = {"locked": True, "encrypted": True, "expires_at": None}
             if status["locked"]:
                 found.append({"id": sid, "name": owner, "kind": "personal", "can_read": False,
                               "can_write": False, **status})
                 continue
-        info = _probe_share(sid, uid, gid, username, groups, posix_meta)
+        try:
+            root = _personal_root(owner, status)
+        except FSError:
+            continue
+        info = _probe_share(sid, uid, gid, username, groups, posix_meta, root)
         if not info:
             continue
         info["id"] = sid
@@ -623,6 +651,19 @@ def list_shares_for_user(username: str, uid: int, gid: int) -> list[dict[str, An
     return shares
 
 
+def _share_listed_for_user(share: str, username: str, uid: int, gid: int) -> bool:
+    """True if list_shares_for_user() would include `share`, checking only that share."""
+    groups = set(user_group_names(username, gid))
+    if share in discover_share_ids():
+        return _probe_share(share, uid, gid, username, groups, _load_samba_shares().get(share)) is not None
+    owner = personal_owner(share)
+    if not owner:
+        return False
+    if owner != username and not (is_nas_admin(username) and owner in _personal_usernames(username)):
+        return False
+    return bool(_personal_share_entries([owner], uid, gid, username, groups))
+
+
 def normalize_share_for_user(
     share: str | None,
     username: str,
@@ -630,8 +671,12 @@ def normalize_share_for_user(
     gid: int,
 ) -> str:
     """Pick a valid active share for this user (session value or default)."""
-    available = {s["id"] for s in list_shares_for_user(username, uid, gid)}
     candidate = (share or "").strip() or DEFAULT_SHARE
+    # Runs on every API request: check just the requested share, and only build
+    # the full list (probes + UGOS status for every folder) to pick a fallback.
+    if _share_listed_for_user(candidate, username, uid, gid):
+        return candidate
+    available = {s["id"] for s in list_shares_for_user(username, uid, gid)}
     if candidate in available:
         return candidate
     if DEFAULT_SHARE in available:

@@ -263,3 +263,67 @@ def test_does_not_create_missing_homes_for_other_users(nas, monkeypatch):
     listed = shares.list_shares_for_user("nasadmin", 1001, 1001)
     assert not target.exists()
     assert "~st10001" not in {s["id"] for s in listed}
+
+
+def _listed_choice(share, username, uid, gid):
+    """Reference semantics: pick from the full share list (the old behaviour)."""
+    available = {s["id"] for s in shares.list_shares_for_user(username, uid, gid)}
+    candidate = (share or "").strip() or shares.DEFAULT_SHARE
+    if candidate in available:
+        return candidate
+    if shares.DEFAULT_SHARE in available:
+        return shares.DEFAULT_SHARE
+    return next(iter(available), shares.DEFAULT_SHARE)
+
+
+@pytest.mark.parametrize("admin", [False, True])
+@pytest.mark.parametrize(
+    "requested",
+    [None, "", "InFocus Drive", "Photos", "Missing", "~nasadmin", "~alice", "~missing", "~not-a-user"],
+)
+def test_normalize_share_matches_full_listing(nas, monkeypatch, admin, requested):
+    monkeypatch.setattr(shares, "is_nas_admin", lambda username: admin and username == "nasadmin")
+    expected = _listed_choice(requested, "nasadmin", 1001, 1001)
+    assert shares.normalize_share_for_user(requested, "nasadmin", 1001, 1001) == expected
+
+
+def test_normalize_share_respects_samba_valid_users(nas, monkeypatch):
+    monkeypatch.setattr(shares, "user_group_names", lambda username, gid: ["guests"])
+    assert shares.normalize_share_for_user("Photos", "nasadmin", 1001, 1001) == "~nasadmin"
+
+
+def test_normalize_allowed_share_skips_full_listing(nas, monkeypatch):
+    """Every API request resolves its share; it must not rebuild the whole list."""
+    monkeypatch.setattr(shares, "is_nas_admin", lambda username: username == "nasadmin")
+    monkeypatch.setattr(
+        shares, "list_shares_for_user", lambda *a: pytest.fail("must only check the requested share")
+    )
+    for share in ("InFocus Drive", "Photos", "~nasadmin", "~alice"):
+        assert shares.normalize_share_for_user(share, "nasadmin", 1001, 1001) == share
+
+
+def test_normalize_locked_personal_share_still_selected(nas, monkeypatch):
+    monkeypatch.setattr(shares.personal_folders, "configured", lambda: True)
+    monkeypatch.setattr(shares.personal_folders.folders, "statuses", lambda owners:
+        {o: {"encrypted": True, "locked": True, "expires_at": None, "state": 3} for o in owners})
+    assert shares.normalize_share_for_user("~nasadmin", "nasadmin", 1001, 1001) == "~nasadmin"
+
+
+def test_admin_share_list_asks_ugos_once(nas, monkeypatch):
+    monkeypatch.setattr(shares, "is_nas_admin", lambda username: username == "nasadmin")
+    monkeypatch.setattr(shares.personal_folders, "configured", lambda: True)
+    calls = []
+
+    def statuses(owners):
+        calls.append(list(owners))
+        return {o: {"encrypted": True, "locked": o != "nasadmin", "expires_at": None,
+                    "state": 4 if o == "nasadmin" else 3} for o in owners}
+
+    monkeypatch.setattr(shares.personal_folders.folders, "statuses", statuses)
+    monkeypatch.setattr(shares.personal_folders.folders, "status",
+                        lambda owner: pytest.fail("status was already fetched in the batch"))
+    monkeypatch.setattr(shares, "_encrypted_home_mount", lambda path: True)
+    listed = {s["id"]: s for s in shares.list_shares_for_user("nasadmin", 1001, 1001)}
+    assert calls == [["nasadmin", "alice"]]
+    assert listed["~nasadmin"]["can_read"] is True
+    assert listed["~alice"]["locked"] is True and listed["~alice"]["can_read"] is False

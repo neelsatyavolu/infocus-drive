@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import httpx
+import pytest
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 
 from ugos_api import (  # noqa: E402
     UgosClient,
+    UgosError,
     decode_en_public_key,
     decrypt_aes_gcm,
     encrypt_aes_gcm,
@@ -227,3 +229,31 @@ def test_full_login_response_is_opt_in_for_sso(monkeypatch):
     assert nas_password_login("https://nas", "student", "ticket", return_login_data=True)["login_data"] == data
     from ugos_api import nas_otp_login
     assert nas_otp_login("https://nas", code="123456", token_id="challenge", return_login_data=True)["login_data"] == data
+
+
+def test_personal_statuses_batches_paths(monkeypatch):
+    seen = []
+    def handler(request):
+        assert request.url.path.endswith('/encryptedDirStatus')
+        seen.append(json.loads(request.content)['paths'])
+        return httpx.Response(200, json={'code': 200, 'data': {'list': [
+            {'path': '/home/alice', 'status': 3}, {'path': '/home/nasadmin', 'status': 4}]}})
+    _fake_httpx(monkeypatch, handler)
+    with UgosClient('https://nas', 'service', 'password') as client:
+        client._token = 'service'
+        assert client.personal_statuses(['/home/nasadmin', '/home/alice']) == {
+            '/home/nasadmin': 4, '/home/alice': 3}
+        assert client.personal_status('/home/nasadmin') == 4
+    assert seen == [['/home/nasadmin', '/home/alice'], ['/home/nasadmin']]
+
+
+def test_personal_statuses_first_row_wins_and_missing_raises_for_single(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, json={'code': 200, 'data': {'list': [
+            {'path': '/home/alice', 'status': 3}, {'path': '/home/alice', 'status': 4}]}})
+    _fake_httpx(monkeypatch, handler)
+    with UgosClient('https://nas', 'service', 'password') as client:
+        client._token = 'service'
+        assert client.personal_statuses(['/home/alice', '/home/bob']) == {'/home/alice': 3}
+        with pytest.raises(UgosError):
+            client.personal_status('/home/bob')

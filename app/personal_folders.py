@@ -64,23 +64,55 @@ class PersonalFolders:
             client = self.client_factory()
             state = client.personal_status(path)
             with self._db() as db:
-                row = db.execute("SELECT expires FROM unlocks WHERE owner=?", (owner,)).fetchone()
-                expires = row[0] if row else None
-                if state == 4:
-                    if expires is None:
-                        expires = self.clock() + UNLOCK_SECONDS
-                        db.execute("INSERT INTO unlocks VALUES (?, ?)", (owner, expires))
-                    elif self.clock() >= expires:
-                        # Never renew an expired lease, even if UGOS refuses a busy unmount.
-                        self._operate(owner, "lock_personal", path)
-                        state = client.personal_status(path)
-                        if state != 3:
-                            raise RuntimeError("Personal folder is waiting to relock")
-                if state in (0, 3):
-                    db.execute("DELETE FROM unlocks WHERE owner=?", (owner,))
-                    expires = None
-            return {"encrypted": state != 0, "locked": state not in (0, 4),
-                    "expires_at": expires, "state": state}
+                return self._settle(db, client, owner, path, state)
+
+    def statuses(self, owners):
+        """Like status() for many owners, with one UGOS round trip instead of one each.
+
+        Maps each owner to its status dict, or to the exception settling that
+        owner raised, so one folder failing to relock can't hide the others.
+        """
+        results = {}
+        paths = {}
+        for owner in owners:
+            try:
+                paths[owner] = self._path(owner)
+            except ValueError as e:
+                results[owner] = e
+        if not paths:
+            return results
+        with self.lock:
+            client = self.client_factory()
+            states = client.personal_statuses(list(paths.values()))
+            for owner, path in paths.items():
+                try:
+                    # A path missing from the batch is asked for alone, as before.
+                    state = states[path] if path in states else client.personal_status(path)
+                    with self._db() as db:
+                        results[owner] = self._settle(db, client, owner, path, state)
+                except Exception as e:
+                    results[owner] = e
+            return results
+
+    def _settle(self, db, client, owner, path, state):
+        """Apply the 24-hour lease to a UGOS state and describe the folder."""
+        row = db.execute("SELECT expires FROM unlocks WHERE owner=?", (owner,)).fetchone()
+        expires = row[0] if row else None
+        if state == 4:
+            if expires is None:
+                expires = self.clock() + UNLOCK_SECONDS
+                db.execute("INSERT INTO unlocks VALUES (?, ?)", (owner, expires))
+            elif self.clock() >= expires:
+                # Never renew an expired lease, even if UGOS refuses a busy unmount.
+                self._operate(owner, "lock_personal", path)
+                state = client.personal_status(path)
+                if state != 3:
+                    raise RuntimeError("Personal folder is waiting to relock")
+        if state in (0, 3):
+            db.execute("DELETE FROM unlocks WHERE owner=?", (owner,))
+            expires = None
+        return {"encrypted": state != 0, "locked": state not in (0, 4),
+                "expires_at": expires, "state": state}
 
     def unlock(self, owner, key, *, key_file=False):
         path = self._path(owner)

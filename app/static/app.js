@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260924-cli2";
-import * as api from "./api.js?v=20260924-cli2";
-import { ApiError } from "./api.js?v=20260924-cli2";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20260924-fastboot";
+import * as api from "./api.js?v=20260924-fastboot";
+import { ApiError } from "./api.js?v=20260924-fastboot";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260924-cli2";
-import { $, el, icon, show } from "./dom.js?v=20260924-cli2";
+} from "./format.js?v=20260924-fastboot";
+import { $, el, icon, show } from "./dom.js?v=20260924-fastboot";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260924-cli2";
+} from "./quick.js?v=20260924-fastboot";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260924-cli2").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20260924-fastboot").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -5318,14 +5318,16 @@ async function boot() {
     return;
   }
 
-  // Prefer campus LAN / WARP private path when the gateway is reachable.
-  if (await maybePreferLan(me || { authenticated: false })) return;
-
   if (!me || !me.authenticated) {
+    // Prefer campus LAN / WARP private path when the gateway is reachable.
+    if (await maybePreferLan(me || { authenticated: false })) return;
     showLogin();
     return;
   }
 
+  // Probe the LAN gateway alongside the first listing, not before it: off
+  // campus the probe runs to its full timeout and used to delay every boot.
+  const lanSwitch = maybePreferLan(me);
   state.me = me;
   setQuickScope(me.nas_username, state.share);
   showBrowser();
@@ -5340,7 +5342,9 @@ async function boot() {
   }
   loadUsage();
   refreshShortcuts();
-  await loadRoute();
+  const listing = loadRoute();
+  if (await lanSwitch) return;
+  await listing;
 }
 
 boot();

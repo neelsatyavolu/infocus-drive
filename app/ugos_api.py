@@ -398,11 +398,23 @@ class UgosClient:
         return []
 
     def personal_status(self, path: str) -> int:
-        data = self._authed("POST", "/ugreen/v1/filemgr/encryptedDirStatus", json={"paths": [path]})
+        found = self.personal_statuses([path])
+        if path not in found:
+            raise UgosError("Personal-folder status unavailable")
+        return found[path]
+
+    def personal_statuses(self, paths: list[str]) -> dict[str, int]:
+        """Encryption state of several personal folders in one UGOS round trip.
+
+        Paths UGOS did not report are left out; the first row for a path wins.
+        """
+        data = self._authed("POST", "/ugreen/v1/filemgr/encryptedDirStatus", json={"paths": list(paths)})
+        found: dict[str, int] = {}
         for row in (data.get("data") or {}).get("list", []):
-            if row.get("path") == path:
-                return int(row["status"])
-        raise UgosError("Personal-folder status unavailable")
+            path = row.get("path")
+            if path in paths and path not in found:
+                found[path] = int(row["status"])
+        return found
 
     def unlock_personal(self, path: str, key: str, *, key_file: bool = False) -> None:
         # UGOS refreshes this RSA key for each encryption credential submission.
