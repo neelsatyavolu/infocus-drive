@@ -10,7 +10,7 @@ curl -fsSL https://drive.example.com/cli/install.sh | sh
 
 The installer downloads the latest universal binary (Apple Silicon + Intel) from this repo's GitHub Releases, checks its SHA-256, installs it to `~/.local/bin/infocus` (no sudo), adds that folder to `PATH` in `~/.zshrc`, and saves the Drive's address in `~/.config/infocus/config.json`. Pin a version with `INFOCUS_VERSION=0.1.0`, or choose the folder with `INFOCUS_BIN_DIR`.
 
-The Drive's sidebar → **Terminal sign-ins** shows the exact command for your deployment.
+The Drive sidebar → **Install CLI** shows the exact command for your deployment.
 
 ## Sign in
 
@@ -22,7 +22,7 @@ Your browser opens the Drive. Sign in the usual way (Google, email code, or NAS 
 
 - The token is stored in the macOS **Keychain** — never in files, logs or command arguments.
 - It expires after **30 days without use** and **90 days** at most.
-- See and revoke sign-ins in the Drive sidebar → **Terminal sign-ins**, or run `infocus logout`.
+- See and revoke sign-ins in the Drive sidebar → **Install CLI**, or run `infocus logout`.
 - `infocus login --no-browser` prints the approval link instead of opening it.
 
 ## Commands
