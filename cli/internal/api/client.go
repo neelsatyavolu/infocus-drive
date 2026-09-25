@@ -51,14 +51,38 @@ type Listing struct {
 	Items []Entry `json:"items"`
 }
 
+// Share is one share the account can open. ID is what X-Drive-Share takes
+// (personal folders look like "~username"); Name is for display.
+type Share struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	CanWrite bool   `json:"can_write"`
+}
+
 // Me is the signed-in account (/api/me).
 type Me struct {
-	Authenticated bool     `json:"authenticated"`
-	Email         string   `json:"email"`
-	Username      string   `json:"nas_username"`
-	IsAdmin       bool     `json:"is_admin"`
-	Share         string   `json:"share"`
-	Shares        []string `json:"shares"`
+	Authenticated bool    `json:"authenticated"`
+	Email         string  `json:"email"`
+	Username      string  `json:"nas_username"`
+	IsAdmin       bool    `json:"is_admin"`
+	Share         string  `json:"share"`
+	Shares        []Share `json:"shares"`
+}
+
+// FindShare matches a share by id, then by display name.
+func (m Me) FindShare(idOrName string) (Share, bool) {
+	for _, s := range m.Shares {
+		if s.ID == idOrName {
+			return s, true
+		}
+	}
+	for _, s := range m.Shares {
+		if s.Name == idOrName {
+			return s, true
+		}
+	}
+	return Share{}, false
 }
 
 // SearchResult is /api/search output.

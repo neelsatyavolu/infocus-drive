@@ -322,3 +322,21 @@ func TestWriteLocalNeverReplacesAFileThatAppearsMidDownload(t *testing.T) {
 		t.Fatalf("temp files left: %v", leftovers)
 	}
 }
+
+func TestWhoamiAndSharesUnderstandShareObjects(t *testing.T) {
+	h := newHarness(t)
+	if out := h.mustRun(t, "whoami"); !strings.Contains(out, "student1") {
+		t.Fatalf("whoami: %q", out)
+	}
+	out := h.mustRun(t, "shares")
+	for _, want := range []string{"* InFocus Drive", "Photos", "~student1", "My folder"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("shares output missing %q:\n%s", want, out)
+		}
+	}
+	h.mustRun(t, "share", "use", "My folder") // by display name
+	h.mustRun(t, "ls")
+	if h.drive.lastShare != "~student1" {
+		t.Fatalf("share header %q, want the id ~student1", h.drive.lastShare)
+	}
+}
