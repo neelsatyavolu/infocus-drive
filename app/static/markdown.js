@@ -1,6 +1,6 @@
-import { el } from "./dom.js?v=20260921-ugos-google";
-import { marked } from "./vendor/marked.js?v=20260921-ugos-google";
-import DOMPurify from "./vendor/dompurify.js?v=20260921-ugos-google";
+import { el } from "./dom.js?v=20260924-cli2";
+import { marked } from "./vendor/marked.js?v=20260924-cli2";
+import DOMPurify from "./vendor/dompurify.js?v=20260924-cli2";
 
 export function isMarkdown(name) {
   return /\.(md|markdown)$/i.test(name);

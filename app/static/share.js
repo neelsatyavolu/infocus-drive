@@ -1,10 +1,10 @@
 /**
  * Public shared-file page. No Drive chrome, no session.
  */
-import { el, icon } from "./dom.js?v=20260921-ugos-google";
-import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20260921-ugos-google";
-import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20260921-ugos-google";
-import { createMediaPlayer } from "./player.js?v=20260921-ugos-google";
+import { el, icon } from "./dom.js?v=20260924-cli2";
+import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20260924-cli2";
+import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20260924-cli2";
+import { createMediaPlayer } from "./player.js?v=20260924-cli2";
 
 const THEME_KEY = "ifd-theme";
 const TEXT_LIMIT_BYTES = 1_500_000;

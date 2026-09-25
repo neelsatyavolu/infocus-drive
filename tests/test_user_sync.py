@@ -381,6 +381,58 @@ def test_sync_deletes_users_who_left_roster(monkeypatch):
     assert user_sync.load_roster_snapshot() == {"keep@pausd.us"}
 
 
+def test_revoke_also_revokes_terminal_sign_ins(monkeypatch):
+    revoked = []
+    monkeypatch.setattr(user_sync.cli_tokens, "revoke_all", lambda name: revoked.append(name) or 1)
+    monkeypatch.setattr(user_sync, "linux_user_by_email", lambda email: _Pw("oldkid", 1200, 100, "/", email))
+
+    class Fake:
+        def delete_user(self, username):
+            return {"status": "deleted"}
+
+        def close(self):
+            pass
+
+    assert user_sync.revoke_user("oldkid@pausd.us", roster=set(), ugos=Fake())["status"] == "deleted"
+    assert revoked == ["oldkid"]
+    user_sync.revoke_user("oldkid@pausd.us", roster={"oldkid@pausd.us"}, ugos=Fake())
+    user_sync.revoke_user("nasadmin@pausd.org", roster=set(), ugos=Fake())
+    assert revoked == ["oldkid"]
+
+
+def test_revoke_leaves_other_users_tokens_alone_when_email_has_no_account(monkeypatch):
+    revoked = []
+    monkeypatch.setattr(user_sync.cli_tokens, "revoke_all", lambda name: revoked.append(name) or 1)
+    monkeypatch.setattr(user_sync, "linux_user_by_email", lambda email: None)
+    monkeypatch.setattr(user_sync, "linux_user_exists", lambda name: True)  # name taken by someone else
+    result = user_sync.revoke_user("gone@pausd.us", roster=set(), ugos=None)
+    assert result["status"] == "absent"
+    assert revoked == []
+
+
+def test_revoke_does_not_delete_user_if_token_revocation_fails(monkeypatch):
+    import sqlite3
+
+    deleted = []
+
+    def boom(name):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(user_sync.cli_tokens, "revoke_all", boom)
+    monkeypatch.setattr(user_sync, "linux_user_by_email", lambda email: _Pw("oldkid", 1200, 100, "/", email))
+
+    class Fake:
+        def delete_user(self, username):
+            deleted.append(username)
+            return {"status": "deleted"}
+
+        def close(self):
+            pass
+
+    result = user_sync.revoke_user("oldkid@pausd.us", roster=set(), ugos=Fake())
+    assert result["status"] == "error" and deleted == []
+
+
 def test_revoke_skips_protected(monkeypatch):
     deleted = []
     monkeypatch.setattr(user_sync, "linux_user_exists", lambda name: True)

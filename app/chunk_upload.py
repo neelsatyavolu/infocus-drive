@@ -286,7 +286,9 @@ def write_chunk(
     return {"index": index, "received": written, "ok": True}
 
 
-def complete_session(upload_id: str, *, username: str, uid: int) -> dict[str, Any]:
+def complete_session(
+    upload_id: str, *, username: str, uid: int, expect_mtime_ns: int | None = None
+) -> dict[str, Any]:
     meta = get_session(upload_id, username=username, uid=uid)
     total = int(meta["total_chunks"])
     got = set(received_indices(upload_id))
@@ -312,6 +314,7 @@ def complete_session(upload_id: str, *, username: str, uid: int) -> dict[str, An
         int(meta["gid"]),
         max_bytes=int(meta["size"]),
         expected_bytes=int(meta["size"]),
+        expect_mtime_ns=expect_mtime_ns,
     )
     # Success — drop staging
     abort_session(upload_id, username=username, uid=uid, force=True)

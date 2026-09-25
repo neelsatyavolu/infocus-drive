@@ -20,9 +20,11 @@ for _key, _value in TEST_ENV.items():
 
 
 @pytest.fixture(autouse=True)
-def deployment_env(monkeypatch):
+def deployment_env(monkeypatch, tmp_path):
     for key, value in TEST_ENV.items():
         monkeypatch.setenv(key, value)
+    # Never touch the real /config token store from tests.
+    monkeypatch.setenv("CLI_TOKENS_DB_PATH", str(tmp_path / "cli_tokens.sqlite3"))
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

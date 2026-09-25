@@ -10,7 +10,7 @@ import main
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(main, '_require_user', lambda request: {'username': 'alice', 'uid': 1001, 'gid': 100})
+    monkeypatch.setattr(main, '_require_session_user', lambda request: {'username': 'alice', 'uid': 1001, 'gid': 100})
     monkeypatch.setattr(main, 'is_nas_admin', lambda name: False)
     monkeypatch.setattr(main.personal_folders, 'configured', lambda: True)
     main._nas_login_hits.clear()
