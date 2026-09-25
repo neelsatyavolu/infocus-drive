@@ -146,7 +146,9 @@ def as_user(uid: int, gid: int, username: str | None = None) -> Iterator[None]:
     not hold this across network-paced I/O (upload body pump) — that starves
     every other FS op and can exhaust the thread pool until /api/health hangs.
     """
-    if os.geteuid() != 0:
+    # Real uid, not euid: another thread may hold the lock with a student euid,
+    # and treating that as "non-root" would run this op as *that* student.
+    if os.getuid() != 0:
         # Non-root: run as container user; rely on mount permissions
         yield
         return
@@ -205,7 +207,7 @@ def as_root() -> Iterator[None]:
     Chunk-upload staging under /tmp must not race with as_user() dropping
     euid on another thread (os.replace then hits EACCES).
     """
-    if os.geteuid() != 0:
+    if os.getuid() != 0:  # real uid; see as_user
         yield
         return
     if not _as_user_lock.acquire(timeout=_AS_USER_LOCK_TIMEOUT_S):
