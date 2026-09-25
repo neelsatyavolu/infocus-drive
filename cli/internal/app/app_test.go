@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -287,5 +289,36 @@ func TestMissingServerIsUsageError(t *testing.T) {
 	h.env.ConfigDir = t.TempDir()
 	if code := h.run("ls"); code != ExitUsage {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+// appearingReader creates path the first time it is read, like another
+// process writing the destination while our download is in flight.
+type appearingReader struct {
+	path string
+	done bool
+}
+
+func (r *appearingReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, io.EOF
+	}
+	r.done = true
+	os.WriteFile(r.path, []byte("theirs"), 0o600)
+	return copy(p, "mine"), nil
+}
+
+func TestWriteLocalNeverReplacesAFileThatAppearsMidDownload(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "out.txt")
+	_, err := writeLocal(dest, &appearingReader{path: dest}, false)
+	var exit exitError
+	if !errors.As(err, &exit) || exit.code != ExitConflict {
+		t.Fatalf("want conflict, got %v", err)
+	}
+	if data, _ := os.ReadFile(dest); string(data) != "theirs" {
+		t.Fatalf("destination replaced: %q", data)
+	}
+	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(dest), ".infocus-*")); len(leftovers) != 0 {
+		t.Fatalf("temp files left: %v", leftovers)
 	}
 }

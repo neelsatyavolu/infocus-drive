@@ -109,7 +109,17 @@ func writeLocal(local string, body io.Reader, force bool) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("download: %w", err)
 	}
-	return written, os.Rename(tmp.Name(), local)
+	if force {
+		return written, os.Rename(tmp.Name(), local)
+	}
+	// No-clobber: link() fails atomically if something created local meanwhile.
+	if err := os.Link(tmp.Name(), local); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return 0, exitError{ExitConflict, fmt.Sprintf("%s appeared while downloading; not overwritten (use --force)", local)}
+		}
+		return 0, fmt.Errorf("save %s: %w", local, err)
+	}
+	return written, nil
 }
 
 // stageStdin copies stdin to a temp file so uploads know their size.
