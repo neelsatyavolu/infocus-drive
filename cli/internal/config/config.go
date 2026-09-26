@@ -14,8 +14,9 @@ import (
 
 // Config is the on-disk settings file.
 type Config struct {
-	Server string `json:"server"`
-	Share  string `json:"share,omitempty"`
+	Server     string `json:"server"`
+	Share      string `json:"share,omitempty"`
+	AutoUpdate *bool  `json:"auto_update,omitempty"` // nil = on
 }
 
 // Dir returns the settings directory (INFOCUS_CONFIG_DIR overrides it).

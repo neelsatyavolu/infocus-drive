@@ -217,6 +217,11 @@ Write:
   infocus put local.txt "Shows/notes.md"          create (fails with exit 4 if it exists)
   infocus put --force local.txt "Shows/notes.md"  overwrite
   printf 'text' | infocus put - "Shows/notes.md"  from stdin
+  infocus --json put a.mov b.mov "Shows/Ep1/"     several files into a folder
+  infocus --json put -r ./Footage "Shows/Ep1/"    a whole folder (exit 4 if some existed)
+  infocus --json sync --dry-run ./Footage "Shows/Ep1"   plan: upload/unchanged/conflict/drive_only
+  infocus --json sync ./Footage "Shows/Ep1"       upload new/changed files; never deletes
+  Interrupted large uploads resume when you re-run the same command.
   infocus mkdir -p "Shows/New/Assets"
   infocus mv "Shows/a.mp4" "Archive"              move into a folder
   infocus rename "Shows/a.mp4" "b.mp4"

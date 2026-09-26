@@ -1,6 +1,8 @@
 package app
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,23 +26,26 @@ type fakeFile struct {
 
 // fakeDrive is an in-memory stand-in for the Drive API the CLI uses.
 type fakeDrive struct {
-	t         *testing.T
-	mu        sync.Mutex
-	files     map[string]*fakeFile
-	clock     int64
-	chunks    map[string]map[int][]byte
-	meta      map[string][2]string // upload_id → dir, name
-	failOnce  map[int]bool         // chunk index → return 500 once
-	shares    []map[string]any
-	lastShare string
-	loggedOut bool
+	t          *testing.T
+	mu         sync.Mutex
+	files      map[string]*fakeFile
+	clock      int64
+	chunks     map[string]map[int][]byte
+	meta       map[string][3]string // upload_id → dir, name, total chunks
+	failOnce   map[int]bool         // chunk index → return 502 once
+	failAlways map[int]bool         // chunk index → always 502 (interrupted upload)
+	chunkPuts  int
+	aborts     int
+	shares     []map[string]any
+	lastShare  string
+	loggedOut  bool
 }
 
 func newFakeDrive(t *testing.T) (*fakeDrive, *httptest.Server) {
 	d := &fakeDrive{
 		t: t, files: map[string]*fakeFile{"": {isDir: true}}, clock: 1_000,
-		chunks: map[string]map[int][]byte{}, meta: map[string][2]string{},
-		failOnce: map[int]bool{},
+		chunks: map[string]map[int][]byte{}, meta: map[string][3]string{},
+		failOnce: map[int]bool{}, failAlways: map[int]bool{},
 		// Same shape as shares.list_shares_for_user on the real Drive.
 		shares: []map[string]any{
 			{"id": "InFocus Drive", "name": "InFocus Drive", "kind": "shared", "can_read": true, "can_write": true},
@@ -132,30 +137,68 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 		d.finishUpload(w, join(r.FormValue("path"), header.Filename), data, r.FormValue("expect_mtime_ns"))
 	case "/api/upload/init":
 		id := fmt.Sprintf("u%d", len(d.meta)+1)
-		d.meta[id] = [2]string{r.FormValue("path"), r.FormValue("name")}
 		d.chunks[id] = map[int][]byte{}
 		size, _ := strconv.Atoi(r.FormValue("size"))
 		cs, _ := strconv.Atoi(r.FormValue("chunk_size"))
-		writeJSON(w, 200, map[string]any{"upload_id": id, "chunk_size": cs, "total_chunks": (size + cs - 1) / cs})
+		total := (size + cs - 1) / cs
+		d.meta[id] = [3]string{r.FormValue("path"), r.FormValue("name"), strconv.Itoa(total)}
+		writeJSON(w, 200, map[string]any{"upload_id": id, "chunk_size": cs, "total_chunks": total})
+	case "/api/upload/status":
+		got, ok := d.chunks[q.Get("upload_id")]
+		if !ok {
+			fail(w, 404, "Upload session not found or expired")
+			return
+		}
+		received := []int{}
+		for i := range got {
+			received = append(received, i)
+		}
+		sort.Ints(received)
+		writeJSON(w, 200, map[string]any{"upload_id": q.Get("upload_id"), "received": received})
+	case "/api/upload/fingerprint":
+		f, ok := d.files[r.FormValue("path")]
+		size, _ := strconv.Atoi(r.FormValue("size"))
+		if !ok || f.isDir || len(f.data) != size {
+			writeJSON(w, 200, map[string]any{"fingerprint": nil})
+			return
+		}
+		writeJSON(w, 200, map[string]any{"fingerprint": fingerprintBytes(f.data)})
 	case "/api/upload/chunk":
 		index, _ := strconv.Atoi(q.Get("index"))
+		d.chunkPuts++
+		if d.failAlways[index] {
+			fail(w, 502, "bad gateway")
+			return
+		}
 		if d.failOnce[index] {
 			delete(d.failOnce, index)
 			fail(w, 502, "bad gateway")
 			return
 		}
 		data, _ := io.ReadAll(r.Body)
+		if _, ok := d.chunks[q.Get("upload_id")]; !ok {
+			fail(w, 404, "Upload session not found or expired")
+			return
+		}
 		d.chunks[q.Get("upload_id")][index] = data
 		writeJSON(w, 200, map[string]any{"ok": true})
 	case "/api/upload/complete":
 		id := r.FormValue("upload_id")
+		m := d.meta[id]
+		total, _ := strconv.Atoi(m[2])
+		if len(d.chunks[id]) != total {
+			fail(w, 400, "Missing chunks")
+			return
+		}
 		var data []byte
-		for i := 0; i < len(d.chunks[id]); i++ {
+		for i := 0; i < total; i++ {
 			data = append(data, d.chunks[id][i]...)
 		}
-		m := d.meta[id]
 		d.finishUpload(w, join(m[0], m[1]), data, r.FormValue("expect_mtime_ns"))
+		delete(d.chunks, id)
 	case "/api/upload/abort":
+		d.aborts++
+		delete(d.chunks, r.FormValue("upload_id"))
 		writeJSON(w, 200, map[string]any{"ok": true})
 	case "/api/mkdir":
 		p := join(r.FormValue("path"), r.FormValue("name"))
@@ -204,4 +247,15 @@ func (d *fakeDrive) finishUpload(w http.ResponseWriter, p string, data []byte, e
 	}
 	d.put(p, string(data))
 	writeJSON(w, 200, d.entry(p))
+}
+
+// fingerprintBytes is the Drive's fingerprint (fsops.upload_fingerprint).
+func fingerprintBytes(data []byte) string {
+	var digests []byte
+	for i := 0; i < len(data); i += 8 << 20 {
+		sum := sha256.Sum256(data[i:min(i+8<<20, len(data))])
+		digests = append(digests, sum[:]...)
+	}
+	total := sha256.Sum256(digests)
+	return hex.EncodeToString(total[:])
 }

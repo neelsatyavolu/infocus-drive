@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
 )
@@ -138,76 +137,6 @@ func stageStdin(stdin io.Reader) (*os.File, error) {
 		return nil, err
 	}
 	return tmp, nil
-}
-
-func cmdPut(ctx context.Context, r *runner, args []string) error {
-	fs := flag.NewFlagSet("put", flag.ContinueOnError)
-	force := fs.Bool("force", false, "overwrite if the file exists")
-	expect := fs.Int64("expect-mtime-ns", 0, "only overwrite if the Drive copy still has this mtime_ns")
-	rest, err := parseFlags(fs, args)
-	if err != nil {
-		return err
-	}
-	if len(rest) != 2 {
-		return usagef("usage: infocus put LOCAL|- REMOTE [--force | --expect-mtime-ns N]")
-	}
-	if *force && *expect != 0 {
-		return usagef("use either --force or --expect-mtime-ns, not both")
-	}
-	source, remote := rest[0], rest[1]
-	client, err := r.signedIn()
-	if err != nil {
-		return err
-	}
-
-	var file *os.File
-	if source == "-" {
-		file, err = stageStdin(r.env.Stdin)
-	} else {
-		file, err = os.Open(source)
-	}
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-	if info, err := file.Stat(); err == nil && info.IsDir() {
-		return usagef("%s is a folder; put uploads single files", source)
-	}
-
-	dir, name := api.SplitPath(remote)
-	if strings.HasSuffix(remote, "/") || api.CleanPath(remote) == "" {
-		dir, name = api.CleanPath(remote), filepath.Base(source)
-	} else if entry, found, err := client.Stat(ctx, remote); err != nil {
-		return err
-	} else if found && entry.IsDir {
-		dir, name = entry.Path, filepath.Base(source)
-	} else if found && !*force && *expect == 0 {
-		// Fail before sending any bytes; the server re-checks atomically anyway.
-		return &api.Error{Status: 409, Detail: api.CleanPath(remote) + " already exists (use --force to overwrite)"}
-	}
-	if source == "-" && name == "-" {
-		return usagef("give a file name when uploading from stdin")
-	}
-
-	opts := api.UploadOptions{}
-	switch {
-	case *expect != 0:
-		opts.ExpectMtimeNS = expect
-	case !*force:
-		mustNotExist := api.MustNotExist
-		opts.ExpectMtimeNS = &mustNotExist
-	}
-	entry, err := client.UploadFile(ctx, dir, name, file, opts)
-	var apiErr *api.Error
-	if errors.As(err, &apiErr) && apiErr.Status == 409 && !*force && *expect == 0 {
-		return &api.Error{Status: 409, Detail: apiErr.Detail + " (use --force to overwrite)"}
-	}
-	if err != nil {
-		return err
-	}
-	return r.emit(entry, func(w io.Writer) {
-		fmt.Fprintf(w, "Uploaded %s (%s)\n", entry.Path, formatSize(entry.Size))
-	})
 }
 
 func cmdEdit(ctx context.Context, r *runner, args []string) error {

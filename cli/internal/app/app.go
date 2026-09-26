@@ -11,9 +11,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/config"
+	"github.com/neelsatyavolu/infocus-drive/cli/internal/update"
 )
 
 // Exit codes (documented in `infocus help agents`).
@@ -45,6 +47,10 @@ type Env struct {
 	RunEditor   func(path string) error
 	DeviceName  func() string
 	Getenv      func(string) string
+	StderrIsTTY bool                   // progress lines and update notices only on a terminal
+	Now         func() time.Time       // nil = time.Now
+	UpdateRepo  string                 // "" = update.DefaultRepo
+	Executable  func() (string, error) // path of the running binary, for self-update
 }
 
 // globals are flags accepted before or after the command name.
@@ -77,7 +83,10 @@ func init() {
 		"search":  {cmdSearch, "search QUERY [--path P] [--limit N]", "Search file and folder names"},
 		"cat":     {cmdCat, "cat PATH", "Print a file to stdout"},
 		"get":     {cmdGet, "get PATH [LOCAL|-] [--force]", "Download a file (folders download as .zip)"},
-		"put":     {cmdPut, "put LOCAL|- REMOTE [--force]", "Upload a file or stdin (won't overwrite without --force)"},
+		"put":     {cmdPut, "put [-r] [--force] SRC... DEST", "Upload files, folders (-r) or stdin (-); resumes if interrupted"},
+		"sync":    {cmdSync, "sync LOCAL_DIR REMOTE_DIR [--dry-run]", "Upload new/changed files from a folder; never deletes"},
+		"update":  {cmdUpdate, "update", "Update infocus to the latest release now"},
+		"config":  {cmdConfig, "config [auto-update on|off]", "Show or change CLI settings"},
 		"edit":    {cmdEdit, "edit PATH", "Edit a file in $EDITOR and save it back safely"},
 		"mkdir":   {cmdMkdir, "mkdir PATH [-p]", "Create a folder (-p: parents too, ok if it exists)"},
 		"mv":      {cmdMv, "mv SRC... DEST_FOLDER", "Move items into a folder"},
@@ -90,8 +99,8 @@ func init() {
 
 var commandOrder = []string{
 	"login", "logout", "whoami", "shares", "share",
-	"ls", "tree", "search", "cat", "get", "put", "edit",
-	"mkdir", "mv", "rename", "rm", "version", "help",
+	"ls", "tree", "search", "cat", "get", "put", "sync", "edit",
+	"mkdir", "mv", "rename", "rm", "update", "config", "version", "help",
 }
 
 // runner is one invocation's state.
@@ -134,7 +143,18 @@ func Run(ctx context.Context, argv []string, env Env) int {
 		return r.fail(err)
 	}
 	r.cfg = cfg
-	return r.fail(cmd.run(ctx, r, args))
+	err = cmd.run(ctx, r, args)
+	if err == nil {
+		r.maybeAutoUpdate(ctx, name)
+	}
+	return r.fail(err)
+}
+
+func (r *runner) now() time.Time {
+	if r.env.Now != nil {
+		return r.env.Now()
+	}
+	return time.Now()
 }
 
 func splitGlobals(argv []string) (globals, []string, error) {
@@ -301,7 +321,10 @@ func DefaultEnv() (Env, error) {
 		return Env{}, err
 	}
 	info, _ := os.Stdin.Stat()
+	errInfo, _ := os.Stderr.Stat()
 	return Env{
+		StderrIsTTY: errInfo != nil && errInfo.Mode()&os.ModeCharDevice != 0,
+		Executable:  update.Executable,
 		Stdin:       os.Stdin,
 		Stdout:      os.Stdout,
 		Stderr:      os.Stderr,

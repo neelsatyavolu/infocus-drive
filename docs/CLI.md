@@ -36,16 +36,30 @@ Your browser opens the Drive. Sign in the usual way (Google, email code, or NAS 
 | `infocus search QUERY [--path P] [--limit N]` | Name search |
 | `infocus cat PATH` | Print a file |
 | `infocus get PATH [LOCAL\|-] [--force]` | Download (folders as `.zip`) |
-| `infocus put LOCAL\|- REMOTE [--force \| --expect-mtime-ns N]` | Upload a file or stdin. Refuses to overwrite unless `--force` |
+| `infocus put [-r] [--force] SRC... DEST` | Upload files, whole folders (`-r`) or stdin (`-`). Existing files are skipped unless `--force`; single files also take `--expect-mtime-ns N` |
+| `infocus sync LOCAL_DIR REMOTE_DIR [--dry-run]` | Upload only new or changed files from a folder. Never deletes anything on the Drive |
 | `infocus edit PATH` | Edit in `$VISUAL`/`$EDITOR`; saves back only if nobody changed the file meanwhile |
 | `infocus mkdir PATH [-p]` | Create a folder |
 | `infocus mv SRC... DEST_FOLDER` | Move into a folder |
 | `infocus rename PATH NEW_NAME` | Rename in place |
 | `infocus rm PATH... [-y]` | Move to the Recycle bin (asks first in an interactive terminal) |
+| `infocus update` | Update to the latest release now |
+| `infocus config [auto-update on\|off]` | Show settings / turn auto-update off or on |
 
 Paths are relative to the share root: `infocus ls "Shows/Episode 1"`. Global flags: `--json`, `--share NAME`, `--server URL`.
 
-Large files (≥ 8 MiB) upload in 32 MiB pieces over 4 parallel streams, like the web app.
+## Uploading lots of files
+
+- `infocus put a.mov b.mov *.jpg "Shows/Ep1/"` uploads several files into a folder (created if missing). `infocus put -r ./Footage "Shows/Ep1/"` uploads a whole folder as `Shows/Ep1/Footage/…`, recreating subfolders.
+- System files (`.DS_Store`, `._*`, `Thumbs.db`, temp/partial downloads) and symlinks are left out.
+- 3 files upload at once; files ≥ 8 MiB go in 32 MiB pieces over 4 streams, like the web app. A progress line shows files, bytes, speed and time left.
+- If a file already exists it's skipped (exit `4` at the end) unless you pass `--force`; other files still upload.
+- **Resume:** if a large upload is interrupted (Ctrl-C, network drop, laptop sleep), run the same command again within 24 hours and only the missing pieces are sent. State lives in `~/.config/infocus/uploads/`.
+- **Sync:** `infocus sync ./Footage "Shows/Ep1"` uploads files that are new or different (same-size files are compared by content fingerprint). Re-running it after a finished sync uploads nothing. It never deletes or silently overwrites: if the Drive copy changed since sync looked, that file is reported as a conflict. Use `--dry-run` to see the plan first.
+
+## Updates
+
+infocus updates itself: at most once a day, after a command you ran in a terminal, it checks this repo's latest `cli-v*` release, verifies the download's SHA-256, and replaces the binary in place. It never updates during `--json` output or when run by scripts or agents (stdin not a terminal). Run `infocus update` to update right away. Turn it off with `infocus config auto-update off` or `INFOCUS_NO_UPDATE=1`.
 
 ## AI agents
 
