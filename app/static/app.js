@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260925-brand";
-import * as api from "./api.js?v=20260925-brand";
-import { ApiError } from "./api.js?v=20260925-brand";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20260926-design";
+import * as api from "./api.js?v=20260926-design";
+import { ApiError } from "./api.js?v=20260926-design";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260925-brand";
-import { $, el, icon, show } from "./dom.js?v=20260925-brand";
+} from "./format.js?v=20260926-design";
+import { $, el, icon, show } from "./dom.js?v=20260926-design";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260925-brand";
+} from "./quick.js?v=20260926-design";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -656,7 +656,7 @@ function applyTheme(theme) {
   const schemeMeta = document.getElementById("meta-color-scheme");
   const colorMeta = document.getElementById("meta-theme-color");
   if (schemeMeta) schemeMeta.setAttribute("content", light ? "light" : "dark");
-  if (colorMeta) colorMeta.setAttribute("content", light ? "#f7f8f7" : "#0a0a0a");
+  if (colorMeta) colorMeta.setAttribute("content", light ? "#f4f6f5" : "#0f110f");
 
   const icon = $("theme-icon");
   if (icon) icon.setAttribute("href", light ? "#i-moon" : "#i-sun");
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260925-brand").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20260926-design").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -4242,7 +4242,7 @@ function promptFolderUploadConflict(name) {
       el("p", { text: "Merge skips unchanged files, uploads new or changed files, and keeps other existing contents. Replace removes the existing folder and all its contents before uploading. If the upload fails, the old contents will already have been removed." }),
       modalFooter([
         el("button", { type: "button", class: "btn btn--modal", text: "Cancel", onclick: () => choose(null) }),
-        el("button", { type: "button", class: "btn btn--danger-solid", text: "Replace", onclick: () => choose("replace") }),
+        el("button", { type: "button", class: "btn btn--danger btn--modal", text: "Replace", onclick: () => choose("replace") }),
         el("button", { type: "button", class: "btn btn--primary btn--modal", text: "Merge", onclick: () => choose("merge") }),
       ]),
     ]);

@@ -1,55 +1,32 @@
 # InFocus Drive Design
 
-Colors and brand assets for InFocus Drive. Drive shares the InFocus design system with InFocus Portal; typography, spacing, and component recipes are in the Portal's [DESIGN.md](https://github.com/neelsatyavolu/infocus-portal/blob/master/DESIGN.md). This file covers the palette and what is specific to Drive: the light theme, the wordmark swap, and cache-busting.
+Drive follows the **InFocus Design System 2026**, the same system as InFocus Portal. The full brand rules (logo, color, type, shape, motion, and the web guidance) are in the Portal's [DESIGN.md](https://github.com/neelsatyavolu/infocus-portal/blob/master/DESIGN.md), especially §10 (web and interfaces) and §13 (token reference). This file covers how Drive implements them: tokens, the light theme, the wordmark swap, and cache-busting.
 
-Tokens live in `app/static/app.css`. Updated September 25, 2026 for the new InFocus logo.
+Tokens live at the top of `app/static/app.css`. Updated September 26, 2026.
 
-## Logo palette
+## Color
 
-Exact colors from the logo files. Every other brand color is derived from them.
-
-| Name | Hex | Where it appears in the logo |
+| Brand color | Token | Use |
 | --- | --- | --- |
-| Logo green | `#2BB36E` | "in" and the "o" ring on dark backgrounds |
-| Logo deep green | `#0B6E3E` | "in" and the "o" ring on light backgrounds |
-| Logo red | `#EE3A2A` | The dot over the "i" (always red) |
-| Logo ink | `#0F110F` | "focus" and the signal arcs on light backgrounds; the app-icon tile |
-| White | `#FFFFFF` | "focus" and the signal arcs on dark backgrounds |
+| Ink `#0F110F` | `--background` (dark), `--ink` (flips), `--sb-bg` | Page and sidebar canvas. `--card` / `--secondary` / `--muted` are slightly raised Ink. |
+| InFocus Green `#0B6E3E` | `--brand-fill` (`--primary`) | Primary buttons, active and selected states, header bands. Always white text (`--on-brand`). Hover `--brand-fill-hover`. |
+| Green on Dark `#2BB36E` | `--brand-green` (flips to `#0B6E3E` in light) | Text, links, icons, small marks. Tints `--brand-green-a10…a30` are fine; never a solid large fill. |
+| Record Red `#EE3A2A` | `--brand-red` | A tiny rec/live dot only. Never text, buttons, or errors. |
+| Mist `#DCE2DE` | `--mist` | Secondary text on dark. |
+| Danger `#C21F3A` | `--danger` | Destructive fills with white text, only on a final confirm. |
+| Danger on Dark `#FF7A8A` | `--danger-text` (flips to `#C21F3A`) | Error text, icons, borders; quiet destructive buttons. |
+| Danger tints | `--danger-tint`, `--danger-a12/-a18/-a40` | Error banners and hover tints. |
 
-| Background | Green | Letters and arcs | Dot |
-| --- | --- | --- | --- |
-| Dark theme | `#2BB36E` | `#FFFFFF` | `#EE3A2A` |
-| Light theme | `#0B6E3E` | `#0F110F` | `#EE3A2A` |
+Semantic HSL triplets (`--background`, `--primary`, `--border`, …) are defined under `:root` for the dark theme and under `.light` for the light theme. Both use the same values as InFocus Portal. The sidebar has its own `--sb-*` tokens in each theme. When adding a color, use these tokens instead of new literals.
 
-## Contrast
+## Type, shape, motion
 
-| Pair | Ratio | Use |
-| --- | --- | --- |
-| Ink `#0A0A0A` on logo green `#2BB36E` | 7.3:1 | Green buttons in the dark theme. Dark text on green. |
-| White on logo green | 2.7:1 | Avoid for text. |
-| Logo green on ink | 7.3:1 | Green text and icons in the dark theme. |
-| Logo red `#EE3A2A` on ink | 5.0:1 | Red text and icons in the dark theme. |
-| White on deep red `#C92B1D` | 5.5:1 | Filled red controls. White on logo red is only 4.0:1. |
-| Logo deep green `#0B6E3E` on white | 6.3:1 | Green text on light backgrounds. |
-| Logo green on white | 2.7:1 | Avoid for text on light backgrounds. |
-
-## Tokens
-
-| Token | Value | Use |
-| --- | --- | --- |
-| `--brand-green` | `#2bb36e` | Logo green |
-| `--brand-green-deep` | `#23955c` | Hover and pressed green |
-| `--brand-red` | `#ee3a2a` | Logo red |
-| `--brand-red-deep` | `#c92b1d` | Red fills with white text |
-| `--brand-amber` | `#f2a516` | Warnings |
-| `--brand-green-a10` … `-a30` | `rgb(43 179 110 / α)` | Green tints |
-| `--brand-red-a12` … `-a40` | `rgb(238 58 42 / α)` | Red tints |
-
-Semantic HSL triplets (`--background`, `--primary`, `--border`, …) are defined twice: under `:root` for the dark theme and under `.light` for the light theme. The dark values match InFocus Portal exactly. `--primary` is `150 61% 43.5%` (the logo green) in both themes.
-
-Neutrals carry a faint green tint from the logo ink instead of the old blue-gray. Dark-theme tokens use the Portal's values (hue 120, 4–6% saturation). Light-theme tokens, sidebar `--sb-*` tokens, and literal grays use half that tint, because green reads more strongly than blue at mid and light grays.
-
-When adding a color, derive it from the logo palette. Use the RGB tints above for translucent fills and borders rather than new literals.
+- **Lexend** (`--font-sans`, `--font-display`) for everything people read: headings in SemiBold with tight tracking, body in Regular, labels in ALL CAPS Medium with wide tracking. **Geist Mono** (`--font-mono`) is only for data: sizes, dates in columns, durations, progress, speeds, IDs. Both load from Google Fonts via `<link>` in each HTML page.
+- There are no italics in the UI, except rendered Markdown.
+- One small radius, `--radius` (6px; `--radius-sm` is 4px), is used everywhere. Circles are only for avatars, dots, spinners, and toggles.
+- The arc corner (`--arc`, 24px on phones and 32px from 640px) is one curved top corner with the others square. It appears on just a few plate pieces and on the active sidebar item.
+- Everything is flat: no gradients, drop shadows, glass, or blur.
+- Transitions run 150–300ms on `--ease-out`.
 
 ## Brand assets
 

@@ -27,7 +27,7 @@ This repo is **open source (MIT) and public**: https://github.com/neelsatyavolu/
 
 ## UI conventions
 
-- Colors come from the logo (green `#2bb36e`, red `#ee3a2a`); see `DESIGN.md`. Geist + Barlow Condensed.
+- InFocus Design System 2026 (Portal `DESIGN.md` §10; Drive tokens in `DESIGN.md`): Lexend + Geist Mono (data only); InFocus Green `#0b6e3e` fills with white text, `#2bb36e` for text/small marks, Record Red only for a tiny dot, Danger vars for errors; 6px radius, flat (no gradients/shadows/blur).
 - Wordmark on light-theme pages is an `.wm-dark` / `.wm-light` image pair (`DESIGN.md`).
 - Dark default; `.light` on `<html>` for light mode — include sidebar `--sb-*` tokens.
 - Folder click = open; checkbox = select; media click = preview.
