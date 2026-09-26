@@ -93,3 +93,16 @@ def test_package_roll_upload_limit(staging, kind, gb, extra):
     else:
         session = chunk_upload.create_session(**kwargs)
         assert session["size"] == gb * 1024 ** 3
+
+
+@pytest.mark.parametrize("extra", [0, 1])
+def test_default_upload_limit_is_50gb(staging, extra):
+    kwargs = dict(
+        username="nasadmin", uid=1001, gid=1001, share="InFocus Drive",
+        rel_dir="Footage", filename="raw.mov", size=50 * 1024 ** 3 + extra,
+    )
+    if extra:
+        with pytest.raises(fsops.FSError, match="max 50GB"):
+            chunk_upload.create_session(**kwargs)
+    else:
+        assert chunk_upload.create_session(**kwargs)["size"] == 50 * 1024 ** 3

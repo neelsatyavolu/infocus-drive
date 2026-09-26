@@ -1002,7 +1002,7 @@ def write_upload_stream(
     chunks: Iterator[bytes],
     uid: int,
     gid: int,
-    max_bytes: int = 10 * 1024 * 1024 * 1024,
+    max_bytes: int = 50 * 1024 * 1024 * 1024,
     expected_bytes: int | None = None,
     expect_mtime_ns: int | None = None,
 ) -> dict[str, Any]:

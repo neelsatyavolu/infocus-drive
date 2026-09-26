@@ -21,7 +21,7 @@ from fsops import FSError, as_root, write_upload_stream
 CHUNK_SIZE_DEFAULT = 32 * 1024 * 1024  # 32 MiB
 CHUNK_SIZE_MIN = 1 * 1024 * 1024
 CHUNK_SIZE_MAX = 32 * 1024 * 1024
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024 * 1024  # 10 GiB
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024 * 1024  # 50 GiB
 SESSION_TTL_SEC = 24 * 3600
 SESSION_ROOT = Path(os.environ.get("IFD_CHUNK_UPLOAD_DIR", "") or (Path("/tmp") / "ifd-chunk-uploads"))
 

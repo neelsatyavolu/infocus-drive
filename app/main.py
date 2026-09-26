@@ -19,6 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from chunk_upload import (
     CHUNK_SIZE_DEFAULT,
+    MAX_UPLOAD_BYTES,
     abort_session,
     complete_session,
     create_session,
@@ -1410,7 +1411,7 @@ async def api_upload(
     user = _require_user(request)
     share = _active_share(request, user)
     share_root = share_path(share)
-    max_bytes = 10 * 1024 * 1024 * 1024  # 10 GiB
+    max_bytes = MAX_UPLOAD_BYTES
     # Prefer declared multipart size when present so a truncated stream never
     # becomes the final file. Unknown size still refuses commit on pump errors.
     expected: int | None = None
@@ -1418,7 +1419,7 @@ async def api_upload(
         if file.size is not None and int(file.size) >= 0:
             expected = int(file.size)
             if expected > max_bytes:
-                raise HTTPException(status_code=413, detail="File too large (max 10GB)")
+                raise HTTPException(status_code=413, detail=f"File too large (max {max_bytes // 1024 ** 3}GB)")
     except (TypeError, ValueError):
         expected = None
     # Larger pieces + deeper queue keep the tunnel fed while disk writes catch up.
@@ -1443,7 +1444,7 @@ async def api_upload(
                     break
                 total += len(piece)
                 if total > max_bytes:
-                    raise HTTPException(status_code=413, detail="File too large (max 10GB)")
+                    raise HTTPException(status_code=413, detail=f"File too large (max {max_bytes // 1024 ** 3}GB)")
                 await _put(piece)
         except BaseException as exc:  # noqa: BLE001 — surface to writer
             pump_error.append(exc)
