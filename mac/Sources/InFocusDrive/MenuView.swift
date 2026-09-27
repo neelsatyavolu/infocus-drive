@@ -15,7 +15,7 @@ struct MenuView: View {
                     if let message = drive.message { Banner(text: message) }
                     if !drive.transfers.isEmpty { TransfersSection(transfers: drive.transfers) }
                     StatusSection(drive: drive)
-                    if drive.connectedVolume != nil, !drive.status.shares.isEmpty {
+                    if case .signedIn = drive.account, !drive.status.shares.isEmpty {
                         SharesSection(drive: drive)
                     }
                 } else {

@@ -56,6 +56,8 @@ def client(tmp_path, monkeypatch, web_user):
     monkeypatch.setattr(main, "is_nas_admin", lambda name: False)
     monkeypatch.setattr(main, "user_group_names", lambda *a: [])
     main._nas_login_hits.clear()
+    main._nas_user_fails.clear()
+    main._nas_otp_attempts.clear()
     main._cli_token_failures.clear()
     test_client = TestClient(main.app, base_url=ORIGIN)
     test_client.share_root = share_root
@@ -154,9 +156,6 @@ def test_bearer_cannot_mint_tokens_or_browser_sessions(client, web_user):
     web_user["user"] = None  # only the bearer is presented
     assert authorize(client, headers=bearer(token)).status_code == 401
     assert client.post("/api/lan-handoff", headers=bearer(token)).status_code == 401
-    for endpoint in ("/api/personal/unlock", "/api/personal/auth"):
-        assert client.post(endpoint, headers=bearer(token),
-                           data={"owner": "student1", "key": "x", "password": "x"}).status_code == 401
 
 
 def test_share_header_is_used_for_bearer(client, monkeypatch):
@@ -253,3 +252,132 @@ def test_must_not_exist_upload_never_replaces_a_file_that_appears_after_the_chec
     assert exc.value.status == 409
     assert (tmp_path / "race.txt").read_text() == "theirs"
     assert not list(tmp_path.glob(".*.partial"))
+
+
+# Personal folders: the Mac app unlocks them with its sign-in token, exactly
+# like the web app (same owner check, HTTPS, shared attempt limit).
+
+@pytest.fixture
+def personal(monkeypatch):
+    monkeypatch.setattr(main.personal_folders, "configured", lambda: True)
+    saved = []
+    monkeypatch.setattr(main.personal_folders, "save_owner_session", lambda owner, session: saved.append((owner, session)))
+    return saved
+
+
+def test_bearer_unlocks_only_its_own_personal_folder(client, web_user, monkeypatch, personal):
+    token = login(client)["token"]
+    web_user["user"] = None
+    calls = []
+
+    def unlock(owner, key, *, key_file):
+        calls.append((owner, key, key_file))
+        return {"encrypted": True, "locked": False, "expires_at": 86400}
+
+    monkeypatch.setattr(main.personal_folders.folders, "unlock", unlock)
+    response = client.post("/api/personal/unlock", headers=bearer(token),
+                           data={"owner": "student1", "key": "secret-key", "key_file": "true"})
+    assert response.status_code == 200 and response.json()["locked"] is False
+    assert "secret-key" not in response.text
+    assert calls == [("student1", "secret-key", True)]
+    other = client.post("/api/personal/unlock", headers=bearer(token), data={"owner": "student2", "key": "x"})
+    assert other.status_code == 403 and len(calls) == 1
+    assert "set-cookie" not in response.headers
+
+
+def test_bearer_unlock_shares_the_attempt_limit(client, web_user, monkeypatch, personal):
+    token = login(client)["token"]
+    web_user["user"] = None
+    monkeypatch.setattr(main.personal_folders.folders, "unlock", lambda *a, **kw: {"locked": False})
+    codes = [client.post("/api/personal/unlock", headers=bearer(token),
+                         data={"owner": "student1", "key": "x"}).status_code for _ in range(13)]
+    assert codes[-1] == 429
+
+
+def test_bearer_owner_sign_in_with_otp_uses_a_bound_pending_token(client, web_user, monkeypatch, personal):
+    first_token = login(client)["token"]
+    other_token = login(client)["token"]
+    web_user["user"] = None
+    monkeypatch.setattr(main, "nas_password_login",
+                        lambda *a, **kw: {"ok": True, "need_otp": True, "token_id": "ugos-challenge"})
+    seen = []
+
+    def otp(base, *, code, token_id, return_session):
+        seen.append((code, token_id))
+        return {"ok": True, "session": {"token": "owner-token", "public_key": "k"}}
+
+    monkeypatch.setattr(main, "nas_otp_login", otp)
+    first = client.post("/api/personal/auth", headers=bearer(first_token),
+                        data={"owner": "student1", "password": "nas-password"})
+    body = first.json()
+    assert body["need_otp"] is True and body["pending"]
+    assert "ugos-challenge" not in first.text and "nas-password" not in first.text
+    assert "set-cookie" not in first.headers
+
+    def finish(token, pending, owner="student1"):
+        return client.post("/api/personal/auth", headers=bearer(token),
+                           data={"owner": owner, "code": "123456", "pending": pending})
+
+    # 410 = start over with the NAS password (the app goes back a step).
+    assert finish(first_token, body["pending"][:-4] + "AAAA").status_code == 410  # tampered
+    assert finish(other_token, body["pending"]).status_code == 410  # another sign-in's token
+    assert finish(first_token, body["pending"], owner="student2").status_code == 403
+    assert seen == [] and personal == []
+    done = finish(first_token, body["pending"])
+    assert done.json() == {"ok": True}
+    assert seen == [("123456", "ugos-challenge")]
+    assert personal == [("student1", {"token": "owner-token", "public_key": "k"})]
+    assert finish(first_token, body["pending"]).status_code == 410  # single use
+    assert len(seen) == 1
+
+
+def test_bearer_owner_sign_in_without_otp(client, web_user, monkeypatch, personal):
+    token = login(client)["token"]
+    web_user["user"] = None
+    monkeypatch.setattr(main, "nas_password_login",
+                        lambda *a, **kw: {"ok": True, "session": {"token": "t", "public_key": ""}})
+    response = client.post("/api/personal/auth", headers=bearer(token), data={"owner": "student1", "password": "p"})
+    assert response.json() == {"ok": True} and personal == [("student1", {"token": "t", "public_key": ""})]
+
+
+def test_personal_auth_never_echoes_a_rejected_password(client, web_user, personal):
+    token = login(client)["token"]
+    web_user["user"] = None
+    secret = "x" * 300 + "-my-nas-password"
+    response = client.post("/api/personal/auth", headers=bearer(token), data={"owner": "student1", "password": secret})
+    assert response.status_code == 422
+    assert "my-nas-password" not in response.text
+
+
+def test_personal_auth_counts_failures_against_the_account(client, web_user, monkeypatch, personal):
+    token = login(client)["token"]
+    web_user["user"] = None
+    tries = []
+    monkeypatch.setattr(main, "nas_password_login",
+                        lambda *a, **kw: tries.append(1) or {"ok": False, "error": "Incorrect password"})
+    codes = [client.post("/api/personal/auth", headers=bearer(token),
+                         data={"owner": "student1", "password": "guess"}).status_code for _ in range(6)]
+    assert codes[:5] == [401] * 5 and codes[5] == 429
+    assert len(tries) == 5  # the locked attempt never reached the NAS
+
+
+def test_personal_auth_limits_codes_per_challenge(client, web_user, monkeypatch, personal):
+    token = login(client)["token"]
+    web_user["user"] = None
+    monkeypatch.setattr(main, "nas_password_login",
+                        lambda *a, **kw: {"ok": True, "need_otp": True, "token_id": "challenge-2"})
+    monkeypatch.setattr(main, "nas_otp_login", lambda *a, **kw: {"ok": False, "error": "Wrong code"})
+    pending = client.post("/api/personal/auth", headers=bearer(token),
+                          data={"owner": "student1", "password": "p"}).json()["pending"]
+    codes = [client.post("/api/personal/auth", headers=bearer(token),
+                         data={"owner": "student1", "code": "000000", "pending": pending}).status_code
+             for _ in range(6)]
+    assert codes[:5] == [401] * 5 and codes[5] == 410
+
+
+def test_personal_auth_requires_a_password_or_code(client, web_user, monkeypatch, personal):
+    token = login(client)["token"]
+    web_user["user"] = None
+    monkeypatch.setattr(main, "nas_password_login", lambda *a, **kw: pytest.fail("must not call the NAS"))
+    response = client.post("/api/personal/auth", headers=bearer(token), data={"owner": "student1"})
+    assert response.status_code == 400

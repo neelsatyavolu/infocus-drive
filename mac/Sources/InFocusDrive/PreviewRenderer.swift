@@ -17,6 +17,20 @@ enum PreviewRenderer {
             }
         }
         let help = scenarios().first { $0.0 == "connected" }!.1
+        let locked = DriveStatus.Share(id: "~student1", name: "student1", canWrite: false, encrypted: true, locked: true)
+        let steps: [(String, PersonalUnlock.Step, String?)] = [
+            ("unlock-key", .key, nil),
+            ("unlock-nas", .nasPassword, "UGOS needs you to sign in to the NAS as student1 first."),
+            ("unlock-code", .code(pending: "p"), nil),
+        ]
+        for (name, step, error) in steps {
+            let unlock = PersonalUnlock(share: locked, drive: help)
+            unlock.preview(step: step, error: error)
+            for dark in [true, false] {
+                render(UnlockForm(unlock: unlock) {}.frame(width: 420).background(Brand.background).foregroundStyle(Brand.foreground),
+                       to: dir.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"), dark: dark)
+            }
+        }
         render(HelpView(drive: help), to: dir.appendingPathComponent("help-dark.png"), dark: true)
         render(HelpView(drive: help), to: dir.appendingPathComponent("help-light.png"), dark: false)
         exit(0)
@@ -25,10 +39,10 @@ enum PreviewRenderer {
     private static func scenarios() -> [(String, DriveController)] {
         let now = Date()
         let shares = [
+            DriveStatus.Share(id: "~student1", name: "student1", canWrite: false, encrypted: true, locked: true),
             DriveStatus.Share(id: "InFocus Drive", name: "InFocus Drive", canWrite: true),
             DriveStatus.Share(id: "Photos", name: "Photos", canWrite: false),
             DriveStatus.Share(id: "Archive", name: "Archive", canWrite: true),
-            DriveStatus.Share(id: "~student1", name: "My folder", canWrite: true),
         ]
         var status = DriveStatus()
         status.email = "student1@example.org"

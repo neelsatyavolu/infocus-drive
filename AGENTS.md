@@ -125,7 +125,7 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | GET | `/cli/install.sh` | Unauthenticated CLI installer |
 | GET | `/mac/install.sh` | Unauthenticated installer for InFocus Drive for Mac (docs/MAC-APP.md) |
 
-All authenticated `/api/*` routes accept `Authorization: Bearer ifd_…` from the CLI (see [`docs/CLI.md`](docs/CLI.md)) except browser-only ones (`/api/cli/authorize`, `/api/lan-handoff`, `/api/share`, `/api/personal/*`).
+All authenticated `/api/*` routes accept `Authorization: Bearer ifd_…` from the CLI (see [`docs/CLI.md`](docs/CLI.md)) except browser-only ones (`/api/cli/authorize`, `/api/lan-handoff`, `/api/share`). `/api/personal/unlock` and `/api/personal/auth` accept a bearer for the caller's own folder only (Mac app / `infocus unlock`).
 
 ## Frontend modules
 

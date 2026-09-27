@@ -4,30 +4,33 @@ import Foundation
 enum CLIError: LocalizedError {
     case missingBinary
     case signedOut
+    case needsNASSignIn(String)
     case failed(String)
 
     var errorDescription: String? {
         switch self {
         case .missingBinary: return "The app is missing its infocus helper. Reinstall InFocus Drive."
         case .signedOut: return "You're signed out. Sign in again."
-        case .failed(let message): return message
+        case .needsNASSignIn(let message), .failed(let message): return message
         }
     }
 
     static let exitAuth: Int32 = 3
+    static let exitNASSignIn: Int32 = 6
 
     /// Turns the CLI's `--json` error line ({"error": …}) into an error.
     static func from(status: Int32, stderr: Data) -> CLIError {
         if status == exitAuth { return .signedOut }
         let lines = String(decoding: stderr, as: UTF8.self).split(separator: "\n")
+        var text = lines.last.map(String.init) ?? "infocus exited with status \(status)"
         for line in lines.reversed() {
             if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
                let message = obj["error"] as? String {
-                return .failed(message.prefix(1).uppercased() + message.dropFirst())
+                text = message.prefix(1).uppercased() + message.dropFirst()
+                break
             }
         }
-        let text = lines.last.map(String.init) ?? "infocus exited with status \(status)"
-        return .failed(text)
+        return status == exitNASSignIn ? .needsNASSignIn(text) : .failed(text)
     }
 }
 
@@ -44,15 +47,22 @@ final class CLIRun {
     }
 
     /// Runs to completion and returns stdout; throws CLIError on failure.
-    func output() async throws -> Data {
+    /// `input` goes to stdin (how secrets reach the CLI: never argv).
+    func output(input: Data? = nil) async throws -> Data {
         let stdout = Pipe(), stderr = Pipe()
         process.standardOutput = stdout
         process.standardError = stderr
-        process.standardInput = FileHandle.nullDevice
+        let stdin = input.map { _ in Pipe() }
+        process.standardInput = stdin ?? FileHandle.nullDevice
         let exited = AsyncStream<Int32> { continuation in
             process.terminationHandler = { continuation.yield($0.terminationStatus); continuation.finish() }
         }
         try process.run()
+        if let stdin, let input {
+            let handle = stdin.fileHandleForWriting
+            try? handle.write(contentsOf: input)
+            try? handle.close()
+        }
         async let out = Task.detached { stdout.fileHandleForReading.readDataToEndOfFile() }.value
         async let err = Task.detached { stderr.fileHandleForReading.readDataToEndOfFile() }.value
         var status: Int32 = -1

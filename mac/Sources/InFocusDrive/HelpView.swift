@@ -22,6 +22,7 @@ struct HelpView: View {
                 HelpSection(title: "Using the drive") {
                     Bullet("folder", "Each share you can open is a folder at the top of the drive. Your personal folder is there too.")
                     Bullet("lock", "Shares marked **Read only** can be opened and copied from, but not changed.")
+                    Bullet("lock.open", "An encrypted personal folder shows a lock until you click **Unlock** and enter your UGOS encryption password or key file. It stays unlocked everywhere — Finder and the website — for 24 hours, then relocks.")
                     Bullet("arrow.up.doc", "Saving or copying a file uploads it when Finder finishes writing it. Watch **Uploads** in the menu for progress.")
                     Bullet("trash", "Deleting moves items to the share's **Recycle bin** on the Drive, so they can be recovered.")
                     Bullet("eject", "Ejecting the drive in Finder disconnects it until you click **Connect** again.")
@@ -31,6 +32,8 @@ struct HelpView: View {
                             "Open the menu and click **Connect**. If **Status** shows *Signed out*, sign in again. If the network or Drive row is red, the Drive can't be reached right now. The app reconnects by itself when it can.")
                     FAQItem("A file won't save",
                             "Check that the share isn't **Read only**. File names can't contain a backslash (\\\\). A failed upload shows in **Uploads** with the reason. Big files are copied to your Mac first, so make sure there is free disk space.")
+                    FAQItem("My personal folder won't open",
+                            "It's encrypted and locked. In the menu, click it under **Shares** and enter your encryption password or key file. If UGOS asks, sign in to the NAS as yourself first (and enter your authenticator code). The folder relocks after 24 hours.")
                     FAQItem("It says I'm signed out",
                             "Sign-ins end after 30 days without use, or when they're revoked on the Drive (sidebar → **Mac app & CLI**). Click **Sign in with Google** to sign in again. Your files aren't affected.")
                     FAQItem("Finder says the server connection was interrupted",

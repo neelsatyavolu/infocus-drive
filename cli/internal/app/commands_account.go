@@ -234,5 +234,7 @@ Safe edit without clobbering someone else's change:
      exit 4 means the file changed on the Drive meanwhile: re-read and retry.
 
 Exit codes: 0 ok · 1 error · 2 bad usage · 3 not signed in (ask the human to run
-"infocus login") · 4 conflict / already exists · 5 not found or no permission.
+"infocus login") · 4 conflict / already exists · 5 not found or no permission
+(also a locked personal folder: ask the human to run "infocus unlock") · 6 the NAS
+wants the folder owner's sign-in first ("infocus unlock --nas-sign-in").
 `

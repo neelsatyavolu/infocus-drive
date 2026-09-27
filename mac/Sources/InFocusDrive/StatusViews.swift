@@ -148,6 +148,7 @@ private struct StartAtLoginTile: View {
 /// Shares as they appear at the top of the volume; click to open one.
 struct SharesSection: View {
     @ObservedObject var drive: DriveController
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -160,7 +161,17 @@ struct SharesSection: View {
                 VStack(spacing: 0) {
                     ForEach(Array(drive.status.shares.enumerated()), id: \.element.id) { index, share in
                         if index > 0 { Rectangle().fill(Brand.border).frame(height: 1) }
-                        ShareRow(share: share) { drive.openShare(share) }
+                        ShareRow(share: share) {
+                            if share.locked {
+                                drive.beginUnlock(share)
+                                openWindow(id: "unlock")
+                                NSApp.activate(ignoringOtherApps: true)
+                            } else if drive.connectedVolume != nil {
+                                drive.openShare(share)
+                            } else {
+                                drive.connect()
+                            }
+                        }
                     }
                 }
             }
@@ -179,20 +190,18 @@ private struct ShareRow: View {
     var body: some View {
         Button(action: open) {
             HStack(spacing: 10) {
-                Image(systemName: share.id.hasPrefix("~") ? "person.crop.square" : "folder")
+                Image(systemName: icon)
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Brand.green)
+                    .foregroundStyle(share.locked ? Brand.muted : Brand.green)
                     .frame(width: 18)
                 Text(share.name).font(.lexend(12.5)).lineLimit(1)
                 Spacer()
-                if !share.canWrite {
-                    Text("READ ONLY")
-                        .font(.lexend(9, .medium))
-                        .tracking(0.8)
-                        .foregroundStyle(Brand.muted)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(Brand.secondary, in: RoundedRectangle(cornerRadius: 4))
+                if share.locked {
+                    Text("Unlock").font(.lexend(11.5, .semibold)).foregroundStyle(Brand.green)
+                } else if share.encrypted, let relocks = share.relocksAt {
+                    Text("until \(Formatting.time(relocks))").font(.mono(10.5)).foregroundStyle(Brand.muted)
+                } else if !share.canWrite {
+                    Tag(text: "Read only")
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 9, weight: .semibold))
@@ -205,7 +214,35 @@ private struct ShareRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("Open \(share.name) in Finder")
+        .help(help)
+    }
+
+    private var icon: String {
+        if share.locked { return "lock.fill" }
+        if share.encrypted { return "lock.open" }
+        return share.isPersonal ? "person.crop.square" : "folder"
+    }
+
+    private var help: String {
+        if share.locked { return "\(share.name) is encrypted and locked. Click to unlock it for 24 hours." }
+        if share.encrypted, let relocks = share.relocksAt {
+            return "Unlocked until \(Formatting.time(relocks)). Click to open in Finder."
+        }
+        return "Open \(share.name) in Finder"
+    }
+}
+
+private struct Tag: View {
+    let text: String
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.lexend(9, .medium))
+            .tracking(0.8)
+            .foregroundStyle(Brand.muted)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(Brand.secondary, in: RoundedRectangle(cornerRadius: 4))
     }
 }
 

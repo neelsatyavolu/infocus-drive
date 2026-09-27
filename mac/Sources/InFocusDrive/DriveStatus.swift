@@ -6,6 +6,12 @@ struct DriveStatus: Equatable {
         let id: String
         let name: String // folder name at the volume root
         let canWrite: Bool
+        var encrypted = false
+        var locked = false
+        var needsOwnerSignIn = false
+        var relocksAt: Date?
+
+        var isPersonal: Bool { id.hasPrefix("~") }
     }
 
     var email = ""
@@ -32,9 +38,15 @@ struct DriveStatus: Equatable {
         let shares = (obj["shares"] as? [[String: Any]] ?? []).compactMap { raw -> Share? in
             guard let id = raw["id"] as? String else { return nil }
             let name = raw["name"] as? String ?? id
-            return Share(id: id, name: folderName(id: id, name: name), canWrite: raw["can_write"] as? Bool ?? false)
+            return Share(id: id, name: folderName(id: id, name: name), canWrite: raw["can_write"] as? Bool ?? false,
+                         encrypted: raw["encrypted"] as? Bool ?? false,
+                         locked: raw["locked"] as? Bool ?? false,
+                         needsOwnerSignIn: raw["needs_owner_signin"] as? Bool ?? false,
+                         relocksAt: (raw["expires_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) })
         }
-        return (obj["nas_username"] as? String ?? "", obj["email"] as? String ?? "", shares)
+        // Personal folders first: that's where Unlock lives.
+        let ordered = shares.filter(\.isPersonal) + shares.filter { !$0.isPersonal }
+        return (obj["nas_username"] as? String ?? "", obj["email"] as? String ?? "", ordered)
     }
 }
 

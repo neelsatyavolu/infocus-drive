@@ -58,6 +58,11 @@ type Share struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
 	CanWrite bool   `json:"can_write"`
+	// Encrypted personal folders (see UnlockPersonal).
+	Encrypted        bool     `json:"encrypted,omitempty"`
+	Locked           bool     `json:"locked,omitempty"`
+	NeedsOwnerSignIn bool     `json:"needs_owner_signin,omitempty"`
+	ExpiresAt        *float64 `json:"expires_at,omitempty"`
 }
 
 // Me is the signed-in account (/api/me).

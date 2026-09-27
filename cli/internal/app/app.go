@@ -26,6 +26,8 @@ const (
 	ExitAuth     = 3
 	ExitConflict = 4
 	ExitNotFound = 5
+	// ExitNASSignIn: UGOS wants `infocus unlock --nas-sign-in` before unlocking.
+	ExitNASSignIn = 6
 )
 
 // Build info, set with -ldflags "-X …/app.Version=… -X …/app.Commit=…".
@@ -47,10 +49,11 @@ type Env struct {
 	RunEditor   func(path string) error
 	DeviceName  func() string
 	Getenv      func(string) string
-	StderrIsTTY bool                   // progress lines and update notices only on a terminal
-	Now         func() time.Time       // nil = time.Now
-	UpdateRepo  string                 // "" = update.DefaultRepo
-	Executable  func() (string, error) // path of the running binary, for self-update
+	StderrIsTTY bool                                // progress lines and update notices only on a terminal
+	Now         func() time.Time                    // nil = time.Now
+	UpdateRepo  string                              // "" = update.DefaultRepo
+	Executable  func() (string, error)              // path of the running binary, for self-update
+	ReadSecret  func(prompt string) (string, error) // no-echo terminal prompt
 }
 
 // globals are flags accepted before or after the command name.
@@ -92,6 +95,7 @@ func init() {
 		"mv":      {cmdMv, "mv SRC... DEST_FOLDER", "Move items into a folder"},
 		"rename":  {cmdRename, "rename PATH NEW_NAME", "Rename an item in place"},
 		"rm":      {cmdRm, "rm PATH... [-y]", "Move items to the Recycle bin"},
+		"unlock":  {cmdUnlock, "unlock [--key-file PATH] | unlock --nas-sign-in", "Unlock your encrypted personal folder for 24 hours"},
 		"webdav":  {cmdWebdav, "webdav [--addr 127.0.0.1:PORT] [--name NAME]", "Serve your shares to Finder over local WebDAV (used by the Mac app)"},
 		"version": {cmdVersion, "version", "Print the CLI version"},
 		"help":    {cmdHelp, "help [agents]", "Show help (help agents: guide for AI agents)"},
@@ -99,7 +103,7 @@ func init() {
 }
 
 var commandOrder = []string{
-	"login", "logout", "whoami", "shares", "share",
+	"login", "logout", "whoami", "shares", "share", "unlock",
 	"ls", "tree", "search", "cat", "get", "put", "sync", "edit",
 	"mkdir", "mv", "rename", "rm", "webdav", "update", "config", "version", "help",
 }
@@ -237,6 +241,9 @@ func (r *runner) fail(err error) int {
 			code = ExitConflict
 		case http.StatusForbidden, http.StatusNotFound:
 			code = ExitNotFound
+		case http.StatusLocked:
+			code = ExitNotFound
+			err = fmt.Errorf("%w (run: infocus unlock)", err)
 		}
 	case errors.As(err, &exit):
 		code = exit.code
@@ -334,6 +341,7 @@ func DefaultEnv() (Env, error) {
 		Tokens:      config.Keychain{},
 		HTTP:        &http.Client{},
 		OpenBrowser: openBrowser,
+		ReadSecret:  readSecret,
 		RunEditor:   runEditor,
 		DeviceName:  deviceName,
 		Getenv:      os.Getenv,

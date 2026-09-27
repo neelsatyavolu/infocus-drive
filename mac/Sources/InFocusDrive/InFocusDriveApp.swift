@@ -5,6 +5,8 @@ struct InFocusDriveApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     init() {
+        // Writing to a helper that already exited must not kill the app.
+        signal(SIGPIPE, SIG_IGN)
         Brand.registerFonts()
         #if DEBUG
         PreviewRenderer.runIfRequested()
@@ -21,6 +23,11 @@ struct InFocusDriveApp: App {
 
         Window("InFocus Drive Help", id: "help") {
             HelpView(drive: delegate.drive)
+        }
+        .windowResizability(.contentSize)
+
+        Window("Unlock Personal Folder", id: "unlock") {
+            UnlockView(drive: delegate.drive)
         }
         .windowResizability(.contentSize)
     }

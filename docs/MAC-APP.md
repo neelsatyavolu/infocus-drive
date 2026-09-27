@@ -36,6 +36,13 @@ start at login) and your **Shares** (click one to open it in Finder). **Help**
 opens a window with a guide, troubleshooting, privacy notes and **Copy
 diagnostics** (no tokens or passwords) for support.
 
+**Encrypted personal folders** work like on the website: a locked one shows a
+lock under **Shares**; clicking it opens **Unlock** (UGOS encryption password or
+key file, and, when UGOS asks, a NAS sign-in as the owner plus authenticator
+code). It then stays unlocked everywhere for 24 hours. Until then Finder shows the
+folder but can't open it. Secrets go to the bundled CLI (`infocus unlock`) on stdin,
+never in argv, and aren't stored.
+
 The volume's top level has one folder per share you can open. Everything below
 is your Drive, with the same permissions as the web app (read-only shares stay
 read-only; deletes go to the share's Recycle bin).

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import mimetypes
 import re
 import secrets
@@ -10,7 +13,9 @@ from typing import Any, AsyncIterator
 from urllib.parse import quote, urlencode
 
 import httpx
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -884,10 +889,45 @@ async def api_set_share(request: Request) -> dict[str, Any]:
     }
 
 
+_PERSONAL_OTP_TTL_S = 300
+
+
+def _personal_otp_cipher() -> Fernet:
+    key = hashlib.sha256(b"personal-otp-pending\0" + settings.session_secret.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(key))
+
+
+def _dump_personal_otp(owner: str, token_id: str, user: dict[str, Any]) -> str:
+    """Pending OTP step for a bearer client (no cookie session): encrypted so the
+    UGOS challenge stays private, and bound to this owner and terminal sign-in."""
+    data = {"owner": owner, "token_id": token_id, "cli": user["cli_token_id"],
+            "expires": time.time() + _PERSONAL_OTP_TTL_S}
+    return _personal_otp_cipher().encrypt(json.dumps(data).encode()).decode()
+
+
+def _load_personal_otp(pending: str, owner: str, user: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        data = json.loads(_personal_otp_cipher().decrypt(pending.encode(), ttl=_PERSONAL_OTP_TTL_S))
+    except (InvalidToken, ValueError, TypeError):
+        return None
+    if data.get("owner") != owner or data.get("cli") != user.get("cli_token_id"):
+        return None
+    return data
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Like FastAPI's 422, minus the submitted values: a too-long password or
+    key must never come back in the response (or a CLI's error output)."""
+    errors = [{k: v for k, v in err.items() if k in ("type", "loc", "msg")} for err in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
 @app.post("/api/personal/unlock")
 def api_unlock_personal(request: Request, owner: str = Form(...), key: str = Form(..., max_length=65536),
                         key_file: bool = Form(False)) -> dict[str, Any]:
-    user = _require_session_user(request)
+    # Browser session or the Mac app / CLI bearer: same owner check, HTTPS and limit.
+    user = _require_user(request)
     username = str(user.get("username") or "")
     if owner != username:
         raise HTTPException(status_code=403, detail="You cannot unlock this personal folder")
@@ -910,30 +950,60 @@ def api_unlock_personal(request: Request, owner: str = Form(...), key: str = For
 
 @app.post("/api/personal/auth")
 def api_personal_auth(request: Request, owner: str = Form(...),
-                      password: str = Form("", max_length=256), code: str = Form("", max_length=12)) -> dict[str, Any]:
-    user = _require_session_user(request)
+                      password: str = Form("", max_length=256), code: str = Form("", max_length=12),
+                      pending: str = Form("", max_length=4096)) -> dict[str, Any]:
+    user = _require_user(request)
+    via_cli = "cli_token_id" in user
     username = str(user.get("username") or "")
     if owner != username:
         raise HTTPException(status_code=403, detail="Sign in as the personal-folder owner")
     if request.url.scheme != "https" and request.url.hostname not in ("localhost", "127.0.0.1", "testserver"):
         raise HTTPException(status_code=426, detail="Open Drive over HTTPS to sign in")
+    code = code.strip()
+    if not code and not password:
+        raise HTTPException(status_code=400, detail="Enter your NAS account password.")
     if not _nas_login_allowed(f"personal-auth:{user['uid']}"):
         raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again in a few minutes.")
+    # Bearer clients get 410 when they must start over with the password.
+    start_over = 410 if via_cli else 401
     if code:
-        pending = request.session.get("personal_otp") or {}
-        if pending.get("owner") != owner or float(pending.get("expires", 0)) < time.time():
-            raise HTTPException(status_code=401, detail="Sign-in expired. Enter your NAS password again.")
-        result = nas_otp_login(settings.ugos_api_url, code=code, token_id=pending["token_id"], return_session=True)
+        if via_cli:
+            step = _load_personal_otp(pending, owner, user) or {}
+        else:
+            step = request.session.get("personal_otp") or {}
+        expires = float(step.get("expires", 0))
+        if step.get("owner") != owner or expires < time.time():
+            raise HTTPException(status_code=start_over, detail="Sign-in expired. Enter your NAS password again.")
+        # At most 5 codes per challenge, and a challenge that worked is used up.
+        attempt_key = f"personal\0{owner}\0{step['token_id']}"
+        if not _nas_otp_take_attempt(attempt_key, expires):
+            if not via_cli:
+                request.session.pop("personal_otp", None)
+            raise HTTPException(status_code=start_over, detail="This sign-in can't take more codes. Enter your NAS password again.")
+        result = nas_otp_login(settings.ugos_api_url, code=code, token_id=step["token_id"], return_session=True)
+        if result.get("ok"):
+            _nas_otp_attempts[attempt_key] = (_NAS_OTP_MAX_ATTEMPTS, expires)
     else:
-        request.session.pop("personal_otp", None)
+        if not via_cli:
+            request.session.pop("personal_otp", None)
+        if _nas_user_locked(owner):
+            raise HTTPException(status_code=429, detail="Too many failed sign-ins for this account. Try again in 15 minutes.")
         result = nas_password_login(settings.ugos_api_url, owner, password, return_session=True)
+        if result.get("ok"):
+            _nas_user_fails.pop(owner.lower(), None)
+        else:
+            _nas_user_failed(owner)
     if not result.get("ok"):
         raise HTTPException(status_code=401, detail=result.get("error", "NAS sign-in failed"))
     if result.get("need_otp"):
-        request.session["personal_otp"] = {"owner": owner, "token_id": result["token_id"], "expires": time.time() + 300}
+        if via_cli:
+            return {"need_otp": True, "pending": _dump_personal_otp(owner, result["token_id"], user)}
+        request.session["personal_otp"] = {"owner": owner, "token_id": result["token_id"],
+                                           "expires": time.time() + _PERSONAL_OTP_TTL_S}
         return {"need_otp": True}
     personal_folders.save_owner_session(owner, result["session"])
-    request.session.pop("personal_otp", None)
+    if not via_cli:
+        request.session.pop("personal_otp", None)
     return {"ok": True}
 
 

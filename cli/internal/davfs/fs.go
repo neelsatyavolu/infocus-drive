@@ -44,6 +44,7 @@ type FS struct {
 	shares    []api.Share
 	sharesAt  time.Time
 	uploadSeq int64
+	sharesMu  sync.Mutex // serializes share-list refreshes
 }
 
 type cachedList struct {
@@ -104,6 +105,14 @@ func localOnly(name string) bool {
 	return false
 }
 
+// errLocked: an encrypted personal folder that isn't unlocked. Finder shows it
+// as "no permission"; the Mac app offers Unlock.
+var errLocked = fmt.Errorf("%w: personal folder is locked", os.ErrPermission)
+
+// lockedRecheck limits how often a locked share makes us re-read the share
+// list (to notice an unlock right away without asking on every request).
+const lockedRecheck = time.Second
+
 func pathErr(op, name string, err error) error {
 	return &os.PathError{Op: op, Path: name, Err: err}
 }
@@ -124,6 +133,8 @@ func (f *FS) osErr(op, name string, err error) error {
 		return pathErr(op, name, fmt.Errorf("%w: %v", os.ErrPermission, err))
 	case 404:
 		return pathErr(op, name, os.ErrNotExist)
+	case 423, 428: // encrypted personal folder is locked
+		return pathErr(op, name, errLocked)
 	case 409:
 		return pathErr(op, name, os.ErrExist)
 	}
@@ -137,8 +148,15 @@ func (f *FS) clientFor(s api.Share) *api.Client {
 }
 
 func (f *FS) listShares(ctx context.Context) ([]api.Share, error) {
+	return f.fetchShares(ctx, sharesTTL)
+}
+
+func (f *FS) fetchShares(ctx context.Context, maxAge time.Duration) ([]api.Share, error) {
+	// One /api/me at a time: Finder's parallel requests share the answer.
+	f.sharesMu.Lock()
+	defer f.sharesMu.Unlock()
 	f.mu.Lock()
-	if f.shares != nil && time.Since(f.sharesAt) < sharesTTL {
+	if f.shares != nil && time.Since(f.sharesAt) < maxAge {
 		shares := f.shares
 		f.mu.Unlock()
 		return shares, nil
@@ -177,9 +195,23 @@ func (f *FS) resolve(ctx context.Context, name string) (target, error) {
 		return target{}, err
 	}
 	for _, s := range shares {
-		if shareName(s) == head {
-			return target{share: s, rel: rest}, nil
+		if shareName(s) != head {
+			continue
 		}
+		if s.Locked {
+			// It may have been unlocked (here, on the website or in the app).
+			if fresh, err := f.fetchShares(ctx, lockedRecheck); err == nil {
+				for _, again := range fresh {
+					if again.ID == s.ID {
+						s = again
+					}
+				}
+			}
+			if s.Locked {
+				return target{}, pathErr("open", name, errLocked)
+			}
+		}
+		return target{share: s, rel: rest}, nil
 	}
 	return target{}, pathErr("stat", name, os.ErrNotExist)
 }

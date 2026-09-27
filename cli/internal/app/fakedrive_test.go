@@ -46,6 +46,13 @@ type fakeDrive struct {
 	failLists  int            // next N folder listings fail with 502
 	failUpload bool           // uploads fail with 507 (e.g. quota)
 	truncate   map[string]int // path → download is cut off after N bytes
+
+	// The personal folder ~student1: UGOS encryption.
+	personalLocked bool
+	needsOwner     bool   // UGOS wants the owner's NAS sign-in first (428)
+	personalKey    string // encryption password that unlocks it
+	ownerOTP       bool   // NAS sign-in asks for an authenticator code
+	unlockCalls    int
 }
 
 func newFakeDrive(t *testing.T) (*fakeDrive, *httptest.Server) {
@@ -104,10 +111,70 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	d.lastShare = r.Header.Get("X-Drive-Share")
 	q := r.URL.Query()
+	if d.lastShare == "~student1" && d.personalLocked && strings.HasPrefix(r.URL.Path, "/api/files") {
+		fail(w, 423, "Personal folder is locked. Enter its encryption key to unlock it.")
+		return
+	}
 	switch r.URL.Path {
 	case "/api/me":
+		shares := append([]map[string]any(nil), d.shares...)
+		for i, s := range shares {
+			if s["id"] == "~student1" && !d.personalLocked && d.personalKey != "" {
+				unlocked := map[string]any{"encrypted": true, "locked": false, "expires_at": 1_900_000_000}
+				for k, v := range s {
+					unlocked[k] = v
+				}
+				shares[i] = unlocked
+			}
+			if s["id"] == "~student1" && d.personalLocked {
+				locked := map[string]any{"encrypted": true, "locked": true, "can_read": false, "can_write": false}
+				if d.needsOwner {
+					locked["needs_owner_signin"] = true
+				}
+				for k, v := range s {
+					if _, set := locked[k]; !set {
+						locked[k] = v
+					}
+				}
+				shares[i] = locked
+			}
+		}
 		writeJSON(w, 200, map[string]any{"authenticated": true, "nas_username": "student1",
-			"email": "student1@example.org", "share": "InFocus Drive", "shares": d.shares})
+			"email": "student1@example.org", "share": "InFocus Drive", "shares": shares})
+	case "/api/personal/unlock":
+		d.unlockCalls++
+		switch {
+		case r.FormValue("owner") != "student1":
+			fail(w, 403, "You cannot unlock this personal folder")
+		case d.needsOwner:
+			fail(w, 428, "This folder is private. Sign in as its NAS owner to unlock it and enable automatic relocking.")
+		case r.FormValue("key") != d.personalKey:
+			fail(w, 400, "Could not unlock the folder. Check the encryption key and try again.")
+		default:
+			d.personalLocked = false
+			writeJSON(w, 200, map[string]any{"encrypted": true, "locked": false, "expires_at": 1_900_000_000})
+		}
+	case "/api/personal/auth":
+		switch {
+		case r.FormValue("code") != "":
+			if r.FormValue("pending") != "pending-blob" {
+				fail(w, 410, "Sign-in expired. Enter your NAS password again.")
+				return
+			}
+			if r.FormValue("code") != "123456" {
+				fail(w, 401, "Wrong code")
+				return
+			}
+			d.needsOwner = false
+			writeJSON(w, 200, map[string]any{"ok": true})
+		case r.FormValue("password") != "nas-pass":
+			fail(w, 401, "Incorrect NAS password")
+		case d.ownerOTP:
+			writeJSON(w, 200, map[string]any{"need_otp": true, "pending": "pending-blob"})
+		default:
+			d.needsOwner = false
+			writeJSON(w, 200, map[string]any{"ok": true})
+		}
 	case "/api/files":
 		if d.failLists > 0 {
 			d.failLists--

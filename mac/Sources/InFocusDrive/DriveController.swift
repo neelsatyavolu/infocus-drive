@@ -18,6 +18,8 @@ final class DriveController: ObservableObject {
     @Published private(set) var startsAtLogin = SMAppService.mainApp.status == .enabled
     @Published private(set) var status = DriveStatus()
     @Published private(set) var transfers: [Transfer] = []
+    /// The encrypted personal folder the Unlock window is working on.
+    @Published private(set) var unlocking: PersonalUnlock?
 
     private let defaults = UserDefaults.standard
     private let dav = DavServer()
@@ -202,6 +204,22 @@ final class DriveController: ObservableObject {
     func openShare(_ share: DriveStatus.Share) {
         guard let volume = connectedVolume else { return }
         NSWorkspace.shared.open(volume.appendingPathComponent(share.name, isDirectory: true))
+    }
+
+    /// Starts unlocking an encrypted personal folder (shown in the Unlock window).
+    func beginUnlock(_ share: DriveStatus.Share) {
+        // Fresh each time (never a half-finished step), unless one is running.
+        if unlocking?.busy != true {
+            unlocking = PersonalUnlock(share: share, drive: self)
+        }
+    }
+
+    /// After an unlock: refresh the shares and open the folder in Finder.
+    func personalFolderUnlocked(_ share: DriveStatus.Share) async {
+        await refreshAccount()
+        if let fresh = status.shares.first(where: { $0.id == share.id }), !fresh.locked {
+            openShare(fresh)
+        }
     }
 
     func openDriveWebsite() {
