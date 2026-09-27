@@ -247,13 +247,28 @@ func (c *Client) Search(ctx context.Context, query, under string, limit int) (Se
 
 // Download streams a file's bytes. The caller closes the reader.
 func (c *Client) Download(ctx context.Context, p string) (io.ReadCloser, error) {
+	return c.DownloadFrom(ctx, p, 0)
+}
+
+// DownloadFrom streams a file's bytes starting at offset (a Range request).
+// If the server ignores the range, the skipped bytes are read and discarded.
+func (c *Client) DownloadFrom(ctx context.Context, p string, offset int64) (io.ReadCloser, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/download", url.Values{"path": {CleanPath(p)}, "inline": {"0"}}, nil)
 	if err != nil {
 		return nil, err
 	}
+	if offset > 0 {
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+	}
 	res, err := c.do(req)
 	if err != nil {
 		return nil, err
+	}
+	if offset > 0 && res.StatusCode != http.StatusPartialContent {
+		if _, err := io.CopyN(io.Discard, res.Body, offset); err != nil {
+			res.Body.Close()
+			return nil, fmt.Errorf("skip to byte %d: %w", offset, err)
+		}
 	}
 	return res.Body, nil
 }

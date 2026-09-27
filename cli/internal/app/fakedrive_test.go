@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const testToken = "ifd_test"
@@ -39,6 +41,11 @@ type fakeDrive struct {
 	shares     []map[string]any
 	lastShare  string
 	loggedOut  bool
+	revoked    bool           // token rejected with 401
+	rangeReads int            // downloads that asked for a byte range
+	failLists  int            // next N folder listings fail with 502
+	failUpload bool           // uploads fail with 507 (e.g. quota)
+	truncate   map[string]int // path → download is cut off after N bytes
 }
 
 func newFakeDrive(t *testing.T) (*fakeDrive, *httptest.Server) {
@@ -91,7 +98,7 @@ func join(dir, name string) string {
 func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if r.Header.Get("Authorization") != "Bearer "+testToken {
+	if d.revoked || r.Header.Get("Authorization") != "Bearer "+testToken {
 		fail(w, 401, "Terminal sign-in expired or revoked. Run `infocus login`.")
 		return
 	}
@@ -102,6 +109,11 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"authenticated": true, "nas_username": "student1",
 			"email": "student1@example.org", "share": "InFocus Drive", "shares": d.shares})
 	case "/api/files":
+		if d.failLists > 0 {
+			d.failLists--
+			fail(w, 502, "bad gateway")
+			return
+		}
 		dir := q.Get("path")
 		if f, ok := d.files[dir]; !ok || !f.isDir {
 			fail(w, 404, "Not found")
@@ -125,8 +137,24 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 			fail(w, 404, "Not found")
 			return
 		}
-		w.Write(f.data)
-	case "/api/upload":
+		if r.Header.Get("Range") != "" {
+			d.rangeReads++
+		}
+		if n, ok := d.truncate[q.Get("path")]; ok {
+			w.Header().Set("Content-Length", strconv.Itoa(len(f.data)))
+			w.Write(f.data[:n])
+			panic(http.ErrAbortHandler) // drop the connection mid-body
+		}
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(f.data))
+	case "/api/upload", "/api/upload/complete":
+		if d.failUpload {
+			fail(w, 507, "Drive is full")
+			return
+		}
+		if r.URL.Path == "/api/upload/complete" {
+			d.completeUpload(w, r)
+			return
+		}
 		r.ParseMultipartForm(64 << 20)
 		file, header, err := r.FormFile("file")
 		if err != nil {
@@ -182,20 +210,6 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		d.chunks[q.Get("upload_id")][index] = data
 		writeJSON(w, 200, map[string]any{"ok": true})
-	case "/api/upload/complete":
-		id := r.FormValue("upload_id")
-		m := d.meta[id]
-		total, _ := strconv.Atoi(m[2])
-		if len(d.chunks[id]) != total {
-			fail(w, 400, "Missing chunks")
-			return
-		}
-		var data []byte
-		for i := 0; i < total; i++ {
-			data = append(data, d.chunks[id][i]...)
-		}
-		d.finishUpload(w, join(m[0], m[1]), data, r.FormValue("expect_mtime_ns"))
-		delete(d.chunks, id)
 	case "/api/upload/abort":
 		d.aborts++
 		delete(d.chunks, r.FormValue("upload_id"))
@@ -213,10 +227,11 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 		delete(d.files, p)
 		writeJSON(w, 200, map[string]any{"ok": true, "action": "recycled", "path": "#recycle/" + p})
 	case "/api/move":
-		src, dest := r.FormValue("path"), r.FormValue("dest")
-		d.files[join(dest, path.Base(src))] = d.files[src]
-		delete(d.files, src)
-		writeJSON(w, 200, map[string]any{"ok": true})
+		src := r.FormValue("path")
+		d.relocate(w, src, join(r.FormValue("dest"), path.Base(src)))
+	case "/api/rename":
+		src := r.FormValue("path")
+		d.relocate(w, src, join(path.Dir("/" + src)[1:], r.FormValue("new_name")))
 	case "/api/search":
 		results := []map[string]any{}
 		for p := range d.files {
@@ -231,6 +246,45 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 	default:
 		fail(w, 404, "no route "+r.URL.Path)
 	}
+}
+
+func (d *fakeDrive) completeUpload(w http.ResponseWriter, r *http.Request) {
+	id := r.FormValue("upload_id")
+	m := d.meta[id]
+	total, _ := strconv.Atoi(m[2])
+	if len(d.chunks[id]) != total {
+		fail(w, 400, "Missing chunks")
+		return
+	}
+	var data []byte
+	for i := 0; i < total; i++ {
+		data = append(data, d.chunks[id][i]...)
+	}
+	d.finishUpload(w, join(m[0], m[1]), data, r.FormValue("expect_mtime_ns"))
+	delete(d.chunks, id)
+}
+
+// relocate moves an item and everything under it, refusing to overwrite.
+func (d *fakeDrive) relocate(w http.ResponseWriter, src, dst string) {
+	if _, ok := d.files[src]; !ok {
+		fail(w, 404, "Not found")
+		return
+	}
+	if _, exists := d.files[dst]; exists {
+		fail(w, 409, "Target exists")
+		return
+	}
+	moved := map[string]*fakeFile{}
+	for p, f := range d.files {
+		if p == src || strings.HasPrefix(p, src+"/") {
+			moved[dst+strings.TrimPrefix(p, src)] = f
+			delete(d.files, p)
+		}
+	}
+	for p, f := range moved {
+		d.files[p] = f
+	}
+	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
 func (d *fakeDrive) finishUpload(w http.ResponseWriter, p string, data []byte, expect string) {

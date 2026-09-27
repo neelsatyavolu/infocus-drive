@@ -80,6 +80,8 @@ app/cli_tokens.py    Terminal (`infocus` CLI) sign-ins: PKCE codes + hashed bear
 app/static/cli-authorize.*  CLI consent page (`/cli/authorize`)
 app/static/cli/install.sh   CLI installer served at `/cli/install.sh`
 cli/                 Go source for the `infocus` CLI (docs/CLI.md)
+cli/internal/davfs/  WebDAV file system over the Drive API (`infocus webdav`)
+mac/                 Swift menu-bar app: Finder volume via NetFS + bundled CLI (docs/MAC-APP.md)
 app/static/app.js    UI state, tree, DnD, preview, speed test
 app/static/api.js    Fetch/XHR client
 app/static/format.js Sizes, kinds, previewKind()
@@ -121,6 +123,7 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | GET/DELETE | `/api/cli/sessions` `/api/cli/sessions/{id}` | List / revoke own terminal sign-ins |
 | POST | `/api/cli/logout` | Revoke the presenting bearer token |
 | GET | `/cli/install.sh` | Unauthenticated CLI installer |
+| GET | `/mac/install.sh` | Unauthenticated installer for InFocus Drive for Mac (docs/MAC-APP.md) |
 
 All authenticated `/api/*` routes accept `Authorization: Bearer ifd_…` from the CLI (see [`docs/CLI.md`](docs/CLI.md)) except browser-only ones (`/api/cli/authorize`, `/api/lan-handoff`, `/api/share`, `/api/personal/*`).
 

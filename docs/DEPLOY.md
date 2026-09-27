@@ -218,7 +218,7 @@ The `infocus` CLI ([CLI.md](CLI.md)) ships as a GitHub Release, not in the Docke
 
 1. Make sure `cd cli && go test -race ./...` passes.
 2. Tag and push: `git tag cli-v0.1.0 && git push origin cli-v0.1.0`.
-3. `.github/workflows/cli-release.yml` tests, builds a universal macOS binary, and publishes `infocus-darwin-universal.tar.gz` + `SHA256SUMS` to the release.
-4. Check it: `curl -fsSL https://drive.example.com/cli/install.sh | sh`, then `infocus login`.
+3. `.github/workflows/cli-release.yml` tests, builds a universal macOS binary and the Mac app, and publishes `infocus-darwin-universal.tar.gz`, `InFocus-Drive-mac.zip` + `SHA256SUMS` to the release.
+4. Check it: `curl -fsSL https://drive.example.com/cli/install.sh | sh`, then `infocus login`; and `curl -fsSL https://drive.example.com/mac/install.sh | sh` for the Mac app ([MAC-APP.md](MAC-APP.md)).
 
-The installer downloads from `releases/latest`, so keep CLI releases as the repo's latest release (or users pin with `INFOCUS_VERSION`). Terminal sign-ins live in `CLI_TOKENS_DB_PATH` (default `/config/cli_tokens.sqlite3`) on the persistent config mount; no migration is needed.
+Both installers (`/cli/install.sh`, `/mac/install.sh`) download from `releases/latest`, so keep CLI releases as the repo's latest release (or users pin with `INFOCUS_VERSION`). Terminal sign-ins live in `CLI_TOKENS_DB_PATH` (default `/config/cli_tokens.sqlite3`) on the persistent config mount; no migration is needed.

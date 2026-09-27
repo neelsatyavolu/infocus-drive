@@ -92,6 +92,7 @@ func init() {
 		"mv":      {cmdMv, "mv SRC... DEST_FOLDER", "Move items into a folder"},
 		"rename":  {cmdRename, "rename PATH NEW_NAME", "Rename an item in place"},
 		"rm":      {cmdRm, "rm PATH... [-y]", "Move items to the Recycle bin"},
+		"webdav":  {cmdWebdav, "webdav [--addr 127.0.0.1:PORT] [--name NAME]", "Serve your shares to Finder over local WebDAV (used by the Mac app)"},
 		"version": {cmdVersion, "version", "Print the CLI version"},
 		"help":    {cmdHelp, "help [agents]", "Show help (help agents: guide for AI agents)"},
 	}
@@ -100,7 +101,7 @@ func init() {
 var commandOrder = []string{
 	"login", "logout", "whoami", "shares", "share",
 	"ls", "tree", "search", "cat", "get", "put", "sync", "edit",
-	"mkdir", "mv", "rename", "rm", "update", "config", "version", "help",
+	"mkdir", "mv", "rename", "rm", "webdav", "update", "config", "version", "help",
 }
 
 // runner is one invocation's state.

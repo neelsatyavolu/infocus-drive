@@ -4890,3 +4890,56 @@ html.light .share__img {
   overflow-x: auto;
   white-space: nowrap;
 }
+
+/* Mac app & CLI modal: InFocus Drive for Mac download above the sign-ins */
+.modal--mac {
+  max-width: 540px;
+}
+
+.mac-app {
+  margin-bottom: 20px;
+}
+
+.mac-app__features {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  font-size: 13.5px;
+}
+
+.mac-app__features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mac-app__features li::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand-green);
+}
+
+.mac-app__label {
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.mac-app__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.mac-app__divider {
+  padding-top: 18px;
+  border-top: 1px solid hsl(var(--border));
+}

@@ -10,7 +10,7 @@ curl -fsSL https://drive.example.com/cli/install.sh | sh
 
 The installer downloads the latest universal binary (Apple Silicon + Intel) from this repo's GitHub Releases, checks its SHA-256, installs it to `~/.local/bin/infocus` (no sudo), adds that folder to `PATH` in `~/.zshrc`, and saves the Drive's address in `~/.config/infocus/config.json`. Pin a version with `INFOCUS_VERSION=0.1.0`, or choose the folder with `INFOCUS_BIN_DIR`.
 
-The Drive sidebar → **Install CLI** shows the exact command for your deployment.
+The Drive sidebar → **Mac app & CLI** shows the exact command for your deployment.
 
 ## Sign in
 
@@ -22,7 +22,7 @@ Your browser opens the Drive. Sign in the usual way (Google, email code, or NAS 
 
 - The token is stored in the macOS **Keychain** — never in files, logs or command arguments.
 - It expires after **30 days without use** and **90 days** at most.
-- See and revoke sign-ins in the Drive sidebar → **Install CLI**, or run `infocus logout`.
+- See and revoke sign-ins in the Drive sidebar → **Mac app & CLI**, or run `infocus logout`.
 - `infocus login --no-browser` prints the approval link instead of opening it.
 
 ## Commands
@@ -43,6 +43,7 @@ Your browser opens the Drive. Sign in the usual way (Google, email code, or NAS 
 | `infocus mv SRC... DEST_FOLDER` | Move into a folder |
 | `infocus rename PATH NEW_NAME` | Rename in place |
 | `infocus rm PATH... [-y]` | Move to the Recycle bin (asks first in an interactive terminal) |
+| `infocus webdav [--addr 127.0.0.1:PORT] [--name NAME]` | Serve your shares to Finder over a local WebDAV server (password on stdin). Used by the Mac app — see [MAC-APP.md](MAC-APP.md) |
 | `infocus update` | Update to the latest release now |
 | `infocus config [auto-update on\|off]` | Show settings / turn auto-update off or on |
 
@@ -74,7 +75,7 @@ Agents act as you. Only sign in on your own computer, and revoke the sign-in whe
 - `Authorization: Bearer ifd_…` is accepted by `_require_user`, so every file endpoint enforces the same `as_user` permissions. A bad bearer is a 401 even alongside a valid cookie. Bearer requests never write the session cookie, can't mint more tokens, LAN handoffs or personal-folder unlocks, and choose shares per request via `X-Drive-Share`. Tokens are bound to the uid they were issued to, and the token DB is only touched under `fsops.as_root()`.
 - Removing a user (`revoke_user`) revokes all of their terminal sign-ins.
 - `/api/upload` and `/api/upload/complete` accept `expect_mtime_ns` (`-1` = must not exist) and return 409 when the target changed.
-- `cli/` — Go, standard library only. Releases: see [DEPLOY.md](DEPLOY.md#cli-releases).
+- `cli/` — Go; standard library plus `golang.org/x/net/webdav` for `infocus webdav` (`cli/internal/davfs`). Releases: see [DEPLOY.md](DEPLOY.md#cli-releases).
 
 ## Troubleshooting
 

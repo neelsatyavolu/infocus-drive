@@ -2127,13 +2127,23 @@ def api_cli_logout(request: Request) -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/cli/install.sh")
-def cli_install_script() -> Response:
+def _install_script(folder: str) -> Response:
     server = settings.public_base_url.rstrip("/")
     if not re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
         raise HTTPException(status_code=503, detail="PUBLIC_BASE_URL must be an https origin")
-    script = (STATIC / "cli" / "install.sh").read_text(encoding="utf-8")
+    script = (STATIC / folder / "install.sh").read_text(encoding="utf-8")
     return Response(script.replace("__INFOCUS_SERVER__", server), media_type="text/x-shellscript")
+
+
+@app.get("/cli/install.sh")
+def cli_install_script() -> Response:
+    return _install_script("cli")
+
+
+@app.get("/mac/install.sh")
+def mac_install_script() -> Response:
+    """Installer for InFocus Drive for Mac (the Finder menu-bar app)."""
+    return _install_script("mac")
 
 
 @app.get("/{full_path:path}")

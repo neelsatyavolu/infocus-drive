@@ -1,10 +1,10 @@
 /**
  * Public shared-file page. No Drive chrome, no session.
  */
-import { el, icon } from "./dom.js?v=20260926-softwhite";
-import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20260926-softwhite";
-import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20260926-softwhite";
-import { createMediaPlayer } from "./player.js?v=20260926-softwhite";
+import { el, icon } from "./dom.js?v=20260927-macapp";
+import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20260927-macapp";
+import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20260927-macapp";
+import { createMediaPlayer } from "./player.js?v=20260927-macapp";
 
 const THEME_KEY = "ifd-theme";
 const TEXT_LIMIT_BYTES = 1_500_000;

@@ -1,12 +1,14 @@
 name: CLI release
 
-# Push a tag like cli-v0.1.0 to publish a macOS universal `infocus` binary.
-# /cli/install.sh downloads the latest release asset and checks SHA256SUMS.
+# Push a tag like cli-v0.1.0 to publish a macOS universal `infocus` binary and
+# InFocus Drive for Mac (InFocus-Drive-mac.zip, which bundles the same CLI).
+# /cli/install.sh and /mac/install.sh download the latest release assets and
+# check SHA256SUMS.
 on:
   push:
     tags: ["cli-v*"]
   pull_request:
-    paths: ["cli/**", ".github/workflows/cli-release.yml"]
+    paths: ["cli/**", "mac/**", ".github/workflows/cli-release.yml"]
 
 permissions:
   contents: read
@@ -48,9 +50,25 @@ jobs:
             cli/dist/infocus-darwin-universal.tar.gz
             cli/dist/SHA256SUMS
 
+  mac-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: cli/go.mod
+      - name: Build the Mac app (bundles the CLI)
+        env:
+          TAG: ${{ startsWith(github.ref, 'refs/tags/cli-v') && github.ref_name || 'cli-v0.0.0-dev' }}
+        run: VERSION="${TAG#cli-v}" mac/build.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: infocus-drive-mac
+          path: mac/build/InFocus-Drive-mac.zip
+
   release:
     if: startsWith(github.ref, 'refs/tags/cli-v')
-    needs: build
+    needs: [build, mac-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -58,12 +76,18 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: infocus-darwin-universal
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: infocus-drive-mac
+      - name: Checksums for every asset
+        run: sha256sum infocus-darwin-universal.tar.gz InFocus-Drive-mac.zip > SHA256SUMS
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "InFocus CLI ${GITHUB_REF_NAME#cli-v}" \
-            --notes "Install: curl -fsSL https://<your drive>/cli/install.sh | sh" \
-            infocus-darwin-universal.tar.gz SHA256SUMS
+            --title "InFocus CLI & Mac app ${GITHUB_REF_NAME#cli-v}" \
+            --notes "CLI: curl -fsSL https://<your drive>/cli/install.sh | sh
+          Mac app (Finder): curl -fsSL https://<your drive>/mac/install.sh | sh" \
+            infocus-darwin-universal.tar.gz InFocus-Drive-mac.zip SHA256SUMS

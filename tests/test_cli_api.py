@@ -217,8 +217,9 @@ def test_consent_page_cannot_be_framed(client, url):
     assert "no-store" in response.headers["cache-control"]
 
 
-def test_install_script_embeds_server_url(client):
-    response = client.get("/cli/install.sh")
+@pytest.mark.parametrize("url", ["/cli/install.sh", "/mac/install.sh"])
+def test_install_script_embeds_server_url(client, url):
+    response = client.get(url)
     assert response.status_code == 200
     assert f"INFOCUS_SERVER='{ORIGIN}'" in response.text
     assert "__INFOCUS_SERVER__" not in response.text

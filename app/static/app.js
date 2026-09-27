@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260926-softwhite";
-import * as api from "./api.js?v=20260926-softwhite";
-import { ApiError } from "./api.js?v=20260926-softwhite";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20260927-macapp";
+import * as api from "./api.js?v=20260927-macapp";
+import { ApiError } from "./api.js?v=20260927-macapp";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260926-softwhite";
-import { $, el, icon, show } from "./dom.js?v=20260926-softwhite";
+} from "./format.js?v=20260927-macapp";
+import { $, el, icon, show } from "./dom.js?v=20260927-macapp";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260926-softwhite";
+} from "./quick.js?v=20260927-macapp";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260926-softwhite").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20260927-macapp").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3429,6 +3429,46 @@ function openFinderConnectModal() {
   openModal(el("div", { class: "modal modal--finder" }, [body]));
 }
 
+// Latest release asset (the CLI release workflow also publishes the Mac app).
+const MAC_APP_DOWNLOAD =
+  "https://github.com/neelsatyavolu/infocus-drive/releases/latest/download/InFocus-Drive-mac.zip";
+
+function macAppSection(origin) {
+  const macCmd = `curl -fsSL ${origin}/mac/install.sh | sh`;
+  const copy = el("button", { type: "button", class: "btn btn--primary btn--modal", text: "Copy install command" });
+  copy.addEventListener("click", () => copyText(macCmd, copy));
+  const features = [
+    "Your shares as a folder in Finder",
+    "Uploads, status and help in the menu bar",
+    "Signs in with Google — no NAS password",
+  ];
+  return el("section", { class: "mac-app" }, [
+    el("div", { class: "modal__lead" }, [
+      el("div", { class: "modal__badge" }, [icon("#i-hdd", 17)]),
+      el("div", {}, [
+        el("h3", { text: "InFocus Drive for Mac" }),
+        el("p", { text: "A menu-bar app that keeps your Drive mounted in Finder and reconnects after sleep or a network change." }),
+      ]),
+    ]),
+    el("ul", { class: "mac-app__features" }, features.map((text) => el("li", { text }))),
+    el("div", { class: "mac-app__label", text: "Install — paste in Terminal" }),
+    el("code", { class: "mono cli-sessions__install", text: macCmd }),
+    el("div", { class: "mac-app__actions" }, [
+      copy,
+      el("a", {
+        class: "btn btn--modal",
+        href: MAC_APP_DOWNLOAD,
+        rel: "noopener",
+        text: "Download .zip",
+      }),
+    ]),
+    el("p", {
+      class: "modal__hint",
+      text: "macOS 13 or later. The Terminal command installs without security prompts and updates the app when you run it again. If you use the .zip, macOS asks once: System Settings → Privacy & Security → Open Anyway.",
+    }),
+  ]);
+}
+
 function openTerminalSignInsModal() {
   const origin = state.me?.public_base_url || location.origin;
   const installCmd = `curl -fsSL ${origin}/cli/install.sh | sh`;
@@ -3475,22 +3515,23 @@ function openTerminalSignInsModal() {
     }
   }
 
-  const copy = el("button", { type: "button", class: "btn btn--modal", text: "Copy install command" });
+  const copy = el("button", { type: "button", class: "btn btn--modal", text: "Copy CLI command" });
   copy.addEventListener("click", () => copyText(installCmd, copy));
 
   const body = el("div", { class: "modal__body" }, [
-    el("div", { class: "modal__lead" }, [
+    macAppSection(origin),
+    el("div", { class: "modal__lead mac-app__divider" }, [
       el("div", { class: "modal__badge" }, [icon("#i-terminal", 17)]),
       el("div", {}, [
-        el("h3", { text: "Terminal sign-ins" }),
+        el("h3", { text: "Signed-in Macs and terminals" }),
         el("p", {
-          text: "Computers where you ran infocus login. They can use your files until you revoke them or they go 30 days unused.",
+          text: "Where you signed in with the Mac app or infocus login. They can use your files until you revoke them or they go 30 days unused.",
         }),
       ]),
     ]),
     list,
     el("p", { class: "modal__hint" }, [
-      document.createTextNode("Install the CLI on a Mac, then run "),
+      document.createTextNode("Prefer the command line? Install the CLI, then run "),
       el("code", { class: "mono", text: "infocus login" }),
       document.createTextNode(":"),
       el("code", { class: "mono cli-sessions__install", text: installCmd }),
@@ -3501,7 +3542,7 @@ function openTerminalSignInsModal() {
     ]),
   ]);
 
-  openModal(el("div", { class: "modal" }, [body]));
+  openModal(el("div", { class: "modal modal--mac" }, [body]));
   load();
 }
 
