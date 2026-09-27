@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/neelsatyavolu/infocus-drive/cli/internal/davfs"
 )
 
 func lockedHarness(t *testing.T) *harness {
@@ -124,11 +126,23 @@ func TestWebdavLockedPersonalFolder(t *testing.T) {
 	h := newDavHarness(t)
 	h.set(func(d *fakeDrive) { d.personalLocked = true; d.personalKey = "k" })
 	h.drive.dir("Notes")
-	if code, _ := h.propfind(t, h.url("My folder")+"/"); code/100 == 2 {
-		t.Fatalf("PROPFIND locked folder: %d, want a refusal", code)
+	// Still visible at the top of the volume, like on the website.
+	if _, body := h.propfind(t, h.url()+"/"); !strings.Contains(body, "My%20folder") {
+		t.Fatalf("locked folder missing from the volume root:\n%s", body)
+	}
+	// Inside: only a note saying how to unlock it.
+	code, body := h.propfind(t, h.url("My folder")+"/")
+	if code != http.StatusMultiStatus || strings.Contains(body, "Notes") || !strings.Contains(body, "unlock") {
+		t.Fatalf("PROPFIND locked folder: %d\n%s", code, body)
+	}
+	if code, note := h.do(t, "GET", h.url("My folder", davfs.LockedNote), ""); code != 200 || !strings.Contains(note, "Unlock") {
+		t.Fatalf("GET note: %d %q", code, note)
 	}
 	if code, _ := h.do(t, "PUT", h.url("My folder", "a.txt"), "x"); code/100 == 2 {
 		t.Fatalf("PUT into locked folder succeeded: %d", code)
+	}
+	if code, _ := h.do(t, "GET", h.url("My folder", "Notes"), ""); code/100 == 2 {
+		t.Fatalf("read inside locked folder succeeded: %d", code)
 	}
 	h.set(func(d *fakeDrive) { d.personalLocked = false }) // unlocked on the website
 	time.Sleep(1100 * time.Millisecond)                    // davfs re-checks locked shares once a second

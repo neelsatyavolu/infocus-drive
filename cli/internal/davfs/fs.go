@@ -65,8 +65,9 @@ func New(client *api.Client, tempDir string) *FS {
 
 // target is a WebDAV name resolved to a share and a path inside it.
 type target struct {
-	share api.Share // zero value = the root that lists shares
-	rel   string    // path inside the share; "" = the share itself
+	share  api.Share // zero value = the root that lists shares
+	rel    string    // path inside the share; "" = the share itself
+	locked bool      // a locked personal folder (only its root and LockedNote)
 }
 
 func (t target) isRoot() bool { return t.share.ID == "" }
@@ -208,6 +209,9 @@ func (f *FS) resolve(ctx context.Context, name string) (target, error) {
 				}
 			}
 			if s.Locked {
+				if rest == "" || rest == LockedNote {
+					return target{share: s, rel: rest, locked: true}, nil
+				}
 				return target{}, pathErr("open", name, errLocked)
 			}
 		}
@@ -259,6 +263,9 @@ func (f *FS) find(ctx context.Context, name string) (node, error) {
 	if t.rel == "" {
 		return node{t: t, info: fileInfo{name: shareName(t.share), dir: true, mtime: f.start}}, nil
 	}
+	if t.locked {
+		return node{t: t, info: f.lockedNoteInfo()}, nil
+	}
 	if entry, ok := f.local.get(t.key()); ok {
 		return node{t: t, info: entry.info(t.base()), local: &entry}, nil
 	}
@@ -293,7 +300,7 @@ func (f *FS) writable(ctx context.Context, op, name string) (target, error) {
 	if err != nil {
 		return target{}, err
 	}
-	if t.isRoot() || t.rel == "" || !t.share.CanWrite {
+	if t.isRoot() || t.rel == "" || t.locked || !t.share.CanWrite {
 		return target{}, pathErr(op, name, os.ErrPermission)
 	}
 	return t, nil

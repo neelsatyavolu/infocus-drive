@@ -1,6 +1,7 @@
 package davfs
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -65,6 +66,8 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, _ os.FileMode)
 		return nil, err
 	}
 	switch {
+	case n.t.locked && !n.info.dir:
+		return &noteFile{Reader: bytes.NewReader(lockedNoteText), info: n.info}, nil
 	case n.info.dir && n.local == nil:
 		return &dirFile{fs: f, ctx: ctx, n: n}, nil
 	case n.local != nil && n.local.ghost != "":
@@ -89,7 +92,7 @@ func (f *FS) create(ctx context.Context, name string) (webdav.File, error) {
 	}
 	// Hidden files never reach the Drive, so Finder may keep its .DS_Store
 	// and "._" files even in a read-only share.
-	if t.isRoot() || t.rel == "" || (!t.share.CanWrite && !localOnly(t.base())) {
+	if t.isRoot() || t.rel == "" || t.locked || (!t.share.CanWrite && !localOnly(t.base())) {
 		return nil, pathErr("open", name, os.ErrPermission)
 	}
 	parent, err := f.find(ctx, path.Dir("/"+api.CleanPath(name)))
@@ -114,6 +117,9 @@ func (f *FS) create(ctx context.Context, name string) (webdav.File, error) {
 
 // readDir lists a folder: shares at the root, else Drive entries plus local ones.
 func (f *FS) readDir(ctx context.Context, n node) ([]fs.FileInfo, error) {
+	if n.t.locked {
+		return []fs.FileInfo{f.lockedNoteInfo()}, nil
+	}
 	if n.t.isRoot() {
 		shares, err := f.listShares(ctx)
 		if err != nil {

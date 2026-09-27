@@ -39,8 +39,9 @@ diagnostics** (no tokens or passwords) for support.
 **Encrypted personal folders** work like on the website: a locked one shows a
 lock under **Shares**; clicking it opens **Unlock** (UGOS encryption password or
 key file, and, when UGOS asks, a NAS sign-in as the owner plus authenticator
-code). It then stays unlocked everywhere for 24 hours. Until then Finder shows the
-folder but can't open it. Secrets go to the bundled CLI (`infocus unlock`) on stdin,
+code). It then stays unlocked everywhere for 24 hours. While locked, Finder still shows
+the folder, with a single read-only note inside saying how to unlock it; nothing
+else can be read or written there. Secrets go to the bundled CLI (`infocus unlock`) on stdin,
 never in argv, and aren't stored.
 
 The volume's top level has one folder per share you can open. Everything below
