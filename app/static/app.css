@@ -12,7 +12,8 @@
   --brand-green-deep: #23955c;   /* Hover for green text/marks */
   --brand-fill: #0b6e3e;         /* InFocus Green: buttons, active states, bands */
   --brand-fill-hover: #0e7d47;
-  --on-brand: #ffffff;           /* Text on InFocus Green and Danger fills */
+  --on-brand: #ecefea;           /* Soft White: text on InFocus Green and Danger fills (never pure #fff) */
+  --soft-white: #ecefea;         /* Text and logo white on dark surfaces */
   --brand-red: #ee3a2a;          /* Record Red: the rec dot / LIVE marker only */
   --brand-amber: #f2a516;
   --mist: #dce2de;
@@ -37,7 +38,7 @@
   /* Sidebar tokens (dark default; overridden under .light) */
   --sb-bg: #0f110f;
   --sb-fg: #a9b1ac;
-  --sb-hd: #ffffff;
+  --sb-hd: #ecefea;
   --sb-br: #1f231f;
   --sb-dim: #6b726d;
   --sb-hover: #1a1d1a;
@@ -54,10 +55,9 @@
   --font-display: "Lexend", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  /* One small radius for everyday UI; the arc corner is the only big curve. */
+  /* One small radius for everyday UI. Plates and panels are square (DESIGN.md). */
   --radius: 6px;
   --radius-sm: 4px;
-  --arc: 24px;
 
   /* Brand motion curves */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -66,11 +66,11 @@
 
   /* Semantic triplets — dark theme (same values as InFocus Portal) */
   --background: 120 6% 6%;
-  --foreground: 0 0% 100%;
+  --foreground: 96 14% 93%;
   --card: 120 6% 9%;
   --popover: 120 6% 9%;
   --primary: 151 82% 24%;
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 96 14% 93%;
   --secondary: 120 5% 12%;
   --muted: 120 5% 10%;
   --muted-foreground: 141 6% 66%;
@@ -82,17 +82,13 @@
   --chart-5: 280 70% 60%;
 }
 
-@media (min-width: 640px) {
-  :root { --arc: 32px; }
-}
-
 .light {
   --background: 141 12% 96%;
   --foreground: 120 6% 6%;
   --card: 0 0% 100%;
   --popover: 0 0% 100%;
   --primary: 151 82% 24%;
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: 96 14% 93%;
   --secondary: 141 10% 92%;
   --muted: 141 10% 94%;
   --muted-foreground: 140 5% 34%;
@@ -958,7 +954,7 @@ body.is-resizing-sidebar * {
 .tree-row--current,
 .tree-row[aria-current="true"] {
   border-color: transparent;
-  border-radius: 0 14px 0 0;
+  border-radius: var(--radius);
   background: var(--brand-fill);
   color: var(--on-brand);
   font-weight: 500;
@@ -1057,7 +1053,7 @@ body.is-resizing-sidebar * {
 
 .shortcut[aria-current="true"] {
   border-color: transparent;
-  border-radius: 0 14px 0 0;
+  border-radius: var(--radius);
   background: var(--brand-fill);
   color: var(--on-brand);
   font-weight: 500;
@@ -3351,7 +3347,7 @@ body.is-dnd-move .sidebar__label {
   border: 1px solid rgb(255 255 255 / 0.16);
   border-radius: var(--radius);
   background: rgb(15 17 15 / 0.72);
-  color: #fff;
+  color: var(--soft-white);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3621,7 +3617,7 @@ body.is-dnd-move .sidebar__label {
   height: 13px;
   margin-left: -6.5px;
   border-radius: 999px;
-  background: #fff;
+  background: var(--soft-white);
   transform: translateY(-50%) scale(0);
   transition: transform 0.15s var(--ease-out);
 }
@@ -3649,7 +3645,7 @@ body.is-dnd-move .sidebar__label {
   font-family: var(--font-mono);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: #fff;
+  color: var(--soft-white);
   pointer-events: none;
   white-space: nowrap;
 }
@@ -3999,7 +3995,7 @@ body.is-dnd-move .sidebar__label {
   border: 1px solid rgb(255 255 255 / 0.1);
   border-radius: var(--radius);
   background: rgb(15 17 15 / 0.72);
-  color: #fff;
+  color: var(--soft-white);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -4661,7 +4657,6 @@ body.is-dnd-move .sidebar__label {
   width: 100%;
   max-width: 720px;
   padding: 20px;
-  border-radius: 0 var(--arc) 0 0;
   background: hsl(var(--card));
 }
 

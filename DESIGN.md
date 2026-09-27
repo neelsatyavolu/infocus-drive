@@ -9,11 +9,12 @@ Tokens live at the top of `app/static/app.css`. Updated September 26, 2026.
 | Brand color | Token | Use |
 | --- | --- | --- |
 | Ink `#0F110F` | `--background` (dark), `--ink` (flips), `--sb-bg` | Page and sidebar canvas. `--card` / `--secondary` / `--muted` are slightly raised Ink. |
-| InFocus Green `#0B6E3E` | `--brand-fill` (`--primary`) | Primary buttons, active and selected states, header bands. Always white text (`--on-brand`). Hover `--brand-fill-hover`. |
+| InFocus Green `#0B6E3E` | `--brand-fill` (`--primary`) | Primary buttons, active and selected states, header bands. Always Soft White text (`--on-brand`). Hover `--brand-fill-hover`. |
 | Green on Dark `#2BB36E` | `--brand-green` (flips to `#0B6E3E` in light) | Text, links, icons, small marks. Tints `--brand-green-a10…a30` are fine; never a solid large fill. |
 | Record Red `#EE3A2A` | `--brand-red` | A tiny rec/live dot only. Never text, buttons, or errors. |
+| Soft White `#ECEFEA` | `--foreground` (dark), `--on-brand`, `--soft-white`, `--sb-hd` | Primary text on dark and on green/Danger fills, and the wordmark's letters. Never pure `#FFFFFF` for text or the logo. Pure white stays only for surfaces that must be white: light-theme cards, the Google sign-in button, document/PDF pages. |
 | Mist `#DCE2DE` | `--mist` | Secondary text on dark. |
-| Danger `#C21F3A` | `--danger` | Destructive fills with white text, only on a final confirm. |
+| Danger `#C21F3A` | `--danger` | Destructive fills with Soft White text, only on a final confirm. |
 | Danger on Dark `#FF7A8A` | `--danger-text` (flips to `#C21F3A`) | Error text, icons, borders; quiet destructive buttons. |
 | Danger tints | `--danger-tint`, `--danger-a12/-a18/-a40` | Error banners and hover tints. |
 
@@ -24,7 +25,7 @@ Semantic HSL triplets (`--background`, `--primary`, `--border`, …) are defined
 - **Lexend** (`--font-sans`, `--font-display`) for everything people read: headings in SemiBold with tight tracking, body in Regular, labels in ALL CAPS Medium with wide tracking. **Geist Mono** (`--font-mono`) is only for data: sizes, dates in columns, durations, progress, speeds, IDs. Both load from Google Fonts via `<link>` in each HTML page.
 - There are no italics in the UI, except rendered Markdown.
 - One small radius, `--radius` (6px; `--radius-sm` is 4px), is used everywhere. Circles are only for avatars, dots, spinners, and toggles.
-- The arc corner (`--arc`, 24px on phones and 32px from 640px) is one curved top corner with the others square. It appears on just a few plate pieces and on the active sidebar item.
+- Plates and panels (the share card, header bands) are **square**. The active sidebar and tree items use the normal `--radius`. There is no single curved "arc" corner anymore. It was removed on September 26, 2026, and `--arc` is gone.
 - Everything is flat: no gradients, drop shadows, glass, or blur.
 - Transitions run 150–300ms on `--ease-out`.
 
@@ -34,7 +35,7 @@ All in `app/static/`, served from `/assets/`:
 
 | File | Use |
 | --- | --- |
-| `infocus-wordmark.png` | Wordmark with white letters, for the dark theme |
+| `infocus-wordmark.png` | Wordmark with Soft White letters, for the dark theme |
 | `infocus-wordmark-light.png` | Wordmark with ink letters and deep green, for the light theme |
 | `favicon-32.png` | Browser tab icon (the "o" mark on a rounded ink tile) |
 | `apple-touch-icon.png` | Home-screen icon (the "o" mark on a square ink tile) |
