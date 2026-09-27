@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260926-design";
-import * as api from "./api.js?v=20260926-design";
-import { ApiError } from "./api.js?v=20260926-design";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20260926-softwhite";
+import * as api from "./api.js?v=20260926-softwhite";
+import { ApiError } from "./api.js?v=20260926-softwhite";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260926-design";
-import { $, el, icon, show } from "./dom.js?v=20260926-design";
+} from "./format.js?v=20260926-softwhite";
+import { $, el, icon, show } from "./dom.js?v=20260926-softwhite";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260926-design";
+} from "./quick.js?v=20260926-softwhite";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260926-design").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20260926-softwhite").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3851,6 +3851,12 @@ function transferLoadedBytes(entry) {
   return 0;
 }
 
+// Rows are rebuilt on every progress frame; a negative delay locks the sweep to
+// one clock so a fresh bar doesn't restart off-track (matches app.css 1.2s).
+function transferSweepDelay() {
+  return `-${Math.round(performance.now() % 1200)}ms`;
+}
+
 function renderUploads() {
   const tray = $("upload-tray");
   const transfers = allTransfers();
@@ -4024,6 +4030,7 @@ function renderUploads() {
       }${indeterminate ? " is-indeterminate" : ""}`,
     });
     bar.style.width = entry.status === "done" ? "100%" : indeterminate ? "40%" : `${percent}%`;
+    if (indeterminate) bar.style.animationDelay = transferSweepDelay();
 
     const canCancelOne = isTransferActive(entry);
     const rowActions = canCancelOne

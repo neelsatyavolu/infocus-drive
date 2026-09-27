@@ -1,6 +1,6 @@
-import { el } from "./dom.js?v=20260926-design";
-import { marked } from "./vendor/marked.js?v=20260926-design";
-import DOMPurify from "./vendor/dompurify.js?v=20260926-design";
+import { el } from "./dom.js?v=20260926-softwhite";
+import { marked } from "./vendor/marked.js?v=20260926-softwhite";
+import DOMPurify from "./vendor/dompurify.js?v=20260926-softwhite";
 
 export function isMarkdown(name) {
   return /\.(md|markdown)$/i.test(name);

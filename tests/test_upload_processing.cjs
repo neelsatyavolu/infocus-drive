@@ -4,7 +4,7 @@ const { readFileSync } = require('node:fs');
 const vm = require('node:vm');
 
 const source = readFileSync(`${__dirname}/../app/static/app.js`, 'utf8');
-function render(uploads, downloads = []) {
+function render(uploads, downloads = [], now = 0) {
   const nodes = new Map();
   const make = (tag, props = {}, children = []) => ({
     tag, ...props, children, style: {}, setAttribute() {},
@@ -15,9 +15,9 @@ function render(uploads, downloads = []) {
     $: id => { if (!nodes.has(id)) nodes.set(id, make('div')); return nodes.get(id); },
     el: make, icon: () => make('svg'), show() {},
     formatSize: n => `${n} bytes`, formatSpeed: n => n ? `${n} B/s` : null,
-    formatEta: () => 'a few seconds',
+    formatEta: () => 'a few seconds', performance: { now: () => now },
   });
-  for (const name of ['allTransfers', 'isTransferActive', 'isUploadProcessing',
+  for (const name of ['allTransfers', 'isTransferActive', 'isUploadProcessing', 'transferSweepDelay',
     'transferRemainingBytes', 'transferLoadedBytes', 'renderUploads']) {
     const match = source.match(new RegExp(`^function ${name}\\([^]*?^}`, 'm'));
     if (match) vm.runInContext(match[0], context);
@@ -74,4 +74,13 @@ test('merge distinguishes checking from skipped unchanged files', () => {
   assert.match(skipped.rows, /Skipped/);
   assert.match(skipped.rows, /Unchanged · already exists/);
   assert.match(skipped.nodes.get('upload-foot').textContent, /1 unchanged · skipped/);
+});
+
+test('indeterminate row bar keeps its sweep phase across re-renders', () => {
+  const bar = rows => JSON.parse(rows).children[0].children[1].children[0];
+  const first = bar(render([upload()], [], 1500).rows);
+  assert.match(first.class, /is-indeterminate/);
+  assert.equal(first.style.animationDelay, '-300ms');
+  assert.equal(bar(render([upload()], [], 2600).rows).style.animationDelay, '-200ms');
+  assert.equal(bar(render([upload({ progress: 0.5 })], [], 1500).rows).style.animationDelay, undefined);
 });
