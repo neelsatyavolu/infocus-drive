@@ -4,6 +4,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -258,24 +259,69 @@ func (c *Client) Download(ctx context.Context, p string) (io.ReadCloser, error) 
 // DownloadFrom streams a file's bytes starting at offset (a Range request).
 // If the server ignores the range, the skipped bytes are read and discarded.
 func (c *Client) DownloadFrom(ctx context.Context, p string, offset int64) (io.ReadCloser, error) {
+	body, _, err := c.DownloadVersionFrom(ctx, p, offset)
+	return body, err
+}
+
+// DownloadVersionFrom is DownloadFrom plus the file's version (see Version).
+func (c *Client) DownloadVersionFrom(ctx context.Context, p string, offset int64) (io.ReadCloser, string, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/api/download", url.Values{"path": {CleanPath(p)}, "inline": {"0"}}, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if offset > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
 	}
 	res, err := c.do(req)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if offset > 0 && res.StatusCode != http.StatusPartialContent {
 		if _, err := io.CopyN(io.Discard, res.Body, offset); err != nil {
 			res.Body.Close()
-			return nil, fmt.Errorf("skip to byte %d: %w", offset, err)
+			return nil, "", fmt.Errorf("skip to byte %d: %w", offset, err)
 		}
 	}
-	return res.Body, nil
+	return res.Body, Version(res), nil
+}
+
+// Version identifies which version of a file a download response is from
+// (ETag, Last-Modified and total size), so reads assembled from several
+// requests can tell if the file was replaced in between.
+func Version(res *http.Response) string {
+	total := res.Header.Get("Content-Length")
+	if cr := res.Header.Get("Content-Range"); cr != "" {
+		if i := strings.LastIndexByte(cr, '/'); i >= 0 {
+			total = cr[i+1:]
+		}
+	}
+	return res.Header.Get("ETag") + "|" + res.Header.Get("Last-Modified") + "|" + total
+}
+
+// ErrNoRange means the server answered a range request with the whole file.
+var ErrNoRange = errors.New("the Drive doesn't support byte ranges")
+
+// DownloadRange returns length bytes of a file starting at offset (one
+// chunk of a parallel read) and the file's Version.
+func (c *Client) DownloadRange(ctx context.Context, p string, offset, length int64) ([]byte, string, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, "/api/download", url.Values{"path": {CleanPath(p)}, "inline": {"0"}}, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
+	res, err := c.do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusPartialContent {
+		return nil, "", ErrNoRange
+	}
+	buf := make([]byte, length)
+	if _, err := io.ReadFull(res.Body, buf); err != nil {
+		return nil, "", fmt.Errorf("read bytes %d–%d: %w", offset, offset+length, err)
+	}
+	return buf, Version(res), nil
 }
 
 // DownloadZip streams a zip of the given files/folders.

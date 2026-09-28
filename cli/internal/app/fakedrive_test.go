@@ -44,6 +44,10 @@ type fakeDrive struct {
 	revoked    bool           // token rejected with 401
 	rangeReads int            // downloads that asked for a byte range
 	failLists  int            // next N folder listings fail with 502
+	listCalls  int            // /api/files requests
+	onRange    func()         // runs after each ranged download (tests swap files mid-read)
+	failDelete bool           // /api/delete answers 403
+	uploads    int            // finished uploads (simple or chunked)
 	failUpload bool           // uploads fail with 507 (e.g. quota)
 	truncate   map[string]int // path → download is cut off after N bytes
 
@@ -181,6 +185,7 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 			fail(w, 502, "bad gateway")
 			return
 		}
+		d.listCalls++
 		dir := q.Get("path")
 		if f, ok := d.files[dir]; !ok || !f.isDir {
 			fail(w, 404, "Not found")
@@ -206,7 +211,11 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		if r.Header.Get("Range") != "" {
 			d.rangeReads++
+			if d.onRange != nil {
+				defer d.onRange()
+			}
 		}
+		w.Header().Set("ETag", fmt.Sprintf(`"%d"`, f.mtimeNS)) // like FileResponse: changes when the file does
 		if n, ok := d.truncate[q.Get("path")]; ok {
 			w.Header().Set("Content-Length", strconv.Itoa(len(f.data)))
 			w.Write(f.data[:n])
@@ -290,6 +299,10 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 		d.dir(p)
 		writeJSON(w, 200, d.entry(p))
 	case "/api/delete":
+		if d.failDelete {
+			fail(w, 403, "Permission denied")
+			return
+		}
 		p := r.FormValue("path")
 		delete(d.files, p)
 		writeJSON(w, 200, map[string]any{"ok": true, "action": "recycled", "path": "#recycle/" + p})
@@ -366,6 +379,7 @@ func (d *fakeDrive) finishUpload(w http.ResponseWriter, p string, data []byte, e
 			return
 		}
 	}
+	d.uploads++
 	d.put(p, string(data))
 	writeJSON(w, 200, d.entry(p))
 }

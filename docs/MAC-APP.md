@@ -94,6 +94,29 @@ Finder ──WebDAV (NetFS)──► 127.0.0.1:PORT  infocus webdav  ──HTTPS
   for the session instead of being uploaded, so web users don't see Finder junk and
   apps that save through a temp file still work.
 
+### Speed
+
+Measured through the tunnel from a Mac on a fast link: one HTTP stream reads a large
+file at ~65 MB/s (the link peaked at ~70), uploads peak at ~38 MB/s with 4 parallel
+chunks (8 streams add nothing). What the helper does about it:
+
+- **Large reads** switch to 8 MiB ranges fetched 4 at a time once a read has gone
+  1 MiB sequentially (small range reads stay one request), handed to Finder in order
+  (`davfs/readahead.go`, at most 48 MiB buffered per file). Every chunk must carry the
+  same version (ETag, Last-Modified, size) as the bytes already read, so a file saved
+  by someone else mid-copy fails the copy instead of mixing versions. On fast,
+  low-latency links one stream is already near line rate; the gain is on high-latency
+  links (home Wi-Fi), where a single TCP stream can't fill the pipe.
+- **Large writes** upload 32 MiB chunks, 4 at a time (the CLI's chunked upload).
+- **Small files** cost one request each: a new file Finder LOCKs before writing is a
+  local placeholder (not an empty upload), and uploads/mkdirs/deletes update the cached
+  folder listing in place instead of dropping every listing (was ~5 round trips per file).
+  A placeholder that never gets written still becomes an empty file on the Drive: on
+  UNLOCK, when its lock expires (swept on the next lock activity), when it's renamed,
+  or when the helper shuts down. Failed deletes/moves re-list instead of hiding files.
+- The HTTP client keeps 16 idle connections per host, so parallel streams don't redo
+  TLS handshakes; listings are cached for 10 s (writes keep them current).
+
 Helper errors go to `~/Library/Logs/InFocus Drive/helper.log` (**Account → Show helper log**).
 
 ## Limits

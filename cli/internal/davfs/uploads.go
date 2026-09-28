@@ -38,12 +38,14 @@ func (f *FS) upload(ctx context.Context, t target, localPath string, opts api.Up
 	report := f.reporter(t, info.Size())
 	opts.Progress = report.progress
 	dir, base := api.SplitPath(t.rel)
-	defer f.changed()
-	if _, err := f.clientFor(t.share).UploadFile(ctx, dir, base, file, opts); err != nil {
+	entry, err := f.clientFor(t.share).UploadFile(ctx, dir, base, file, opts)
+	if err != nil {
+		f.cacheDropParent(t)
 		err = f.osErr("write", t.rel, err)
 		report.finish(err)
 		return err
 	}
+	f.cachePut(t, entry)
 	report.finish(nil)
 	return nil
 }

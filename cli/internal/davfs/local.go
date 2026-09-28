@@ -11,11 +11,12 @@ import (
 // (content in a temp file) or a "ghost", a Drive item renamed to a name the
 // Drive hides from listings (so it can still be found, read and deleted).
 type localEntry struct {
-	file  string // temp file with the content; "" for a ghost
-	ghost string // share-relative Drive path of a ghost
-	size  int64
-	mtime time.Time
-	dir   bool
+	file    string // temp file with the content; "" for a ghost or pending file
+	ghost   string // share-relative Drive path of a ghost
+	pending bool   // a new file Finder has LOCKed but not written yet
+	size    int64
+	mtime   time.Time
+	dir     bool
 }
 
 func (e localEntry) info(name string) fileInfo {

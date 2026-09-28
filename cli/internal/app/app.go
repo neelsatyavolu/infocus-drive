@@ -339,11 +339,22 @@ func DefaultEnv() (Env, error) {
 		StdinIsTTY:  info != nil && info.Mode()&os.ModeCharDevice != 0,
 		ConfigDir:   dir,
 		Tokens:      config.Keychain{},
-		HTTP:        &http.Client{},
+		HTTP:        &http.Client{Transport: fastTransport()},
 		OpenBrowser: openBrowser,
 		ReadSecret:  readSecret,
 		RunEditor:   runEditor,
 		DeviceName:  deviceName,
 		Getenv:      os.Getenv,
 	}, nil
+}
+
+// fastTransport keeps enough idle connections for parallel chunk uploads and
+// read-ahead (Go's default keeps 2 per host, so extra streams would redo the
+// TLS handshake through the tunnel every time).
+func fastTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = 16
+	t.ReadBufferSize = 256 << 10
+	t.WriteBufferSize = 256 << 10
+	return t
 }

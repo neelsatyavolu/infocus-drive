@@ -70,6 +70,8 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, _ os.FileMode)
 		return &noteFile{Reader: bytes.NewReader(lockedNoteText), info: n.info}, nil
 	case n.info.dir && n.local == nil:
 		return &dirFile{fs: f, ctx: ctx, n: n}, nil
+	case n.local != nil && n.local.pending:
+		return &noteFile{Reader: bytes.NewReader(nil), info: n.info}, nil
 	case n.local != nil && n.local.ghost != "":
 		if n.info.dir {
 			return &dirFile{fs: f, ctx: ctx, n: node{t: n.t.with(n.local.ghost), info: n.info}}, nil
@@ -190,28 +192,61 @@ func (d *dirFile) Seek(int64, int) (int64, error) { return 0, errNotSupported }
 // remoteFile reads a Drive file lazily with ranged downloads, so seeking
 // (Range requests from Finder) doesn't fetch the whole file.
 type remoteFile struct {
-	ctx     context.Context
-	fs      *FS
-	client  *api.Client
-	rel     string
-	info    fileInfo
-	off     int64
-	body    io.ReadCloser
-	bodyOff int64
+	ctx       context.Context
+	fs        *FS
+	client    *api.Client
+	rel       string
+	info      fileInfo
+	off       int64
+	body      io.ReadCloser
+	bodyOff   int64
+	bodyStart int64      // where the current stream started
+	version   string     // file version the bytes read so far came from
+	ahead     *readAhead // parallel chunks for large sequential reads
+	noRange   bool       // the Drive ignored ranges: stream instead
 }
 
 func (r *remoteFile) Read(p []byte) (int, error) {
 	if r.off >= r.info.size {
 		return 0, io.EOF
 	}
+	if r.ahead != nil && r.ahead.pos != r.off {
+		r.stopAhead() // seeked away
+	}
+	// Switch to parallel chunks once this is clearly a big sequential read.
+	if r.ahead == nil && !r.noRange && r.body != nil && r.bodyOff == r.off &&
+		r.off-r.bodyStart >= readAheadAfter && r.info.size-r.off > readChunk {
+		r.closeBody()
+		r.ahead = startReadAhead(r.ctx, r.client, r.rel, r.off, r.info.size, r.version)
+	}
+	if r.ahead != nil {
+		n, err := r.ahead.Read(r.ctx, p)
+		switch {
+		case rangeUnsupported(err):
+			r.noRange = true
+			r.stopAhead() // fall back to one stream below
+		default:
+			r.off += int64(n)
+			if err != nil && err != io.EOF {
+				requestOf(r.ctx).broken.Store(true)
+				return n, r.fs.osErr("read", r.rel, err)
+			}
+			return n, err
+		}
+	}
 	if r.body == nil || r.bodyOff != r.off {
 		r.closeBody()
-		body, err := r.client.DownloadFrom(r.ctx, r.rel, r.off)
+		body, version, err := r.client.DownloadVersionFrom(r.ctx, r.rel, r.off)
 		if err != nil {
 			requestOf(r.ctx).broken.Store(true)
 			return 0, r.fs.osErr("read", r.rel, err)
 		}
-		r.body, r.bodyOff = body, r.off
+		if r.version != "" && version != r.version {
+			body.Close()
+			requestOf(r.ctx).broken.Store(true)
+			return 0, errChanged
+		}
+		r.body, r.bodyOff, r.bodyStart, r.version = body, r.off, r.off, version
 	}
 	n, err := r.body.Read(p)
 	r.off += int64(n)
@@ -248,7 +283,14 @@ func (r *remoteFile) closeBody() {
 	}
 }
 
-func (r *remoteFile) Close() error                       { r.closeBody(); return nil }
+func (r *remoteFile) stopAhead() {
+	if r.ahead != nil {
+		r.ahead.Close()
+		r.ahead = nil
+	}
+}
+
+func (r *remoteFile) Close() error                       { r.stopAhead(); r.closeBody(); return nil }
 func (r *remoteFile) Stat() (fs.FileInfo, error)         { return r.info, nil }
 func (r *remoteFile) Readdir(int) ([]fs.FileInfo, error) { return nil, errNotSupported }
 func (r *remoteFile) Write([]byte) (int, error)          { return 0, errNotSupported }
@@ -331,6 +373,14 @@ func (f *FS) writes(delta int) {
 
 func (w *writeFile) Close() error {
 	defer w.fs.writes(-1) // after the upload: the copy is only done then
+	if !w.createOnly && !localOnly(w.name) {
+		// This PUT settles any placeholder, whether it uploads or fails.
+		defer func() {
+			if old, ok := w.fs.local.get(w.t.key()); ok && old.pending {
+				w.fs.local.remove(w.t.key())
+			}
+		}()
+	}
 	st, err := w.File.Stat()
 	if err == nil {
 		err = w.incomplete(st.Size())
@@ -346,24 +396,23 @@ func (w *writeFile) Close() error {
 		}
 		if old, ok := w.fs.local.get(w.t.key()); ok && old.ghost != "" {
 			w.fs.local.remove(w.t.key())
-			if _, err := w.fs.clientFor(w.t.share).Delete(w.ctx, old.ghost); err != nil {
+			_, err := w.fs.clientFor(w.t.share).Delete(w.ctx, old.ghost)
+			w.fs.cacheForget(w.t.with(old.ghost))
+			if err != nil {
 				os.Remove(w.File.Name())
 				return w.fs.osErr("write", w.t.rel, err)
 			}
 		}
 		w.fs.local.put(w.t.key(), localEntry{file: w.File.Name(), size: st.Size(), mtime: time.Now()})
-		w.fs.changed()
 		return nil
 	}
 	defer os.Remove(w.File.Name())
-	opts := api.UploadOptions{}
 	if w.createOnly {
-		mustNotExist := api.MustNotExist
-		opts.ExpectMtimeNS = &mustNotExist
+		// Finder LOCKs a new name right before writing it: keep a local
+		// placeholder instead of uploading an empty file first. The PUT
+		// replaces it; an UNLOCK without a PUT creates the empty file.
+		w.fs.local.put(w.t.key(), localEntry{pending: true, mtime: time.Now()})
+		return nil
 	}
-	err = w.fs.upload(w.ctx, w.t, w.File.Name(), opts)
-	if w.createOnly && os.IsExist(err) {
-		return nil // it exists after all; LOCK leaves it alone
-	}
-	return err
+	return w.fs.upload(w.ctx, w.t, w.File.Name(), api.UploadOptions{})
 }

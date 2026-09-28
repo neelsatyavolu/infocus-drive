@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ import (
 const davPassword = "correct-horse-battery-staple"
 
 type davHarness struct {
+	fs      *davfs.FS
 	drive   *fakeDrive
 	srv     *httptest.Server
 	mu      sync.Mutex
@@ -40,7 +42,7 @@ func newDavHarness(t *testing.T) *davHarness {
 	base, _ := url.Parse(driveSrv.URL)
 	client := &api.Client{Base: base, Token: testToken, HTTP: driveSrv.Client()}
 	fs := davfs.New(client, t.TempDir())
-	h := &davHarness{drive: drive}
+	h := &davHarness{drive: drive, fs: fs}
 	fs.OnUpload = func(u davfs.Upload) {
 		h.mu.Lock()
 		h.uploads = append(h.uploads, u)
@@ -580,5 +582,190 @@ func TestWebdavReportsOpenWrites(t *testing.T) {
 	defer mu.Unlock()
 	if len(counts) < 2 || counts[0] != 1 || counts[len(counts)-1] != 0 {
 		t.Fatalf("open-write counts = %v, want 1 … 0", counts)
+	}
+}
+
+func (h *davHarness) counts() (lists, uploads, ranges int) {
+	h.drive.mu.Lock()
+	defer h.drive.mu.Unlock()
+	return h.drive.listCalls, h.drive.uploads, h.drive.rangeReads
+}
+
+// Finder copying small files: LOCK (new file), PUT, UNLOCK, next file. Each
+// file should cost one upload, and the folder shouldn't be re-listed per file.
+func TestWebdavSmallFileCopyIsOneRequestPerFile(t *testing.T) {
+	h := newDavHarness(t)
+	h.drive.dir("Photos")
+	h.propfind(t, h.url("InFocus Drive", "Photos")+"/") // Finder opened the folder
+	lists0, uploads0, _ := h.counts()
+	for i := 0; i < 5; i++ {
+		name := fmt.Sprintf("img%d.jpg", i)
+		code, body := h.do(t, "LOCK", h.url("InFocus Drive", "Photos", name), lockBody, "Timeout", "Second-60")
+		if code/100 != 2 {
+			t.Fatalf("LOCK %s: %d", name, code)
+		}
+		token := lockToken(t, body)
+		if code, _ := h.do(t, "PUT", h.url("InFocus Drive", "Photos", name), "jpeg-bytes", "If", "(<"+token+">)"); code/100 != 2 {
+			t.Fatalf("PUT %s: %d", name, code)
+		}
+		h.do(t, "UNLOCK", h.url("InFocus Drive", "Photos", name), "", "Lock-Token", "<"+token+">")
+		if code, _ := h.propfind(t, h.url("InFocus Drive", "Photos", name)); code != http.StatusMultiStatus {
+			t.Fatalf("PROPFIND %s after copy: %d", name, code)
+		}
+	}
+	lists, uploads, _ := h.counts()
+	if uploads-uploads0 != 5 {
+		t.Fatalf("%d uploads for 5 files, want 5 (no empty placeholder uploads)", uploads-uploads0)
+	}
+	if lists-lists0 > 1 {
+		t.Fatalf("%d folder listings while copying 5 files, want at most 1", lists-lists0)
+	}
+	for i := 0; i < 5; i++ {
+		if got, _ := h.driveHas(fmt.Sprintf("Photos/img%d.jpg", i)); got != "jpeg-bytes" {
+			t.Fatalf("img%d.jpg = %q", i, got)
+		}
+	}
+}
+
+// `touch` style: LOCK a new name, then UNLOCK without writing: the empty file
+// must still end up on the Drive.
+func TestWebdavLockThenUnlockCreatesEmptyFile(t *testing.T) {
+	h := newDavHarness(t)
+	_, body := h.do(t, "LOCK", h.url("InFocus Drive", "empty.txt"), lockBody, "Timeout", "Second-60")
+	if _, ok := h.driveHas("empty.txt"); ok {
+		t.Fatal("LOCK uploaded a placeholder right away")
+	}
+	h.do(t, "UNLOCK", h.url("InFocus Drive", "empty.txt"), "", "Lock-Token", "<"+lockToken(t, body)+">")
+	if got, ok := h.driveHas("empty.txt"); !ok || got != "" {
+		t.Fatalf("after UNLOCK: exists=%v content=%q", ok, got)
+	}
+}
+
+func lockToken(t *testing.T, body string) string {
+	t.Helper()
+	start := strings.Index(body, "<D:href>")
+	end := strings.Index(body, "</D:href>")
+	if start < 0 || end < start {
+		t.Fatalf("no lock token in %s", body)
+	}
+	return body[start+len("<D:href>") : end]
+}
+
+// Big files are read with several ranged requests in parallel (read-ahead),
+// and the bytes still come out right, from the start or from an offset.
+func TestWebdavLargeReadsUseParallelRanges(t *testing.T) {
+	h := newDavHarness(t)
+	data := make([]byte, 40<<20+12345)
+	for i := range data {
+		data[i] = byte(i*7 + i>>13)
+	}
+	h.drive.put("big.mov", string(data))
+	code, body := h.do(t, "GET", h.url("InFocus Drive", "big.mov"), "")
+	if code != 200 || body != string(data) {
+		t.Fatalf("GET: %d, %d bytes, equal=%v", code, len(body), body == string(data))
+	}
+	if _, _, ranges := h.counts(); ranges < 4 {
+		t.Fatalf("%d ranged reads for a 40 MB file, want parallel chunks", ranges)
+	}
+	from := 17<<20 + 3
+	code, body = h.do(t, "GET", h.url("InFocus Drive", "big.mov"), "", "Range", fmt.Sprintf("bytes=%d-", from))
+	if code != http.StatusPartialContent || body != string(data[from:]) {
+		t.Fatalf("ranged GET: %d, %d bytes", code, len(body))
+	}
+}
+
+// Someone saves a new version while this Mac copies the file out: the parallel
+// read must fail rather than stitch old and new bytes together.
+func TestWebdavReadAheadNeverMixesVersions(t *testing.T) {
+	h := newDavHarness(t)
+	old := strings.Repeat("A", 30<<20)
+	h.drive.put("clip.mov", old)
+	swapped := false
+	h.set(func(d *fakeDrive) {
+		d.onRange = func() {
+			if !swapped { // runs with the drive lock held
+				swapped = true
+				d.clock++
+				d.files["clip.mov"] = &fakeFile{data: []byte(strings.Repeat("B", 30<<20)), mtimeNS: d.clock}
+			}
+		}
+	})
+	code, body := h.do(t, "GET", h.url("InFocus Drive", "clip.mov"), "")
+	if code == 200 && strings.Contains(body, "A") && strings.Contains(body, "B") {
+		t.Fatal("copy silently mixed two versions of the file")
+	}
+}
+
+func TestWebdavRenamedPlaceholderBecomesEmptyFile(t *testing.T) {
+	h := newDavHarness(t)
+	h.drive.put("b.txt", "real document")
+	h.do(t, "LOCK", h.url("InFocus Drive", "a.txt"), lockBody, "Timeout", "Second-60")
+	// What x/net/webdav does for MOVE a→b with Overwrite: T (its lock checks
+	// aside): clear the destination, then rename.
+	ctx := context.Background()
+	if err := h.fs.RemoveAll(ctx, "/InFocus Drive/b.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.fs.Rename(ctx, "/InFocus Drive/a.txt", "/InFocus Drive/b.txt"); err != nil {
+		t.Fatalf("rename placeholder: %v", err)
+	}
+	// Like moving an empty file over b.txt: b.txt is empty on the Drive (the old
+	// one went to the recycle bin), never an invisible local-only placeholder.
+	if got, ok := h.driveHas("b.txt"); !ok || got != "" {
+		t.Fatalf("b.txt on the Drive = %q (exists=%v)", got, ok)
+	}
+	if code, got := h.do(t, "GET", h.url("InFocus Drive", "b.txt"), ""); code != 200 || got != "" {
+		t.Fatalf("GET b.txt = %d %q", code, got)
+	}
+}
+
+// Finder died (or the Mac slept) after LOCKing a new name: once the lock
+// expires the empty file is still created.
+func TestWebdavExpiredLockFinishesPlaceholder(t *testing.T) {
+	h := newDavHarness(t)
+	h.do(t, "LOCK", h.url("InFocus Drive", "touched.txt"), lockBody, "Timeout", "Second-1")
+	time.Sleep(1200 * time.Millisecond)
+	h.do(t, "LOCK", h.url("InFocus Drive", "other.txt"), lockBody, "Timeout", "Second-60") // any lock activity sweeps
+	if got, ok := h.driveHas("touched.txt"); !ok || got != "" {
+		t.Fatalf("expired placeholder: exists=%v content=%q", ok, got)
+	}
+}
+
+func TestWebdavFailedPutClearsPlaceholder(t *testing.T) {
+	h := newDavHarness(t)
+	_, body := h.do(t, "LOCK", h.url("InFocus Drive", "x.bin"), lockBody, "Timeout", "Second-60")
+	h.set(func(d *fakeDrive) { d.failUpload = true })
+	if code, _ := h.do(t, "PUT", h.url("InFocus Drive", "x.bin"), "data", "If", "(<"+lockToken(t, body)+">)"); code/100 == 2 {
+		t.Fatalf("PUT succeeded although the upload failed: %d", code)
+	}
+	if code, _ := h.propfind(t, h.url("InFocus Drive", "x.bin")); code != http.StatusNotFound {
+		t.Fatalf("placeholder survived a failed PUT: PROPFIND %d", code)
+	}
+}
+
+func TestWebdavFailedDeleteKeepsFileListed(t *testing.T) {
+	h := newDavHarness(t)
+	h.drive.put("keep.txt", "x")
+	h.propfind(t, h.url("InFocus Drive")+"/")
+	h.set(func(d *fakeDrive) { d.failDelete = true })
+	if code, _ := h.do(t, "DELETE", h.url("InFocus Drive", "keep.txt"), ""); code/100 == 2 {
+		t.Fatalf("DELETE succeeded: %d", code)
+	}
+	if code, _ := h.propfind(t, h.url("InFocus Drive", "keep.txt")); code != http.StatusMultiStatus {
+		t.Fatalf("file hidden after a failed delete: %d", code)
+	}
+}
+
+// A small ranged read must not start the 8 MiB read-ahead.
+func TestWebdavSmallRangeReadIsOneRequest(t *testing.T) {
+	h := newDavHarness(t)
+	h.drive.put("big.bin", strings.Repeat("z", 30<<20))
+	_, _, before := h.counts()
+	code, body := h.do(t, "GET", h.url("InFocus Drive", "big.bin"), "", "Range", "bytes=100-4195")
+	if code != http.StatusPartialContent || len(body) != 4096 {
+		t.Fatalf("ranged GET: %d, %d bytes", code, len(body))
+	}
+	if _, _, after := h.counts(); after-before > 1 {
+		t.Fatalf("%d ranged requests for a 4 KB read", after-before)
 	}
 }

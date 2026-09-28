@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	listTTL   = 5 * time.Second // Finder re-lists folders constantly
+	listTTL   = 10 * time.Second // Finder re-lists folders constantly; writes update the cache in place
 	sharesTTL = time.Minute
 )
 
@@ -49,6 +49,7 @@ type FS struct {
 	uploadSeq int64
 	writing   int
 	sharesMu  sync.Mutex // serializes share-list refreshes
+	locks     *pendingLocks
 }
 
 type cachedList struct {
@@ -242,13 +243,6 @@ func (f *FS) list(ctx context.Context, t target) ([]api.Entry, error) {
 	return listing.Items, nil
 }
 
-// changed drops cached listings after anything is written.
-func (f *FS) changed() {
-	f.mu.Lock()
-	f.lists = map[string]cachedList{}
-	f.mu.Unlock()
-}
-
 // node is a resolved, existing name.
 type node struct {
 	t     target
@@ -317,10 +311,12 @@ func (f *FS) Mkdir(ctx context.Context, name string, _ os.FileMode) error {
 		return err
 	}
 	dir, base := api.SplitPath(t.rel)
-	defer f.changed()
-	if _, err := f.clientFor(t.share).Mkdir(ctx, dir, base); err != nil {
+	entry, err := f.clientFor(t.share).Mkdir(ctx, dir, base)
+	if err != nil {
+		f.cacheDropParent(t)
 		return f.osErr("mkdir", name, err)
 	}
+	f.cachePut(t, entry)
 	return nil
 }
 
@@ -333,7 +329,6 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 	if f.replacedByMove(ctx, t) {
 		return nil
 	}
-	defer f.changed()
 	f.local.removeTree(t.share.ID, t.rel)
 	entry, isLocal := f.local.remove(t.key())
 	remote := t.rel
@@ -347,9 +342,11 @@ func (f *FS) RemoveAll(ctx context.Context, name string) error {
 	}
 	if _, err := f.clientFor(t.share).Delete(ctx, remote); err != nil {
 		if err := f.osErr("remove", name, err); !os.IsNotExist(err) {
+			f.cacheDropParent(t.with(remote)) // it may still be there
 			return err
 		}
 	}
+	f.cacheForget(t.with(remote))
 	return nil
 }
 
@@ -363,7 +360,7 @@ func (f *FS) replacedByMove(ctx context.Context, t target) bool {
 		return false
 	}
 	src, err := f.find(ctx, req.moveSrc)
-	if err != nil || src.local == nil || src.local.ghost != "" || src.t.share.ID != t.share.ID {
+	if err != nil || src.local == nil || src.local.ghost != "" || src.local.pending || src.t.share.ID != t.share.ID {
 		return false
 	}
 	dst, err := f.find(ctx, shareName(t.share)+"/"+t.rel)
@@ -388,10 +385,13 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 	if err != nil {
 		return err
 	}
-	defer f.changed()
 	client := f.clientFor(src.share)
 	hidden := localOnly(dst.base())
 	switch {
+	case n.local != nil && n.local.pending:
+		// Moving a file Finder hasn't written yet: it's an empty file now.
+		f.local.remove(src.key())
+		return f.createEmpty(ctx, dst, false)
 	case n.local != nil && n.local.ghost == "" && hidden:
 		f.local.move(src.key(), dst.key())
 		return nil
@@ -404,13 +404,19 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 		return nil
 	case n.local != nil:
 		if err := f.moveRemote(ctx, client, n.local.ghost, dst.rel); err != nil {
+			f.cacheDropParent(src.with(n.local.ghost))
+			f.cacheDropParent(dst)
 			return f.osErr("rename", newName, err)
 		}
+		f.cacheMoved(src.with(n.local.ghost), dst)
 		f.local.remove(src.key())
 	default:
 		if err := f.moveRemote(ctx, client, src.rel, dst.rel); err != nil {
+			f.cacheDropParent(src)
+			f.cacheDropParent(dst)
 			return f.osErr("rename", newName, err)
 		}
+		f.cacheMoved(src, dst)
 	}
 	if n.info.dir {
 		f.local.moveTree(src.share.ID, src.rel, dst.rel)
@@ -442,4 +448,44 @@ func (f *FS) moveRemote(ctx context.Context, c *api.Client, from, to string) err
 		return err
 	}
 	return nil
+}
+
+// finishPending runs when Finder unlocks a file: if it LOCKed a new name but
+// never wrote it (e.g. `touch`), create the empty file on the Drive now.
+func (f *FS) finishPending(name string) {
+	t, err := f.resolve(context.Background(), name)
+	if err != nil {
+		return
+	}
+	entry, ok := f.local.get(t.key())
+	if !ok || !entry.pending {
+		return
+	}
+	f.local.remove(t.key())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	_ = f.createEmpty(ctx, t, true) // exists already (someone else) is fine
+}
+
+// createEmpty uploads an empty file to t (only if missing, when mustNotExist).
+func (f *FS) createEmpty(ctx context.Context, t target, mustNotExist bool) error {
+	tmp, err := f.local.tempFile()
+	if err != nil {
+		return err
+	}
+	tmp.Close()
+	defer os.Remove(tmp.Name())
+	opts := api.UploadOptions{}
+	if mustNotExist {
+		m := api.MustNotExist
+		opts.ExpectMtimeNS = &m
+	}
+	return f.upload(ctx, t, tmp.Name(), opts)
+}
+
+// FinishPending creates every file Finder LOCKed but never wrote (on shutdown).
+func (f *FS) FinishPending() {
+	if f.locks != nil {
+		f.locks.finishAll()
+	}
 }

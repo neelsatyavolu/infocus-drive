@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sync"
+	"time"
 
 	"golang.org/x/net/webdav"
 )
@@ -22,7 +24,7 @@ func Handler(fs *FS, prefix, password string, logf func(format string, args ...a
 	dav := &webdav.Handler{
 		Prefix:     prefix,
 		FileSystem: fs,
-		LockSystem: webdav.NewMemLS(),
+		LockSystem: fs.lockSystem(),
 		Logger: func(r *http.Request, err error) {
 			if err != nil && !os.IsNotExist(err) && logf != nil {
 				logf("%s %s: %v", r.Method, r.URL.Path, err)
@@ -56,4 +58,100 @@ func loopbackHost(hostport string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// pendingLocks remembers which name each lock is for, so an UNLOCK (or the
+// lock expiring, or shutdown) can create a file Finder LOCKed but never wrote
+// (see FS.finishPending). x/net/webdav also takes a short lock around every
+// write, so expired locks are swept on that activity.
+type pendingLocks struct {
+	webdav.LockSystem
+	fs    *FS
+	mu    sync.Mutex
+	roots map[string]lockInfo // lock token → what it locks
+}
+
+type lockInfo struct {
+	root    string
+	expires time.Time // zero: no timeout
+}
+
+func (l *pendingLocks) Create(now time.Time, details webdav.LockDetails) (string, error) {
+	l.sweep(now)
+	token, err := l.LockSystem.Create(now, details)
+	if err == nil {
+		l.mu.Lock()
+		l.roots[token] = lockInfo{root: details.Root, expires: expiry(now, details.Duration)}
+		l.mu.Unlock()
+	}
+	return token, err
+}
+
+func (l *pendingLocks) Refresh(now time.Time, token string, duration time.Duration) (webdav.LockDetails, error) {
+	details, err := l.LockSystem.Refresh(now, token, duration)
+	if err == nil {
+		l.mu.Lock()
+		if info, ok := l.roots[token]; ok {
+			info.expires = expiry(now, duration)
+			l.roots[token] = info
+		}
+		l.mu.Unlock()
+	}
+	return details, err
+}
+
+func (l *pendingLocks) Unlock(now time.Time, token string) error {
+	if err := l.LockSystem.Unlock(now, token); err != nil {
+		return err // still held (e.g. by a PUT): nothing is finished yet
+	}
+	l.mu.Lock()
+	info, ok := l.roots[token]
+	delete(l.roots, token)
+	l.mu.Unlock()
+	if ok {
+		l.fs.finishPending(info.root)
+	}
+	l.sweep(now)
+	return nil
+}
+
+// sweep finishes placeholders whose locks expired without an UNLOCK.
+func (l *pendingLocks) sweep(now time.Time) {
+	var expired []string
+	l.mu.Lock()
+	for token, info := range l.roots {
+		if !info.expires.IsZero() && now.After(info.expires) {
+			expired = append(expired, info.root)
+			delete(l.roots, token)
+		}
+	}
+	l.mu.Unlock()
+	for _, root := range expired {
+		l.fs.finishPending(root)
+	}
+}
+
+func (l *pendingLocks) finishAll() {
+	l.mu.Lock()
+	roots := make([]string, 0, len(l.roots))
+	for token, info := range l.roots {
+		roots = append(roots, info.root)
+		delete(l.roots, token)
+	}
+	l.mu.Unlock()
+	for _, root := range roots {
+		l.fs.finishPending(root)
+	}
+}
+
+func expiry(now time.Time, d time.Duration) time.Time {
+	if d < 0 {
+		return time.Time{} // infinite
+	}
+	return now.Add(d)
+}
+
+func (f *FS) lockSystem() webdav.LockSystem {
+	f.locks = &pendingLocks{LockSystem: webdav.NewMemLS(), fs: f, roots: map[string]lockInfo{}}
+	return f.locks
 }

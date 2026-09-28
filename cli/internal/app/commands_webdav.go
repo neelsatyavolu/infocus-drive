@@ -116,6 +116,7 @@ func cmdWebdav(ctx context.Context, r *runner, args []string) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	srv.Shutdown(shutdownCtx) //nolint:errcheck
+	dav.FinishPending()       // files Finder LOCKed but never wrote still get created
 	return result
 }
 
