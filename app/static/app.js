@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260927-macapp";
-import * as api from "./api.js?v=20260927-macapp";
-import { ApiError } from "./api.js?v=20260927-macapp";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20260927-signed";
+import * as api from "./api.js?v=20260927-signed";
+import { ApiError } from "./api.js?v=20260927-signed";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260927-macapp";
-import { $, el, icon, show } from "./dom.js?v=20260927-macapp";
+} from "./format.js?v=20260927-signed";
+import { $, el, icon, show } from "./dom.js?v=20260927-signed";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260927-macapp";
+} from "./quick.js?v=20260927-signed";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260927-macapp").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20260927-signed").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3464,7 +3464,7 @@ function macAppSection(origin) {
     ]),
     el("p", {
       class: "modal__hint",
-      text: "macOS 13 or later. The Terminal command installs without security prompts and updates the app when you run it again. If you use the .zip, macOS asks once: System Settings → Privacy & Security → Open Anyway.",
+      text: "macOS 13 or later. Signed and notarized by Apple. The Terminal command also updates the app when you run it again; the .zip opens like any downloaded app.",
     }),
   ]);
 }

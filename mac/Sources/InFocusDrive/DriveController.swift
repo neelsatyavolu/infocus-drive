@@ -15,7 +15,7 @@ final class DriveController: ObservableObject {
     @Published private(set) var account: Account = .unknown
     @Published private(set) var connection: Connection = .disconnected
     @Published private(set) var message: String?
-    @Published private(set) var startsAtLogin = SMAppService.mainApp.status == .enabled
+    @Published private(set) var startsAtLogin = LoginItem.isEnabled
     @Published private(set) var status = DriveStatus()
     @Published private(set) var transfers: [Transfer] = []
     /// The encrypted personal folder the Unlock window is working on.
@@ -411,14 +411,11 @@ final class DriveController: ObservableObject {
 
     func setStartsAtLogin(_ on: Bool) {
         do {
-            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            try LoginItem.set(on)
         } catch {
             message = "Couldn't change Start at login: \(error.localizedDescription)"
         }
-        if SMAppService.mainApp.status == .requiresApproval {
-            SMAppService.openSystemSettingsLoginItems()
-        }
-        startsAtLogin = SMAppService.mainApp.status == .enabled
+        startsAtLogin = LoginItem.isEnabled
     }
 
     // MARK: System events

@@ -31,6 +31,11 @@ enum PreviewRenderer {
                        to: dir.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"), dark: dark)
             }
         }
+        for dark in [true, false] {
+            render(MainWindowView(drive: help), to: dir.appendingPathComponent("window-\(dark ? "dark" : "light").png"), dark: dark)
+        }
+        let setup = scenarios().first { $0.0 == "setup" }!.1
+        render(MainWindowView(drive: setup), to: dir.appendingPathComponent("window-setup-dark.png"), dark: true)
         render(HelpView(drive: help), to: dir.appendingPathComponent("help-dark.png"), dark: true)
         render(HelpView(drive: help), to: dir.appendingPathComponent("help-light.png"), dark: false)
         exit(0)

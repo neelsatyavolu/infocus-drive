@@ -1,8 +1,12 @@
 import SwiftUI
 
+/// UserDefaults key: show the InFocus Drive icon in the menu bar.
+let showInMenuBarKey = "showInMenuBar"
+
 @main
 struct InFocusDriveApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @AppStorage(showInMenuBarKey) private var showInMenuBar = true
 
     init() {
         // Writing to a helper that already exited must not kill the app.
@@ -11,48 +15,76 @@ struct InFocusDriveApp: App {
         #if DEBUG
         PreviewRenderer.runIfRequested()
         #endif
+        // Before any scene (and so the controller) exists.
+        AppDelegate.handOffToRunningCopy()
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuContent(drive: delegate.drive)
+        MenuBarExtra(isInserted: $showInMenuBar) {
+            MenuView(drive: delegate.drive)
         } label: {
             MenuBarIcon(drive: delegate.drive)
         }
         .menuBarExtraStyle(.window)
-
-        Window("InFocus Drive Help", id: "help") {
-            HelpView(drive: delegate.drive)
-        }
-        .windowResizability(.contentSize)
-
-        Window("Unlock Personal Folder", id: "unlock") {
-            UnlockView(drive: delegate.drive)
-        }
-        .windowResizability(.contentSize)
-    }
-}
-
-/// MenuView plus the environment it needs to open the Help window.
-private struct MenuContent: View {
-    @ObservedObject var drive: DriveController
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        MenuView(drive: drive) {
-            openWindow(id: "help")
-            NSApp.activate(ignoringOtherApps: true)
-        }
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     lazy var drive = DriveController()
+    /// Another copy asks the running one to show its window through this.
+    nonisolated static let showWindowNote = Notification.Name("com.github.neelsatyavolu.infocus-drive.show-window")
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        DistributedNotificationCenter.default().addObserver(
+            forName: Self.showWindowNote, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.showMainWindow() }
+        }
+        LoginItem.migrate()
+        _ = drive // start connecting now, whether or not any UI is visible
+        // Start at login passes --background: stay quiet. Opening the app
+        // yourself (Finder, Spotlight, Launchpad) shows the window.
+        let background = CommandLine.arguments.contains("--background")
+        if !background || !drive.hasServer {
+            showMainWindow()
+        }
+    }
+
+    /// Opening the app again while it runs (e.g. from Finder) shows the window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return true
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false // keep the Finder volume mounted in the background
+    }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         drive.shutdown()
         return .terminateNow
+    }
+
+    func showMainWindow() {
+        Windows.shared.showMain(drive)
+    }
+
+    /// One copy per account: a second launch asks the running one to show
+    /// its window (unless it's a background login launch) and quits.
+    nonisolated static func handOffToRunningCopy() {
+        guard let id = Bundle.main.bundleIdentifier else { return }
+        let me = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: id)
+            .filter { $0.processIdentifier != me }
+        guard !others.isEmpty else { return }
+        if !CommandLine.arguments.contains("--background") {
+            DistributedNotificationCenter.default().postNotificationName(
+                Self.showWindowNote, object: nil, userInfo: nil, deliverImmediately: true)
+        }
+        // exit, not terminate: this copy must never start its own controller
+        // (it would clean up the running copy's volume as "stale").
+        exit(0)
     }
 }
 

@@ -17,17 +17,21 @@ The installer (`app/static/mac/install.sh`, served at `/mac/install.sh` with the
 Drive address filled in) downloads `InFocus-Drive-mac.zip` from the latest GitHub
 release, checks it against `SHA256SUMS`, installs to `/Applications` (or
 `~/Applications` without admin rights), pre-fills the Drive address and opens the
-app. Because curl doesn't quarantine downloads, there is no Gatekeeper prompt. Run
-it again to update. The **Download .zip** link works too, but macOS then asks once
-(System Settings → Privacy & Security → **Open Anyway**). Needs macOS 13 or later.
+app. Run it again to update. The **Download .zip** link works too: the app is
+Developer ID-signed and notarized, so macOS just asks once whether to open a
+downloaded app. Needs macOS 13 or later.
 
 ## Use it
 
-1. Open **InFocus Drive** from the menu bar. If the address isn't filled in, enter it (e.g. `https://drive.example.com`) and click **Continue**.
+1. Open **InFocus Drive** (Applications, Spotlight or Launchpad) — its window opens. If the address isn't filled in, enter it (e.g. `https://drive.example.com`) and click **Continue**.
 2. Click **Sign in with Google**, approve in the browser, and the volume mounts.
 3. It remounts by itself on launch, after wake and when the network comes back.
    **Eject** in Finder (or **Disconnect**) stops it until you click **Connect** again.
-4. **Start at login** keeps it there after a restart.
+4. **Start at login** keeps it there after a restart: a LaunchAgent in the bundle
+   starts the app with `--background` (drive mounted, no window).
+5. **Show in menu bar** (on by default) adds a menu-bar icon with the same status.
+   With it off the app has no menu bar or Dock icon and just keeps the drive
+   mounted; opening the app again shows its window (and a Dock icon while it's open).
 
 The menu shows everything at a glance: what to do next (Open in Finder,
 Connect, Sign in), live **Uploads** with progress, speed and errors, a **Status**
@@ -107,6 +111,20 @@ and attach it to each `cli-v*` release (see [DEPLOY.md](DEPLOY.md#cli-releases))
 `Contents/MacOS/InFocusDrive --render-previews DIR` draws every screen (light and
 dark) to PNGs for design review.
 
-The app is ad-hoc signed (no Developer ID), which is why the curl installer is the
-recommended path. Distributing a browser download without prompts needs a
-Developer ID signature and notarization.
+### Signing and notarization
+
+CI builds an ad-hoc-signed zip for each `cli-v*` release. The maintainer then runs,
+on their Mac:
+
+```sh
+mac/sign-release.sh cli-v0.5.0
+```
+
+It loads the Developer ID certificate and App Store Connect API key from 1Password
+through the shared loader (see `APPLE_SIGNING.md` next to the repos; override with
+`INFOCUS_APPLE_CREDS_LOADER` / `OP_ACCOUNT`), signs the bundled `infocus` and the app
+with hardened runtime and a timestamp, notarizes with `notarytool`, staples, checks
+`spctl` reports *Notarized Developer ID*, and replaces `InFocus-Drive-mac.zip` and its
+`SHA256SUMS` line on the release. No signing material is stored in the repo or in
+GitHub. The app icon is generated from `Resources/brand-mark.png` by
+`swift scripts/make-icon.swift`.

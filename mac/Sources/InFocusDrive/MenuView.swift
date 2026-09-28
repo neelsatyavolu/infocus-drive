@@ -4,7 +4,6 @@ import SwiftUI
 /// uploads, and a way to Help.
 struct MenuView: View {
     @ObservedObject var drive: DriveController
-    var openHelp: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,7 +22,7 @@ struct MenuView: View {
                 }
             }
             .padding(16)
-            MenuFooter(drive: drive, openHelp: openHelp)
+            MenuFooter(drive: drive)
         }
         .frame(width: 360)
         .background(Brand.background)
@@ -126,7 +125,7 @@ extension DriveController {
 }
 
 /// The big card: the one thing to do next.
-private struct HeroCard: View {
+struct HeroCard: View {
     @ObservedObject var drive: DriveController
 
     var body: some View {
@@ -244,7 +243,7 @@ struct Banner: View {
 }
 
 /// First run: three steps, the first one is entering the Drive address.
-private struct Onboarding: View {
+struct Onboarding: View {
     @ObservedObject var drive: DriveController
     @State private var address = ""
 
@@ -308,11 +307,14 @@ private struct StepMarkers: View {
 
 private struct MenuFooter: View {
     @ObservedObject var drive: DriveController
-    let openHelp: () -> Void
+    @AppStorage(showInMenuBarKey) private var showInMenuBar = true
 
     var body: some View {
         HStack(spacing: 14) {
-            Button(action: openHelp) { Label("Help", systemImage: "questionmark.circle") }
+            Button { Windows.shared.showMain(drive) } label: { Label("Window", systemImage: "macwindow") }
+                .buttonStyle(LinkButtonStyle())
+                .help("Open the InFocus Drive window")
+            Button { Windows.shared.showHelp(drive) } label: { Label("Help", systemImage: "questionmark.circle") }
                 .buttonStyle(LinkButtonStyle())
             if drive.hasServer {
                 Menu {
@@ -323,6 +325,11 @@ private struct MenuFooter: View {
                     Button("Copy diagnostics") { drive.copyDiagnostics() }
                     Button("Show helper log") { NSWorkspace.shared.open(HelperLog.url) }
                     Divider()
+                    Button("Hide menu bar icon") {
+                        // Keeps running in the background; opening the app shows its window.
+                        Windows.shared.showMain(drive)
+                        showInMenuBar = false
+                    }
                     Button("Change Drive address…") { drive.changeServer() }
                 } label: {
                     Label("Account", systemImage: "person.crop.circle")

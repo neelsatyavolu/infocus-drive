@@ -108,12 +108,12 @@ extension DriveController {
 /// The Unlock window.
 struct UnlockView: View {
     @ObservedObject var drive: DriveController
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.closeWindow) private var closeWindow
 
     var body: some View {
         Group {
             if let unlock = drive.unlocking {
-                UnlockForm(unlock: unlock) { dismiss() }
+                UnlockForm(unlock: unlock) { closeWindow() }
             } else {
                 Text("Choose a locked folder in the InFocus Drive menu.")
                     .font(.lexend(12.5))

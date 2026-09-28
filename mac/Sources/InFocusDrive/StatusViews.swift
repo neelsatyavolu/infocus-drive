@@ -148,7 +148,7 @@ private struct StartAtLoginTile: View {
 /// Shares as they appear at the top of the volume; click to open one.
 struct SharesSection: View {
     @ObservedObject var drive: DriveController
-    @Environment(\.openWindow) private var openWindow
+    var visibleRows = 4
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -163,9 +163,7 @@ struct SharesSection: View {
                         if index > 0 { Rectangle().fill(Brand.border).frame(height: 1) }
                         ShareRow(share: share) {
                             if share.locked {
-                                drive.beginUnlock(share)
-                                openWindow(id: "unlock")
-                                NSApp.activate(ignoringOtherApps: true)
+                                Windows.shared.showUnlock(drive, share: share)
                             } else if drive.connectedVolume != nil {
                                 drive.openShare(share)
                             } else {
@@ -175,7 +173,9 @@ struct SharesSection: View {
                     }
                 }
             }
-            .frame(maxHeight: CGFloat(min(drive.status.shares.count, 4)) * 33)
+            // An explicit height: a ScrollView with only a max height collapses
+            // to nothing in the menu-bar window. Rows are 32pt plus a 1pt divider.
+            .frame(height: CGFloat(min(drive.status.shares.count, visibleRows)) * 33 - 1)
             .background(Brand.card)
             .overlay(Rectangle().strokeBorder(Brand.border))
         }

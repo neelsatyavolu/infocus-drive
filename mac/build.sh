@@ -28,7 +28,11 @@ swift build $SWIFT_FLAGS
 cp "$(swift build $SWIFT_FLAGS --show-bin-path)/InFocusDrive" "$APP/Contents/MacOS/"
 sed "s/__VERSION__/$VERSION/g" Info.plist > "$APP/Contents/Info.plist"
 cp -R Resources/Fonts "$APP/Contents/Resources/"
-cp Resources/wordmark-dark.png Resources/wordmark-light.png "$APP/Contents/Resources/"
+cp Resources/wordmark-dark.png Resources/wordmark-light.png Resources/brand-mark.png \
+  Resources/AppIcon.icns "$APP/Contents/Resources/"
+# Start at login runs the app with --background through this agent (LoginItem.swift).
+mkdir -p "$APP/Contents/Library/LaunchAgents"
+cp Resources/com.github.neelsatyavolu.infocus-drive.login.plist "$APP/Contents/Library/LaunchAgents/"
 
 codesign --force --options runtime --sign - "$APP/Contents/MacOS/infocus"
 codesign --force --options runtime --sign - "$APP"
