@@ -30,7 +30,7 @@ const (
 	Asset = "infocus-darwin-universal.tar.gz"
 
 	maxBinary     = 200 << 20
-	checkInterval = 24 * time.Hour
+	checkInterval = time.Hour
 	stateFile     = "update-check.json"
 )
 

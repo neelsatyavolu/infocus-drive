@@ -310,12 +310,13 @@ private struct MenuFooter: View {
     @AppStorage(showInMenuBarKey) private var showInMenuBar = true
 
     var body: some View {
-        HStack(spacing: 14) {
-            Button { Windows.shared.showMain(drive) } label: { Label("Window", systemImage: "macwindow") }
+        HStack(spacing: 12) {
+            Button { Windows.shared.showMain(drive) } label: { Image(systemName: "macwindow") }
                 .buttonStyle(LinkButtonStyle())
                 .help("Open the InFocus Drive window")
-            Button { Windows.shared.showHelp(drive) } label: { Label("Help", systemImage: "questionmark.circle") }
+            Button { Windows.shared.showHelp(drive) } label: { Image(systemName: "questionmark.circle") }
                 .buttonStyle(LinkButtonStyle())
+                .help("Help")
             if drive.hasServer {
                 Menu {
                     if case .signedIn = drive.account {
@@ -340,9 +341,10 @@ private struct MenuFooter: View {
                 .fixedSize()
                 .foregroundStyle(Brand.muted)
             }
-            Spacer()
-            Text("v\(DriveController.appVersion)").font(.mono(10.5)).foregroundStyle(Brand.muted)
-            Button("Quit") { NSApp.terminate(nil) }.buttonStyle(LinkButtonStyle())
+            UpdateButton(updater: drive.updater)
+            Spacer(minLength: 4)
+            VersionLabel(updater: drive.updater)
+            Button("Quit") { NSApp.terminate(nil) }.buttonStyle(LinkButtonStyle()).fixedSize()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

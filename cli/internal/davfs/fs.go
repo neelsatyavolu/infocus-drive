@@ -38,12 +38,16 @@ type FS struct {
 	OnSignedOut func()
 	// OnUpload is called as uploads start, progress and finish (optional).
 	OnUpload func(Upload)
+	// OnWriting reports how many files are open for writing (a Finder copy in
+	// progress, before its upload starts), so the app never restarts mid-copy.
+	OnWriting func(open int)
 
 	mu        sync.Mutex
 	lists     map[string]cachedList
 	shares    []api.Share
 	sharesAt  time.Time
 	uploadSeq int64
+	writing   int
 	sharesMu  sync.Mutex // serializes share-list refreshes
 }
 

@@ -29,7 +29,18 @@ downloaded app. Needs macOS 13 or later.
    **Eject** in Finder (or **Disconnect**) stops it until you click **Connect** again.
 4. **Start at login** keeps it there after a restart: a LaunchAgent in the bundle
    starts the app with `--background` (drive mounted, no window).
-5. **Show in menu bar** (on by default) adds a menu-bar icon with the same status.
+5. **Updates are automatic.** Every hour the app checks the latest `cli-v*`
+   release (the `/releases/latest` redirect, not the rate-limited API). A new version
+   shows a green **Update** button next to **Account** (menu) and in the window
+   header; it downloads `InFocus-Drive-mac.zip`, checks its SHA-256, requires a
+   Developer ID signature from the same team as the running app plus notarization
+   (`spctl`), swaps the app bundle, quits (unmounting cleanly) and relaunches the
+   same way it was running, which remounts the drive. It never restarts while Finder
+   is copying: the helper reports open writes (`{"event":"writing","open":N}`) and
+   uploads, and the install waits until both are zero. Turn it off in
+   **Settings → Update automatically** (the button still appears). Development and
+   ad-hoc builds don't update.
+6. **Show in menu bar** (on by default) adds a menu-bar icon with the same status.
    With it off the app has no menu bar or Dock icon and just keeps the drive
    mounted; opening the app again shows its window (and a Dock icon while it's open).
 

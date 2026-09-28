@@ -312,16 +312,34 @@ func TestWebdavCommand(t *testing.T) {
 	go func() { exit <- Run(context.Background(), []string{"webdav"}, env); stdoutW.Close() }()
 	go io.WriteString(stdinW, davPassword+"\n")
 
-	events := bufio.NewScanner(stdoutR)
+	// Read events continuously (like the app), so the helper never blocks on stdout.
+	lines := make(chan map[string]any, 256)
+	go func() {
+		scanner := bufio.NewScanner(stdoutR)
+		for scanner.Scan() {
+			var raw map[string]any
+			if json.Unmarshal(scanner.Bytes(), &raw) == nil {
+				lines <- raw
+			}
+		}
+		close(lines)
+	}()
+	nextRaw := func() map[string]any {
+		t.Helper()
+		select {
+		case raw, ok := <-lines:
+			if !ok {
+				t.Fatalf("no event; stderr: %s", stderr.String())
+			}
+			return raw
+		case <-time.After(10 * time.Second):
+			t.Fatalf("no event within 10s; stderr: %s", stderr.String())
+		}
+		return nil
+	}
 	next := func() map[string]string {
 		t.Helper()
-		if !events.Scan() {
-			t.Fatalf("no event; stderr: %s", stderr.String())
-		}
-		var raw map[string]any
-		if err := json.Unmarshal(events.Bytes(), &raw); err != nil {
-			t.Fatal(err)
-		}
+		raw := nextRaw()
 		ev := map[string]string{}
 		for k, v := range raw {
 			if s, ok := v.(string); ok {
@@ -361,12 +379,12 @@ func TestWebdavCommand(t *testing.T) {
 		putDone <- res.StatusCode
 	}()
 	// The Mac app reads these lines; keep the shape stable.
+	sawWriting := false
 	for {
-		if !events.Scan() {
-			t.Fatal("no upload event")
+		ev := nextRaw()
+		if ev["event"] == "writing" && ev["open"] == 1.0 {
+			sawWriting = true
 		}
-		var ev map[string]any
-		json.Unmarshal(events.Bytes(), &ev)
 		if ev["event"] == "upload" && ev["state"] == "done" {
 			if ev["path"] != "InFocus Drive/new.txt" || ev["size"] != 5.0 || ev["sent"] != 5.0 || ev["id"] == nil {
 				t.Fatalf("upload event = %v", ev)
@@ -376,6 +394,9 @@ func TestWebdavCommand(t *testing.T) {
 	}
 	if code := <-putDone; code != http.StatusCreated {
 		t.Fatalf("PUT through command: %d", code)
+	}
+	if !sawWriting {
+		t.Fatal(`no {"event":"writing","open":1} while the PUT was in flight`)
 	}
 	drive.mu.Lock()
 	drive.revoked = true
@@ -534,5 +555,30 @@ func TestWebdavReportsUploads(t *testing.T) {
 	h.do(t, "PUT", h.url("InFocus Drive", "._clip.mov"), "meta")
 	if got := len(h.uploadEvents()); got != before {
 		t.Fatalf("placeholder/hidden writes produced %d upload events", got-before)
+	}
+}
+
+// The Mac app must not restart for an update while Finder is still writing a
+// file (before its upload even starts), so the helper reports open writes.
+func TestWebdavReportsOpenWrites(t *testing.T) {
+	drive, driveSrv := newFakeDrive(t)
+	base, _ := url.Parse(driveSrv.URL)
+	fs := davfs.New(&api.Client{Base: base, Token: testToken, HTTP: driveSrv.Client()}, t.TempDir())
+	var mu sync.Mutex
+	var counts []int
+	fs.OnWriting = func(n int) {
+		mu.Lock()
+		counts = append(counts, n)
+		mu.Unlock()
+	}
+	srv := httptest.NewServer(davfs.Handler(fs, "/InFocus Drive", davPassword, t.Logf))
+	defer srv.Close()
+	h := &davHarness{drive: drive, srv: srv}
+	h.do(t, "PUT", h.url("InFocus Drive", "a.txt"), "hello")
+	h.do(t, "PUT", h.url("InFocus Drive", "._a.txt"), "meta")
+	mu.Lock()
+	defer mu.Unlock()
+	if len(counts) < 2 || counts[0] != 1 || counts[len(counts)-1] != 0 {
+		t.Fatalf("open-write counts = %v, want 1 … 0", counts)
 	}
 }

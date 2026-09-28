@@ -18,6 +18,9 @@ final class DriveController: ObservableObject {
     @Published private(set) var startsAtLogin = LoginItem.isEnabled
     @Published private(set) var status = DriveStatus()
     @Published private(set) var transfers: [Transfer] = []
+    /// Files Finder has open for writing (a copy in progress before its upload).
+    @Published private(set) var openWrites = 0
+    let updater = Updater()
     /// The encrypted personal folder the Unlock window is working on.
     @Published private(set) var unlocking: PersonalUnlock?
 
@@ -222,6 +225,11 @@ final class DriveController: ObservableObject {
         }
     }
 
+    /// True while Finder is copying to or from the Drive (don't restart now).
+    var isTransferring: Bool {
+        openWrites > 0 || transfers.contains { $0.state == .active }
+    }
+
     func openDriveWebsite() {
         if let url = URL(string: serverURL) { NSWorkspace.shared.open(url) }
     }
@@ -271,6 +279,7 @@ final class DriveController: ObservableObject {
             "Shares: \(status.shares.count)",
             "Transfers: " + transfers.map { "\($0.name) \($0.state.rawValue)\($0.error.isEmpty ? "" : ": " + $0.error)" }
                 .joined(separator: "; "),
+            "Updates: " + updater.summary,
             "Last message: \(message ?? "none")",
         ]
         return lines.joined(separator: "\n")
@@ -358,6 +367,7 @@ final class DriveController: ObservableObject {
 
     private func helperStopped() {
         status.helperSince = nil
+        openWrites = 0
         transfers = transfers.map { transfer in
             guard transfer.state == .active else { return transfer }
             var interrupted = transfer
@@ -370,10 +380,14 @@ final class DriveController: ObservableObject {
 
     private func helperEvent(_ event: DavServer.Event) {
         switch event {
+        case .writing(let open):
+            openWrites = open
+            if !isTransferring { updater.transfersIdle() }
         case .upload(let raw):
             if let transfer = Transfer(event: raw, now: Date()) {
                 transfers = mergeTransfer(transfer, into: transfers, now: Date())
             }
+            if !isTransferring { updater.transfersIdle() }
         case .signedOut, .exited(CLIError.exitAuth):
             helperStopped()
             handleSignedOut()

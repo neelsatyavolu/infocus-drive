@@ -61,7 +61,7 @@ Paths are relative to the share root: `infocus ls "Shows/Episode 1"`. Global fla
 
 ## Updates
 
-infocus updates itself: at most once a day, after a command you ran in a terminal, it checks this repo's latest `cli-v*` release, verifies the download's SHA-256, and replaces the binary in place. It never updates during `--json` output or when run by scripts or agents (stdin not a terminal). Run `infocus update` to update right away. Turn it off with `infocus config auto-update off` or `INFOCUS_NO_UPDATE=1`.
+infocus updates itself: at most once an hour, after a command you ran in a terminal, it checks this repo's latest `cli-v*` release, verifies the download's SHA-256, and replaces the binary in place. It never updates during `--json` output or when run by scripts or agents (stdin not a terminal). Run `infocus update` to update right away. Turn it off with `infocus config auto-update off` or `INFOCUS_NO_UPDATE=1`.
 
 ## AI agents
 

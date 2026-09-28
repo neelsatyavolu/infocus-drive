@@ -12,11 +12,13 @@ enum PreviewRenderer {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         _ = NSApplication.shared
         for (name, drive) in scenarios() {
+            if name == "connected" { drive.updater.preview(.ready("0.5.1")) }
             for dark in [true, false] {
                 render(MenuView(drive: drive), to: dir.appendingPathComponent("\(name)-\(dark ? "dark" : "light").png"), dark: dark)
             }
         }
         let help = scenarios().first { $0.0 == "connected" }!.1
+        help.updater.preview(.ready("0.5.1"))
         let locked = DriveStatus.Share(id: "~student1", name: "student1", canWrite: false, encrypted: true, locked: true)
         let steps: [(String, PersonalUnlock.Step, String?)] = [
             ("unlock-key", .key, nil),

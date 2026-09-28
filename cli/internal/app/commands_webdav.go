@@ -71,6 +71,9 @@ func cmdWebdav(ctx context.Context, r *runner, args []string) error {
 	events := &eventWriter{enc: json.NewEncoder(r.env.Stdout)}
 	dav := davfs.New(client, tempDir)
 	dav.OnSignedOut = func() { once.Do(func() { close(signedOut) }) }
+	dav.OnWriting = func(open int) {
+		events.send(map[string]any{"event": "writing", "open": open})
+	}
 	dav.OnUpload = func(u davfs.Upload) {
 		events.send(struct {
 			Event string `json:"event"`

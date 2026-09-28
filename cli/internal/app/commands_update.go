@@ -32,7 +32,7 @@ func (r *runner) autoUpdateOn() bool {
 	return r.cfg.AutoUpdate == nil || *r.cfg.AutoUpdate
 }
 
-// maybeAutoUpdate runs after a successful command: at most daily, only for a
+// maybeAutoUpdate runs after a successful command: at most hourly, only for a
 // person at a terminal, never for --json/agents or development builds.
 func (r *runner) maybeAutoUpdate(ctx context.Context, command string) {
 	switch command {

@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
         LoginItem.migrate()
         _ = drive // start connecting now, whether or not any UI is visible
+        drive.updater.start(drive: drive)
         // Start at login passes --background: stay quiet. Opening the app
         // yourself (Finder, Spotlight, Launchpad) shows the window.
         let background = CommandLine.arguments.contains("--background")

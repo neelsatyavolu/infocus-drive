@@ -115,10 +115,10 @@ func TestCheckStateIsDaily(t *testing.T) {
 		t.Fatal("first check should be due")
 	}
 	MarkChecked(dir, now, "0.2.0")
-	if Due(dir, now.Add(23*time.Hour)) {
+	if Due(dir, now.Add(59*time.Minute)) {
 		t.Fatal("checked again within a day")
 	}
-	if !Due(dir, now.Add(25*time.Hour)) {
+	if !Due(dir, now.Add(61*time.Minute)) { // hourly
 		t.Fatal("not due after a day")
 	}
 }

@@ -111,6 +111,7 @@ func (f *FS) create(ctx context.Context, name string) (webdav.File, error) {
 		return nil, err
 	}
 	req := requestOf(ctx)
+	f.writes(+1)
 	return &writeFile{File: tmp, ctx: ctx, fs: f, t: t, name: t.base(), req: req,
 		createOnly: req.method == "LOCK"}, nil
 }
@@ -317,7 +318,19 @@ func (w *writeFile) Stat() (fs.FileInfo, error) {
 
 func (w *writeFile) Readdir(int) ([]fs.FileInfo, error) { return nil, errNotSupported }
 
+// writes tracks files open for writing and reports the count.
+func (f *FS) writes(delta int) {
+	f.mu.Lock()
+	f.writing += delta
+	n := f.writing
+	f.mu.Unlock()
+	if f.OnWriting != nil {
+		f.OnWriting(n)
+	}
+}
+
 func (w *writeFile) Close() error {
+	defer w.fs.writes(-1) // after the upload: the copy is only done then
 	st, err := w.File.Stat()
 	if err == nil {
 		err = w.incomplete(st.Size())

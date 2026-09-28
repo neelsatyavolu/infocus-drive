@@ -47,6 +47,7 @@ struct MainWindowView: View {
                     .foregroundStyle(Brand.muted)
             }
             Spacer()
+            UpdateButton(updater: drive.updater)
             StatePill(drive: drive)
             Button { Windows.shared.showHelp(drive) } label: {
                 Label("Help", systemImage: "questionmark.circle")
@@ -92,6 +93,8 @@ struct SettingsSection: View {
                 SettingToggle(symbol: "power", title: "Start at login",
                               detail: "Mounts the drive in the background when you log in",
                               isOn: Binding(get: { drive.startsAtLogin }, set: { drive.setStartsAtLogin($0) }))
+                Rectangle().fill(Brand.border).frame(height: 1)
+                UpdateSetting(updater: drive.updater)
             }
             .background(Brand.card)
             .overlay(Rectangle().strokeBorder(Brand.border))

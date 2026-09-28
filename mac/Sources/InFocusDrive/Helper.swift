@@ -80,7 +80,7 @@ final class CLIRun {
 /// The `infocus webdav` helper: a loopback WebDAV server for Finder.
 @MainActor
 final class DavServer {
-    enum Event { case exited(Int32), signedOut, upload([String: Any]) }
+    enum Event { case exited(Int32), signedOut, upload([String: Any]), writing(Int) }
 
     private var process: Process?
     private var input: Pipe?
@@ -178,6 +178,8 @@ final class DavServer {
                 onEvent?(.signedOut)
             case "upload":
                 onEvent?(.upload(obj))
+            case "writing":
+                onEvent?(.writing((obj["open"] as? NSNumber)?.intValue ?? 0))
             default:
                 break
             }

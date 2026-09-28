@@ -10,6 +10,8 @@ final class Windows: NSObject, NSWindowDelegate {
     static let shared = Windows()
     private var open: [String: NSWindow] = [:]
 
+    var hasOpenWindows: Bool { !open.isEmpty }
+
     func showMain(_ drive: DriveController) {
         show("main", title: "InFocus Drive") { MainWindowView(drive: drive) }
     }
