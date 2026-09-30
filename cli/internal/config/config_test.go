@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -17,7 +18,8 @@ func TestSaveLoadRoundTripWithPrivatePermissions(t *testing.T) {
 		t.Fatalf("got %+v, %v", cfg, err)
 	}
 	info, _ := os.Stat(filepath.Join(dir, "config.json"))
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no Unix permission bits; %AppData% is private to the user.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode %v", info.Mode().Perm())
 	}
 	if empty, err := Load(t.TempDir()); err != nil || empty.Server != "" {

@@ -1,6 +1,6 @@
 # InFocus CLI (`infocus`)
 
-Use InFocus Drive from the terminal — and let AI coding agents on your Mac use it too — with exactly the permissions of your Drive account.
+Use InFocus Drive from the terminal on macOS or Windows — and let AI coding agents use it too — with exactly the permissions of your Drive account.
 
 ## Install (macOS)
 
@@ -10,7 +10,17 @@ curl -fsSL https://drive.example.com/cli/install.sh | sh
 
 The installer downloads the latest universal binary (Apple Silicon + Intel) from this repo's GitHub Releases, checks its SHA-256, installs it to `~/.local/bin/infocus` (no sudo), adds that folder to `PATH` in `~/.zshrc`, and saves the Drive's address in `~/.config/infocus/config.json`. Pin a version with `INFOCUS_VERSION=0.1.0`, or choose the folder with `INFOCUS_BIN_DIR`.
 
-The Drive sidebar → **Mac app & CLI** shows the exact command for your deployment.
+## Install (Windows)
+
+In PowerShell (no admin rights needed):
+
+```powershell
+irm https://drive.example.com/cli/install.ps1 | iex
+```
+
+The installer (`app/static/cli/install.ps1`, served at `/cli/install.ps1` with the Drive's address filled in) downloads `infocus-windows-amd64.zip` (or `-arm64` on ARM PCs), checks its SHA-256, installs `infocus.exe` to `%LOCALAPPDATA%\Programs\infocus`, adds that folder to your user `PATH` (open a new terminal afterwards) and saves the Drive's address in `%AppData%\infocus\config.json`. Run it again to update. Pin a version with `$env:INFOCUS_VERSION = "0.6.0"`.
+
+The Drive sidebar → **Mac app & CLI** shows the exact command for your deployment (Windows first on a Windows PC).
 
 ## Sign in
 
@@ -20,7 +30,7 @@ infocus login
 
 Your browser opens the Drive. Sign in the usual way (Google, email code, or NAS password), check that the page shows the same **confirmation code** as your terminal, and click **Allow**. The browser hands a one-time code back to the terminal over `127.0.0.1`; the terminal trades it for a token using a secret only it knows (PKCE), so a forwarded approval link is useless to anyone else.
 
-- The token is stored in the macOS **Keychain** — never in files, logs or command arguments.
+- The token is stored in the macOS **Keychain**, or Windows **Credential Manager** (as `infocus-drive:<host>`) — never in files, logs or command arguments.
 - It expires after **30 days without use** and **90 days** at most.
 - See and revoke sign-ins in the Drive sidebar → **Mac app & CLI**, or run `infocus logout`.
 - `infocus login --no-browser` prints the approval link instead of opening it.
@@ -61,7 +71,7 @@ Paths are relative to the share root: `infocus ls "Shows/Episode 1"`. Global fla
 
 ## Updates
 
-infocus updates itself: at most once an hour, after a command you ran in a terminal, it checks this repo's latest `cli-v*` release, verifies the download's SHA-256, and replaces the binary in place. It never updates during `--json` output or when run by scripts or agents (stdin not a terminal). Run `infocus update` to update right away. Turn it off with `infocus config auto-update off` or `INFOCUS_NO_UPDATE=1`.
+infocus updates itself: at most once an hour, after a command you ran in a terminal, it checks this repo's latest `cli-v*` release, verifies the download's SHA-256, and replaces the binary in place (on Windows the running `infocus.exe` is renamed to `infocus.exe.old` first, since a running .exe can't be overwritten, and removed on the next update). It never updates during `--json` output or when run by scripts or agents (stdin not a terminal). Run `infocus update` to update right away. Turn it off with `infocus config auto-update off` or `INFOCUS_NO_UPDATE=1`.
 
 ## AI agents
 

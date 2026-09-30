@@ -122,7 +122,8 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | POST | `/api/cli/token` | Unauthenticated: code + PKCE verifier → `ifd_…` bearer token (rate-limited) |
 | GET/DELETE | `/api/cli/sessions` `/api/cli/sessions/{id}` | List / revoke own terminal sign-ins |
 | POST | `/api/cli/logout` | Revoke the presenting bearer token |
-| GET | `/cli/install.sh` | Unauthenticated CLI installer |
+| GET | `/cli/install.sh` | Unauthenticated CLI installer (macOS) |
+| GET | `/cli/install.ps1` | Unauthenticated CLI installer (Windows PowerShell: `irm … \| iex`) |
 | GET | `/mac/install.sh` | Unauthenticated installer for InFocus Drive for Mac (docs/MAC-APP.md) |
 
 All authenticated `/api/*` routes accept `Authorization: Bearer ifd_…` from the CLI (see [`docs/CLI.md`](docs/CLI.md)) except browser-only ones (`/api/cli/authorize`, `/api/lan-handoff`, `/api/share`). `/api/personal/unlock` and `/api/personal/auth` accept a bearer for the caller's own folder only (Mac app / `infocus unlock`).

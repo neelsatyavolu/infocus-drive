@@ -1,9 +1,6 @@
 package app
 
 import (
-	"archive/tar"
-	"bytes"
-	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +13,7 @@ import (
 
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/config"
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/update"
+	"github.com/neelsatyavolu/infocus-drive/cli/internal/update/updatetest"
 )
 
 // withReleases points the harness at a fake release host offering cli-v0.2.0
@@ -26,14 +24,7 @@ func withReleases(t *testing.T, h *harness) (string, *int) {
 	Version = "0.1.0"
 	t.Cleanup(func() { Version = old })
 
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	tw.WriteHeader(&tar.Header{Name: "infocus", Mode: 0o755, Size: 3})
-	tw.Write([]byte("NEW"))
-	tw.Close()
-	gz.Close()
-	archive := buf.Bytes()
+	archive := updatetest.Archive([]byte("NEW"))
 	sum := sha256.Sum256(archive)
 	checks := 0
 	mux := http.NewServeMux()

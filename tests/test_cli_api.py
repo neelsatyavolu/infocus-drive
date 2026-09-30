@@ -224,6 +224,14 @@ def test_install_script_embeds_server_url(client, url):
     assert "__INFOCUS_SERVER__" not in response.text
 
 
+def test_windows_install_script_embeds_server_url(client):
+    response = client.get("/cli/install.ps1")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert f"$Server = '{ORIGIN}'" in response.text
+    assert "__INFOCUS_SERVER__" not in response.text
+
+
 def test_write_upload_stream_expect_mtime(tmp_path):
     (tmp_path / "a.txt").write_text("one")
     mtime = (tmp_path / "a.txt").stat().st_mtime_ns

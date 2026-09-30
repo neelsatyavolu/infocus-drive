@@ -214,11 +214,11 @@ The packages app must use the **same** token as `DRIVE_SERVICE_TOKEN` and `MEDIA
 
 ## CLI releases
 
-The `infocus` CLI ([CLI.md](CLI.md)) ships as a GitHub Release, not in the Docker image. The Drive only serves the installer at `/cli/install.sh` (it fills in `PUBLIC_BASE_URL`, which must be an `https://` origin).
+The `infocus` CLI ([CLI.md](CLI.md)) ships as a GitHub Release, not in the Docker image. The Drive only serves the installers at `/cli/install.sh` (macOS) and `/cli/install.ps1` (Windows) (it fills in `PUBLIC_BASE_URL`, which must be an `https://` origin).
 
 1. Make sure `cd cli && go test -race ./...` passes.
 2. Tag and push: `git tag cli-v0.1.0 && git push origin cli-v0.1.0`.
-3. `.github/workflows/cli-release.yml` tests, builds a universal macOS binary and the Mac app, and publishes `infocus-darwin-universal.tar.gz`, `InFocus-Drive-mac.zip` + `SHA256SUMS` to the release.
+3. `.github/workflows/cli-release.yml` tests on macOS and Windows (including an install-then-update run of `install.ps1`), builds the universal macOS binary, Windows x64/ARM64 binaries and the Mac app, and publishes `infocus-darwin-universal.tar.gz`, `infocus-windows-amd64.zip`, `infocus-windows-arm64.zip`, `InFocus-Drive-mac.zip` + `SHA256SUMS` to the release. Then run `mac/sign-release.sh cli-vX.Y.Z` to notarize the Mac app ([MAC-APP.md](MAC-APP.md)).
 4. Check it: `curl -fsSL https://drive.example.com/cli/install.sh | sh`, then `infocus login`; and `curl -fsSL https://drive.example.com/mac/install.sh | sh` for the Mac app ([MAC-APP.md](MAC-APP.md)).
 
 Both installers (`/cli/install.sh`, `/mac/install.sh`) download from `releases/latest`, so keep CLI releases as the repo's latest release (or users pin with `INFOCUS_VERSION`). Terminal sign-ins live in `CLI_TOKENS_DB_PATH` (default `/config/cli_tokens.sqlite3`) on the persistent config mount; no migration is needed.
