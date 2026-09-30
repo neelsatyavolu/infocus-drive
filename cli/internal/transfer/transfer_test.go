@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
-	"sort"
 	"runtime"
+	"sort"
 	"testing"
 	"time"
 )
