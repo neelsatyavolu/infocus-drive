@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -80,7 +81,8 @@ func TestInstallReplacesBinaryAtomically(t *testing.T) {
 	}
 	data, _ := os.ReadFile(exe)
 	info, _ := os.Stat(exe)
-	if string(data) != "NEW BINARY" || info.Mode().Perm() != 0o755 {
+	executable := runtime.GOOS == "windows" || info.Mode().Perm() == 0o755 // no exec bit on Windows
+	if string(data) != "NEW BINARY" || !executable {
 		t.Fatalf("got %q mode %v", data, info.Mode().Perm())
 	}
 	if leftovers, _ := filepath.Glob(filepath.Join(filepath.Dir(exe), ".infocus-update-*")); len(leftovers) > 0 {
