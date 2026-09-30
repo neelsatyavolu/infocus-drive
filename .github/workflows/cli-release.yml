@@ -82,19 +82,20 @@ jobs:
           Compress-Archive dist\infocus.exe dist\infocus-windows-amd64.zip -Force
           $sum = (Get-FileHash dist\infocus-windows-amd64.zip -Algorithm SHA256).Hash.ToLower()
           "$sum  infocus-windows-amd64.zip" | Set-Content dist\SHA256SUMS
-          $server = Start-Process python -ArgumentList '-m','http.server','8765','--directory','dist' -PassThru
+          $httpServer = Start-Process python -ArgumentList '-m','http.server','8765','--directory','dist' -PassThru
           Start-Sleep 3
           $env:INFOCUS_DOWNLOAD_BASE = 'http://127.0.0.1:8765'
           $script = (Get-Content app\static\cli\install.ps1 -Raw).Replace('__INFOCUS_SERVER__', 'https://drive.example.com')
           Invoke-Expression $script
           Invoke-Expression $script # again: replaces the existing infocus.exe
+          if (Test-Path variable:Asset) { throw 'the installer leaked variables into the session' }
           $exe = "$env:LOCALAPPDATA\Programs\infocus\infocus.exe"
           $out = & $exe version
           if ($out -notmatch '9\.9\.9') { throw "unexpected version: $out" }
           $cfg = Get-Content "$env:APPDATA\infocus\config.json" -Raw | ConvertFrom-Json
           if ($cfg.server -ne 'https://drive.example.com') { throw 'config.json not written' }
           & $exe --json whoami; if ($LASTEXITCODE -ne 3) { throw "whoami without sign-in should exit 3, got $LASTEXITCODE" }
-          Stop-Process $server
+          Stop-Process $httpServer
 
   mac-app:
     runs-on: macos-latest
