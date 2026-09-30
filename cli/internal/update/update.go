@@ -4,6 +4,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bufio"
 	"bytes"
 	"compress/gzip"
@@ -18,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -25,14 +27,31 @@ import (
 
 const (
 	// DefaultRepo is where releases are published.
-	DefaultRepo = "https://github.com/neelsatyavolu/infocus-drive"
-	// Asset is the release archive holding the universal macOS binary.
-	Asset = "infocus-darwin-universal.tar.gz"
-
+	DefaultRepo   = "https://github.com/neelsatyavolu/infocus-drive"
 	maxBinary     = 200 << 20
 	checkInterval = time.Hour
 	stateFile     = "update-check.json"
 )
+
+// Asset is this platform's release archive; BinaryName is the file in it.
+var (
+	Asset      = assetFor(runtime.GOOS, runtime.GOARCH)
+	BinaryName = binaryFor(runtime.GOOS)
+)
+
+func assetFor(goos, goarch string) string {
+	if goos == "windows" {
+		return "infocus-windows-" + goarch + ".zip"
+	}
+	return "infocus-darwin-universal.tar.gz"
+}
+
+func binaryFor(goos string) string {
+	if goos == "windows" {
+		return "infocus.exe"
+	}
+	return "infocus"
+}
 
 var tagPattern = regexp.MustCompile(`/releases/tag/cli-v(\d+\.\d+\.\d+)$`)
 
@@ -147,6 +166,9 @@ func expectedSum(sums []byte) (string, error) {
 }
 
 func extractBinary(archive []byte) ([]byte, error) {
+	if strings.HasSuffix(Asset, ".zip") {
+		return extractZip(archive)
+	}
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return nil, err
@@ -160,10 +182,29 @@ func extractBinary(archive []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		if h.Typeflag == tar.TypeReg && h.Name == "infocus" {
+		if h.Typeflag == tar.TypeReg && h.Name == BinaryName {
 			return io.ReadAll(io.LimitReader(tr, maxBinary))
 		}
 	}
+}
+
+func extractZip(archive []byte) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range zr.File {
+		if f.Name != BinaryName {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer rc.Close()
+		return io.ReadAll(io.LimitReader(rc, maxBinary))
+	}
+	return nil, errors.New("release archive has no " + BinaryName)
 }
 
 // Install downloads version, verifies it, and atomically replaces exe.
@@ -206,7 +247,7 @@ func (u Updater) Install(ctx context.Context, version, exe string) error {
 	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), exe)
+	return replaceExe(tmp.Name(), exe)
 }
 
 type checkState struct {

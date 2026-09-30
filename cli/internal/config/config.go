@@ -1,5 +1,6 @@
 // Package config stores the CLI's non-secret settings (server URL, default
-// share) in ~/.config/infocus/config.json. Tokens live in the Keychain.
+// share) in ~/.config/infocus/config.json (%AppData%\infocus on Windows).
+// Tokens live in the Keychain (Credential Manager on Windows).
 package config
 
 import (
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -23,6 +25,13 @@ type Config struct {
 func Dir() (string, error) {
 	if dir := os.Getenv("INFOCUS_CONFIG_DIR"); dir != "" {
 		return dir, nil
+	}
+	if runtime.GOOS == "windows" {
+		appData, err := os.UserConfigDir() // %AppData%
+		if err != nil {
+			return "", fmt.Errorf("find %%AppData%%: %w", err)
+		}
+		return filepath.Join(appData, "infocus"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

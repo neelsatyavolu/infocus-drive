@@ -4943,3 +4943,10 @@ html.light .share__img {
   padding-top: 18px;
   border-top: 1px solid hsl(var(--border));
 }
+
+.cli-sessions__other {
+  display: block;
+  margin-top: 10px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+}

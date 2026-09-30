@@ -2,6 +2,7 @@ package update
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -19,14 +20,7 @@ import (
 // fakeReleases serves GitHub's /releases/latest redirect and release assets.
 func fakeReleases(t *testing.T, latestTag string, binary []byte, corruptSum bool) (*httptest.Server, *int) {
 	t.Helper()
-	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
-	tw := tar.NewWriter(gz)
-	tw.WriteHeader(&tar.Header{Name: "infocus", Mode: 0o755, Size: int64(len(binary))})
-	tw.Write(binary)
-	tw.Close()
-	gz.Close()
-	archive := buf.Bytes()
+	archive := packArchive(binary)
 	sum := sha256.Sum256(archive)
 	if corruptSum {
 		sum[0] ^= 0xff
@@ -120,5 +114,37 @@ func TestCheckStateIsDaily(t *testing.T) {
 	}
 	if !Due(dir, now.Add(61*time.Minute)) { // hourly
 		t.Fatal("not due after a day")
+	}
+}
+
+// packArchive packs binary like this platform's release asset (zip on
+// Windows, tar.gz elsewhere).
+func packArchive(binary []byte) []byte {
+	var buf bytes.Buffer
+	if strings.HasSuffix(Asset, ".zip") {
+		zw := zip.NewWriter(&buf)
+		w, _ := zw.Create(BinaryName)
+		w.Write(binary)
+		zw.Close()
+		return buf.Bytes()
+	}
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	tw.WriteHeader(&tar.Header{Name: BinaryName, Mode: 0o755, Size: int64(len(binary))})
+	tw.Write(binary)
+	tw.Close()
+	gz.Close()
+	return buf.Bytes()
+}
+
+func TestAssetPerPlatform(t *testing.T) {
+	if got := assetFor("windows", "arm64"); got != "infocus-windows-arm64.zip" {
+		t.Fatalf("windows asset = %q", got)
+	}
+	if got := assetFor("darwin", "arm64"); got != "infocus-darwin-universal.tar.gz" {
+		t.Fatalf("mac asset = %q", got)
+	}
+	if binaryFor("windows") != "infocus.exe" || binaryFor("darwin") != "infocus" {
+		t.Fatal("binary names")
 	}
 }

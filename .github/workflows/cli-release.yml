@@ -1,14 +1,14 @@
 name: CLI release
 
-# Push a tag like cli-v0.1.0 to publish a macOS universal `infocus` binary and
-# InFocus Drive for Mac (InFocus-Drive-mac.zip, which bundles the same CLI).
-# /cli/install.sh and /mac/install.sh download the latest release assets and
-# check SHA256SUMS.
+# Push a tag like cli-v0.1.0 to publish the `infocus` CLI for macOS (universal)
+# and Windows (x64, ARM64), and InFocus Drive for Mac (InFocus-Drive-mac.zip,
+# which bundles the same CLI). /cli/install.sh, /cli/install.ps1 and
+# /mac/install.sh download the latest release assets and check SHA256SUMS.
 on:
   push:
     tags: ["cli-v*"]
   pull_request:
-    paths: ["cli/**", "mac/**", ".github/workflows/cli-release.yml"]
+    paths: ["cli/**", "mac/**", "app/static/cli/**", ".github/workflows/cli-release.yml"]
 
 permissions:
   contents: read
@@ -42,13 +42,59 @@ jobs:
           lipo -create -output dist/infocus dist/infocus-arm64 dist/infocus-amd64
           ./dist/infocus version
           tar -C dist -czf dist/infocus-darwin-universal.tar.gz infocus
-          (cd dist && shasum -a 256 infocus-darwin-universal.tar.gz > SHA256SUMS)
+          for arch in amd64 arm64; do
+            mkdir -p "dist/windows-$arch"
+            GOOS=windows GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags "$LDFLAGS" -o "dist/windows-$arch/infocus.exe" .
+            (cd "dist/windows-$arch" && zip -q "../infocus-windows-$arch.zip" infocus.exe)
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: infocus-darwin-universal
           path: |
             cli/dist/infocus-darwin-universal.tar.gz
-            cli/dist/SHA256SUMS
+            cli/dist/infocus-windows-amd64.zip
+            cli/dist/infocus-windows-arm64.zip
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: cli/go.mod
+      - name: Vet and test on Windows
+        working-directory: cli
+        run: |
+          go vet ./...
+          go test ./...
+      - name: Installer syntax
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD\app\static\cli\install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors.Count) { $errors; exit 1 }
+      - name: Installer end to end (install, then update over it)
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          go -C cli build -ldflags "-X github.com/neelsatyavolu/infocus-drive/cli/internal/app.Version=9.9.9" -o ..\dist\infocus.exe .
+          Compress-Archive dist\infocus.exe dist\infocus-windows-amd64.zip -Force
+          $sum = (Get-FileHash dist\infocus-windows-amd64.zip -Algorithm SHA256).Hash.ToLower()
+          "$sum  infocus-windows-amd64.zip" | Set-Content dist\SHA256SUMS
+          $server = Start-Process python -ArgumentList '-m','http.server','8765','--directory','dist' -PassThru
+          Start-Sleep 3
+          $env:INFOCUS_DOWNLOAD_BASE = 'http://127.0.0.1:8765'
+          $script = (Get-Content app\static\cli\install.ps1 -Raw).Replace('__INFOCUS_SERVER__', 'https://drive.example.com')
+          Invoke-Expression $script
+          Invoke-Expression $script # again: replaces the existing infocus.exe
+          $exe = "$env:LOCALAPPDATA\Programs\infocus\infocus.exe"
+          $out = & $exe version
+          if ($out -notmatch '9\.9\.9') { throw "unexpected version: $out" }
+          $cfg = Get-Content "$env:APPDATA\infocus\config.json" -Raw | ConvertFrom-Json
+          if ($cfg.server -ne 'https://drive.example.com') { throw 'config.json not written' }
+          & $exe --json whoami; if ($LASTEXITCODE -ne 3) { throw "whoami without sign-in should exit 3, got $LASTEXITCODE" }
+          Stop-Process $server
 
   mac-app:
     runs-on: macos-latest
@@ -68,7 +114,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/cli-v')
-    needs: [build, mac-app]
+    needs: [build, windows, mac-app]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -80,7 +126,9 @@ jobs:
         with:
           name: infocus-drive-mac
       - name: Checksums for every asset
-        run: sha256sum infocus-darwin-universal.tar.gz InFocus-Drive-mac.zip > SHA256SUMS
+        run: |
+          sha256sum infocus-darwin-universal.tar.gz infocus-windows-amd64.zip infocus-windows-arm64.zip \
+            InFocus-Drive-mac.zip > SHA256SUMS
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -88,6 +136,8 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "InFocus CLI & Mac app ${GITHUB_REF_NAME#cli-v}" \
-            --notes "CLI: curl -fsSL https://<your drive>/cli/install.sh | sh
+            --notes "CLI (macOS): curl -fsSL https://<your drive>/cli/install.sh | sh
+          CLI (Windows PowerShell): irm https://<your drive>/cli/install.ps1 | iex
           Mac app (Finder): curl -fsSL https://<your drive>/mac/install.sh | sh" \
-            infocus-darwin-universal.tar.gz InFocus-Drive-mac.zip SHA256SUMS
+            infocus-darwin-universal.tar.gz infocus-windows-amd64.zip infocus-windows-arm64.zip \
+            InFocus-Drive-mac.zip SHA256SUMS

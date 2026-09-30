@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260927-signed";
-import * as api from "./api.js?v=20260927-signed";
-import { ApiError } from "./api.js?v=20260927-signed";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20260929-windows";
+import * as api from "./api.js?v=20260929-windows";
+import { ApiError } from "./api.js?v=20260929-windows";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260927-signed";
-import { $, el, icon, show } from "./dom.js?v=20260927-signed";
+} from "./format.js?v=20260929-windows";
+import { $, el, icon, show } from "./dom.js?v=20260929-windows";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260927-signed";
+} from "./quick.js?v=20260929-windows";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260927-signed").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20260929-windows").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3471,7 +3471,14 @@ function macAppSection(origin) {
 
 function openTerminalSignInsModal() {
   const origin = state.me?.public_base_url || location.origin;
-  const installCmd = `curl -fsSL ${origin}/cli/install.sh | sh`;
+  const macCmd = `curl -fsSL ${origin}/cli/install.sh | sh`;
+  const windowsCmd = `irm ${origin}/cli/install.ps1 | iex`;
+  // Show this computer's command first; the other one is listed below it.
+  const onWindows = /Windows/i.test(navigator.userAgent);
+  const installCmd = onWindows ? windowsCmd : macCmd;
+  const otherCmd = onWindows
+    ? { label: "On a Mac (Terminal):", cmd: macCmd }
+    : { label: "On Windows (PowerShell):", cmd: windowsCmd };
   const list = el("ul", { class: "cli-sessions" }, [
     el("li", { class: "cli-sessions__empty", text: "Loading…" }),
   ]);
@@ -3531,10 +3538,14 @@ function openTerminalSignInsModal() {
     ]),
     list,
     el("p", { class: "modal__hint" }, [
-      document.createTextNode("Prefer the command line? Install the CLI, then run "),
+      document.createTextNode(onWindows
+        ? "Install the CLI in PowerShell, then run "
+        : "Prefer the command line? Install the CLI, then run "),
       el("code", { class: "mono", text: "infocus login" }),
       document.createTextNode(":"),
       el("code", { class: "mono cli-sessions__install", text: installCmd }),
+      el("span", { class: "cli-sessions__other", text: otherCmd.label }),
+      el("code", { class: "mono cli-sessions__install", text: otherCmd.cmd }),
     ]),
     modalFooter([
       copy,

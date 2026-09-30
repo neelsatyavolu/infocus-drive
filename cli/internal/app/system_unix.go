@@ -1,12 +1,11 @@
+//go:build !windows
+
 package app
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
-
-	"golang.org/x/term"
 )
 
 func openBrowser(url string) error {
@@ -38,12 +37,4 @@ func deviceName() string {
 		return name
 	}
 	return "Mac"
-}
-
-// readSecret prompts on stderr and reads a line from the terminal without echo.
-func readSecret(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	raw, err := term.ReadPassword(int(os.Stdin.Fd()))
-	fmt.Fprintln(os.Stderr)
-	return string(raw), err
 }

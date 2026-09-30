@@ -2197,17 +2197,23 @@ def api_cli_logout(request: Request) -> dict[str, bool]:
     return {"ok": True}
 
 
-def _install_script(folder: str) -> Response:
+def _install_script(folder: str, name: str = "install.sh", media_type: str = "text/x-shellscript") -> Response:
     server = settings.public_base_url.rstrip("/")
     if not re.fullmatch(r"https://[A-Za-z0-9.-]+(:[0-9]+)?", server):
         raise HTTPException(status_code=503, detail="PUBLIC_BASE_URL must be an https origin")
-    script = (STATIC / folder / "install.sh").read_text(encoding="utf-8")
-    return Response(script.replace("__INFOCUS_SERVER__", server), media_type="text/x-shellscript")
+    script = (STATIC / folder / name).read_text(encoding="utf-8")
+    return Response(script.replace("__INFOCUS_SERVER__", server), media_type=media_type)
 
 
 @app.get("/cli/install.sh")
 def cli_install_script() -> Response:
     return _install_script("cli")
+
+
+@app.get("/cli/install.ps1")
+def cli_install_powershell() -> Response:
+    """Windows installer: `irm <drive>/cli/install.ps1 | iex`."""
+    return _install_script("cli", "install.ps1", "text/plain; charset=utf-8")
 
 
 @app.get("/mac/install.sh")
