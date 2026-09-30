@@ -96,6 +96,7 @@ jobs:
           if ($cfg.server -ne 'https://drive.example.com') { throw 'config.json not written' }
           & $exe --json whoami; if ($LASTEXITCODE -ne 3) { throw "whoami without sign-in should exit 3, got $LASTEXITCODE" }
           Stop-Process $httpServer
+          exit 0 # whoami's expected exit code 3 would otherwise fail the step
 
   mac-app:
     runs-on: macos-latest
