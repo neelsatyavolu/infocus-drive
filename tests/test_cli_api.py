@@ -389,3 +389,61 @@ def test_personal_auth_requires_a_password_or_code(client, web_user, monkeypatch
     monkeypatch.setattr(main, "nas_password_login", lambda *a, **kw: pytest.fail("must not call the NAS"))
     response = client.post("/api/personal/auth", headers=bearer(token), data={"owner": "student1"})
     assert response.status_code == 400
+
+
+# LAN route for the Mac helper: prove the LAN server is this Drive, then use a
+# short-lived LAN-only token so the long-lived token never crosses the LAN.
+LAN = "http://lan.test:8790"
+
+
+@pytest.fixture
+def lan(client, monkeypatch):
+    monkeypatch.setattr(main.settings, "lan_origin", LAN)
+    return TestClient(main.app, base_url=LAN)
+
+
+def test_lan_proof_only_answers_direct_lan_requests(client, lan):
+    nonce = "n" * 40
+    direct = lan.get("/api/lan/proof", params={"nonce": nonce})
+    assert direct.status_code == 200 and direct.json()["proof"]
+    assert client.get("/api/lan/proof", params={"nonce": nonce}).status_code == 404  # public host
+    relayed = lan.get("/api/lan/proof", params={"nonce": nonce}, headers={"CF-Ray": "abc"})
+    assert relayed.status_code == 404  # came through Cloudflare: refuse (no relaying)
+    assert lan.get("/api/lan/proof", params={"nonce": "short"}).status_code == 400
+
+
+def test_lan_token_requires_a_genuine_proof_and_only_works_on_the_lan(client, web_user, lan):
+    token = login(client)["token"]
+    web_user["user"] = None
+    nonce = "x" * 40
+    proof = lan.get("/api/lan/proof", params={"nonce": nonce}).json()["proof"]
+    bad = client.post("/api/cli/lan-token", headers=bearer(token), data={"nonce": nonce, "proof": "0" * 64})
+    assert bad.status_code == 403
+    issued = client.post("/api/cli/lan-token", headers=bearer(token), data={"nonce": nonce, "proof": proof})
+    assert issued.status_code == 200
+    lan_token = issued.json()["token"]
+    assert lan_token.startswith("ifl_") and issued.json()["lan_origin"] == LAN
+    assert lan.get("/api/files", headers=bearer(lan_token)).status_code == 200
+    assert client.get("/api/files", headers=bearer(lan_token)).status_code == 401  # not via the internet
+    assert lan.get("/api/files", headers={**bearer(lan_token), "CF-Ray": "abc"}).status_code == 401
+    # A LAN token can't mint more LAN tokens.
+    assert lan.post("/api/cli/lan-token", headers=bearer(lan_token), data={"nonce": nonce, "proof": proof}).status_code == 403
+    # Signing out the parent sign-in kills its LAN tokens.
+    assert client.post("/api/cli/logout", headers=bearer(token)).status_code == 200
+    assert lan.get("/api/files", headers=bearer(lan_token)).status_code == 401
+
+
+def test_lan_token_expires(client, web_user, lan, monkeypatch):
+    token = login(client)["token"]
+    web_user["user"] = None
+    nonce = "y" * 40
+    proof = lan.get("/api/lan/proof", params={"nonce": nonce}).json()["proof"]
+    lan_token = client.post("/api/cli/lan-token", headers=bearer(token), data={"nonce": nonce, "proof": proof}).json()["token"]
+    monkeypatch.setattr(main, "_LAN_TOKEN_TTL_S", -1)
+    assert lan.get("/api/files", headers=bearer(lan_token)).status_code == 401
+
+
+def test_lan_token_not_offered_without_lan_origin(client, web_user):
+    token = login(client)["token"]
+    web_user["user"] = None
+    assert client.post("/api/cli/lan-token", headers=bearer(token), data={"nonce": "z" * 40, "proof": "a"}).status_code == 404

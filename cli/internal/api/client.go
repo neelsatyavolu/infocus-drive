@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 )
 
@@ -33,6 +34,7 @@ type Client struct {
 	Share     string
 	HTTP      *http.Client
 	UserAgent string
+	LAN       *LANRoute // optional: use the Drive's LAN address when set
 }
 
 // Entry is one file or folder, as returned by /api/files and friends.
@@ -74,6 +76,7 @@ type Me struct {
 	IsAdmin       bool    `json:"is_admin"`
 	Share         string  `json:"share"`
 	Shares        []Share `json:"shares"`
+	LANOrigin     string  `json:"lan_origin,omitempty"` // the Drive's school-network address
 }
 
 // FindShare matches a share by id, then by display name.
@@ -127,7 +130,11 @@ func (c *Client) httpClient() *http.Client {
 }
 
 func (c *Client) newRequest(ctx context.Context, method, endpoint string, query url.Values, body io.Reader) (*http.Request, error) {
-	u := *c.Base
+	base, token := c.Base, c.Token
+	if r := c.LAN.Get(); r != nil {
+		base, token = r.Base, r.Token
+	}
+	u := *base
 	u.Path = endpoint
 	if query != nil {
 		u.RawQuery = query.Encode()
@@ -136,8 +143,8 @@ func (c *Client) newRequest(ctx context.Context, method, endpoint string, query 
 	if err != nil {
 		return nil, err
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	if c.Share != "" {
 		req.Header.Set("X-Drive-Share", c.Share)
@@ -151,6 +158,18 @@ func (c *Client) newRequest(ctx context.Context, method, endpoint string, query 
 // do sends req and turns non-2xx responses into *Error.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
 	res, err := c.httpClient().Do(req)
+	if c.LAN.carried(req) && (err != nil || res.StatusCode == http.StatusUnauthorized) {
+		// Left the school network, or the LAN token lapsed: back to the
+		// internet. A LAN 401 is never "signed out".
+		if res != nil {
+			res.Body.Close()
+		}
+		c.LAN.Drop()
+		if retry := c.retryOverInternet(req); retry != nil {
+			return c.do(retry)
+		}
+		return nil, &Error{Status: http.StatusServiceUnavailable, Detail: "the network changed during this request; try again"}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("can't reach %s: %w", c.Base.Host, err)
 	}
@@ -265,7 +284,11 @@ func (c *Client) DownloadFrom(ctx context.Context, p string, offset int64) (io.R
 
 // DownloadVersionFrom is DownloadFrom plus the file's version (see Version).
 func (c *Client) DownloadVersionFrom(ctx context.Context, p string, offset int64) (io.ReadCloser, string, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, "/api/download", url.Values{"path": {CleanPath(p)}, "inline": {"0"}}, nil)
+	return c.streamFrom(ctx, "/api/download", url.Values{"path": {CleanPath(p)}, "inline": {"0"}}, offset)
+}
+
+func (c *Client) streamFrom(ctx context.Context, endpoint string, query url.Values, offset int64) (io.ReadCloser, string, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, endpoint, query, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -304,7 +327,33 @@ var ErrNoRange = errors.New("the Drive doesn't support byte ranges")
 // DownloadRange returns length bytes of a file starting at offset (one
 // chunk of a parallel read) and the file's Version.
 func (c *Client) DownloadRange(ctx context.Context, p string, offset, length int64) ([]byte, string, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, "/api/download", url.Values{"path": {CleanPath(p)}, "inline": {"0"}}, nil)
+	return c.chunk(ctx, "/api/download", url.Values{"path": {CleanPath(p)}, "inline": {"0"}}, offset, length)
+}
+
+// SpeedTestFrom streams the Drive's synthetic speed-test file (size bytes)
+// from offset — the same request shape as a real download.
+func (c *Client) SpeedTestFrom(ctx context.Context, size, offset int64) (io.ReadCloser, string, error) {
+	return c.streamFrom(ctx, "/api/speedtest/download", url.Values{"size": {strconv.FormatInt(size, 10)}}, offset)
+}
+
+// SpeedTestRange is DownloadRange for the speed-test file.
+func (c *Client) SpeedTestRange(ctx context.Context, size, offset, length int64) ([]byte, string, error) {
+	return c.chunk(ctx, "/api/speedtest/download", url.Values{"size": {strconv.FormatInt(size, 10)}}, offset, length)
+}
+
+// SpeedTestUpload sends one piece (at most 32 MiB) that the Drive discards.
+func (c *Client) SpeedTestUpload(ctx context.Context, body io.Reader, length int64) error {
+	req, err := c.newRequest(ctx, http.MethodPost, "/api/speedtest/upload", nil, body)
+	if err != nil {
+		return err
+	}
+	req.ContentLength = length
+	req.Header.Set("Content-Type", "application/octet-stream")
+	return c.doJSON(req, nil)
+}
+
+func (c *Client) chunk(ctx context.Context, endpoint string, query url.Values, offset, length int64) ([]byte, string, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, endpoint, query, nil)
 	if err != nil {
 		return nil, "", err
 	}

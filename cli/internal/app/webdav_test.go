@@ -769,3 +769,120 @@ func TestWebdavSmallRangeReadIsOneRequest(t *testing.T) {
 		t.Fatalf("%d ranged requests for a 4 KB read", after-before)
 	}
 }
+
+// The Mac app's speed test reads and writes in the hidden speed-test folder
+// through Finder's path; nothing may land in a share.
+func TestWebdavSpeedTestFolder(t *testing.T) {
+	h := newDavHarness(t)
+	dir := davfs.SpeedTestDir
+	code, body := h.do(t, "GET", h.url(dir, "download-20-run1.bin"), "")
+	if code != 200 || len(body) != 20<<20 || body[300] != byte(300%251) {
+		t.Fatalf("download: %d, %d bytes", code, len(body))
+	}
+	if _, _, ranges := h.counts(); ranges < 2 {
+		t.Fatalf("speed-test read used %d ranged requests; want the parallel path real files use", ranges)
+	}
+	_, lock := h.do(t, "LOCK", h.url(dir, "upload-run1.bin"), lockBody, "Timeout", "Second-60")
+	payload := strings.Repeat("u", 70<<20)
+	if code, _ := h.do(t, "PUT", h.url(dir, "upload-run1.bin"), payload, "If", "(<"+lockToken(t, lock)+">)"); code/100 != 2 {
+		t.Fatalf("upload PUT: %d", code)
+	}
+	h.drive.mu.Lock()
+	up, puts, uploads := h.drive.speedUp, h.drive.speedPuts, h.drive.uploads
+	h.drive.mu.Unlock()
+	if up != 70<<20 || puts < 3 || uploads != 0 {
+		t.Fatalf("speed upload: %d bytes in %d requests (want 70 MiB in 32 MiB chunks), %d real uploads", up, puts, uploads)
+	}
+	if code, b := h.propfind(t, h.url(dir)+"/"); code != http.StatusMultiStatus || !strings.Contains(b, "upload-run1.bin") {
+		t.Fatalf("PROPFIND speed folder: %d", code)
+	}
+	h.do(t, "UNLOCK", h.url(dir, "upload-run1.bin"), "", "Lock-Token", "<"+lockToken(t, lock)+">")
+	if code, _ := h.do(t, "DELETE", h.url(dir, "upload-run1.bin"), ""); code != http.StatusNoContent {
+		t.Fatalf("DELETE: %d", code)
+	}
+	if code, _ := h.propfind(t, h.url(dir, "upload-run1.bin")); code != http.StatusNotFound {
+		t.Fatalf("after DELETE: %d", code)
+	}
+	if code, b := h.propfind(t, h.url()+"/"); strings.Contains(b, "Speed") || code != http.StatusMultiStatus {
+		t.Fatal("speed-test folder shows at the top of the volume")
+	}
+}
+
+// On the school network the helper switches to the Drive's LAN address with
+// a LAN token, and back to the internet the moment the LAN disappears.
+func TestWebdavSwitchesToLANAndBack(t *testing.T) {
+	drive, driveSrv := newFakeDrive(t)
+	drive.put("hello.txt", "hi")
+	lan := drive.withLAN(t)
+	dir := t.TempDir()
+	if err := config.Save(dir, config.Config{Server: driveSrv.URL}); err != nil {
+		t.Fatal(err)
+	}
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
+	var stderr bytes.Buffer
+	env := Env{
+		Stdin: stdinR, Stdout: stdoutW, Stderr: &stderr, ConfigDir: dir,
+		Tokens: config.MemoryStore{strings.TrimPrefix(driveSrv.URL, "http://"): testToken},
+		HTTP:   &http.Client{}, Getenv: func(string) string { return "" },
+	}
+	go func() { Run(context.Background(), []string{"webdav"}, env); stdoutW.Close() }()
+	io.WriteString(stdinW, davPassword+"\n")
+	events := make(chan map[string]any, 64)
+	go func() {
+		scanner := bufio.NewScanner(stdoutR)
+		for scanner.Scan() {
+			var ev map[string]any
+			if json.Unmarshal(scanner.Bytes(), &ev) == nil {
+				events <- ev
+			}
+		}
+	}()
+	waitFor := func(event, key, value string) map[string]any {
+		t.Helper()
+		deadline := time.After(10 * time.Second)
+		for {
+			select {
+			case ev := <-events:
+				if ev["event"] == event && (key == "" || ev[key] == value) {
+					return ev
+				}
+			case <-deadline:
+				t.Fatalf("no %s %s=%s event; stderr: %s", event, key, value, stderr.String())
+			}
+		}
+	}
+	ready := waitFor("ready", "", "")
+	waitFor("route", "via", "lan")
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+	get := func() string {
+		req, _ := http.NewRequest("GET", ready["url"].(string)+"InFocus%20Drive/hello.txt", nil)
+		req.SetBasicAuth(davfs.User, davPassword)
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		body, _ := io.ReadAll(res.Body)
+		return string(body)
+	}
+	drive.mu.Lock()
+	before := drive.lanHits
+	drive.mu.Unlock()
+	if got := get(); got != "hi" {
+		t.Fatalf("read over LAN = %q", got)
+	}
+	drive.mu.Lock()
+	viaLAN := drive.lanHits > before
+	drive.mu.Unlock()
+	if !viaLAN {
+		t.Fatal("read didn't use the LAN route")
+	}
+	lan.CloseClientConnections()
+	lan.Close() // walked out of the building
+	if got := get(); got != "hi" {
+		t.Fatalf("read after leaving the LAN = %q (want a seamless fallback)", got)
+	}
+	waitFor("route", "via", "internet")
+	stdinW.Close()
+}

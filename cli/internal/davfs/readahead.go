@@ -45,7 +45,28 @@ type readAhead struct {
 	version string             // every chunk must match this version
 }
 
-func startReadAhead(parent context.Context, client *api.Client, rel string, from, size int64, version string) *readAhead {
+// byteSource is where a remoteFile's bytes come from: a Drive file, or the
+// speed-test file (so the speed test reads exactly the way Finder does).
+type byteSource interface {
+	From(ctx context.Context, offset int64) (io.ReadCloser, string, error)
+	Range(ctx context.Context, offset, length int64) ([]byte, string, error)
+}
+
+// driveFile reads a file on the Drive.
+type driveFile struct {
+	client *api.Client
+	rel    string
+}
+
+func (d driveFile) From(ctx context.Context, offset int64) (io.ReadCloser, string, error) {
+	return d.client.DownloadVersionFrom(ctx, d.rel, offset)
+}
+
+func (d driveFile) Range(ctx context.Context, offset, length int64) ([]byte, string, error) {
+	return d.client.DownloadRange(ctx, d.rel, offset, length)
+}
+
+func startReadAhead(parent context.Context, src byteSource, from, size int64, version string) *readAhead {
 	ctx, cancel := context.WithCancel(parent)
 	n := int((size - from + readChunk - 1) / readChunk)
 	r := &readAhead{
@@ -75,7 +96,7 @@ func startReadAhead(parent context.Context, client *api.Client, rel string, from
 			length := min(readChunk, size-offset)
 			go func(i int) {
 				defer func() { <-streams }()
-				data, version, err := client.DownloadRange(ctx, rel, offset, length)
+				data, version, err := src.Range(ctx, offset, length)
 				r.results[i] <- chunkResult{data, version, err}
 			}(i)
 		}

@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/davfs"
 )
 
@@ -31,6 +32,7 @@ func cmdWebdav(ctx context.Context, r *runner, args []string) error {
 	fs := flag.NewFlagSet("webdav", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:0", "loopback address to listen on")
 	name := fs.String("name", "InFocus Drive", "volume name Finder shows")
+	noLAN := fs.Bool("no-lan", false, "never use the Drive's LAN address")
 	rest, err := parseFlags(fs, args)
 	if err != nil {
 		return err
@@ -69,6 +71,19 @@ func cmdWebdav(ctx context.Context, r *runner, args []string) error {
 	signedOut := make(chan struct{})
 	var once sync.Once
 	events := &eventWriter{enc: json.NewEncoder(r.env.Stdout)}
+	probe := make(chan struct{}, 1) // "probe" on stdin: the network changed
+	if !*noLAN {
+		client.LAN = &api.LANRoute{OnChange: func(lan bool) {
+			via := "internet"
+			if lan {
+				via = "lan"
+			}
+			events.send(map[string]string{"event": "route", "via": via})
+		}}
+		lanCtx, stopLAN := context.WithCancel(ctx)
+		defer stopLAN()
+		go (&lanMonitor{client: client}).run(lanCtx, probe)
+	}
 	dav := davfs.New(client, tempDir)
 	dav.OnSignedOut = func() { once.Do(func() { close(signedOut) }) }
 	dav.OnWriting = func(open int) {
@@ -99,7 +114,17 @@ func cmdWebdav(ctx context.Context, r *runner, args []string) error {
 
 	stdinClosed := make(chan struct{})
 	go func() {
-		io.Copy(io.Discard, stdin) //nolint:errcheck
+		// Lines after the password: "probe" = the network changed, re-check
+		// the LAN now. EOF = the app quit.
+		lines := bufio.NewScanner(stdin)
+		for lines.Scan() {
+			if strings.TrimSpace(lines.Text()) == "probe" {
+				select {
+				case probe <- struct{}{}:
+				default:
+				}
+			}
+		}
 		close(stdinClosed)
 	}()
 	var result error

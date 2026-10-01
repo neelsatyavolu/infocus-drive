@@ -163,6 +163,29 @@ def lookup(token: str) -> dict[str, Any] | None:
     }
 
 
+def lookup_id(token_id: str) -> dict[str, Any] | None:
+    """Like lookup(), by token id (a LAN token names its parent sign-in)."""
+    now = time.time()
+    with _database() as conn:
+        row = conn.execute(
+            "SELECT * FROM cli_tokens WHERE id = ? AND revoked_at IS NULL", (token_id or "",)
+        ).fetchone()
+    if row is None or now - row["last_used_at"] >= IDLE_TTL_S or now - row["created_at"] >= MAX_AGE_S:
+        return None
+    pw = _nas_account(row["username"], row["uid"])
+    if pw is None:
+        return None
+    return {
+        "email": row["email"],
+        "name": pw.pw_name,
+        "picture": None,
+        "username": pw.pw_name,
+        "uid": pw.pw_uid,
+        "gid": pw.pw_gid,
+        "cli_token_id": row["id"],
+    }
+
+
 def list_for(username: str) -> list[dict[str, Any]]:
     now = time.time()
     with _database() as conn:
