@@ -185,3 +185,58 @@ def test_statuses_isolates_invalid_owner(tmp_path):
     assert isinstance(result['../etc'], ValueError)
     assert result['nasadmin']['locked'] is False
     assert nas.status_calls == [['/home/nasadmin']]
+
+
+class CountingNAS(NAS):
+    def __init__(self):
+        self.calls = 0
+    def personal_status(self, path):
+        self.calls += 1
+        return super().personal_status(path)
+
+
+def test_status_is_reused_briefly(tmp_path):
+    """UGOS can take seconds; a burst of requests asks it once."""
+    nas = CountingNAS()
+    now = [100.0]
+    manager = PersonalFolders(tmp_path / 'state.sqlite', lambda: nas, clock=lambda: now[0])
+    first = manager.status('nasadmin')
+    now[0] = 105
+    assert manager.status('nasadmin') == first
+    assert nas.calls == 1
+    now[0] = 100 + 11
+    manager.status('nasadmin')
+    assert nas.calls == 2
+
+
+def test_statuses_reuses_fresh_answers(tmp_path):
+    nas = BatchNAS({'/home/nasadmin': 4, '/home/alice': 3})
+    now = [100.0]
+    manager = PersonalFolders(tmp_path / 'state.sqlite', lambda: nas, clock=lambda: now[0])
+    manager.status('nasadmin')
+    result = manager.statuses(['nasadmin', 'alice'])
+    assert nas.status_calls == [['/home/alice']]  # nasadmin's answer is fresh
+    assert result['nasadmin']['locked'] is False and result['alice']['locked'] is True
+    manager.statuses(['nasadmin', 'alice'])
+    assert len(nas.status_calls) == 1
+
+
+def test_unlock_is_visible_at_once(tmp_path):
+    nas = CountingNAS()
+    nas.state = 3
+    manager = PersonalFolders(tmp_path / 'state.sqlite', lambda: nas)
+    assert manager.status('nasadmin')['locked'] is True
+    assert manager.unlock('nasadmin', 'correct')['locked'] is False
+    assert manager.status('nasadmin')['locked'] is False
+
+
+def test_reused_answer_never_outlives_the_lease(tmp_path):
+    nas = CountingNAS()
+    now = [0.0]
+    manager = PersonalFolders(tmp_path / 'state.sqlite', lambda: nas, clock=lambda: now[0])
+    manager.status('nasadmin')  # unlocked; the lease ends at 86400
+    now[0] = 86395
+    assert manager.status('nasadmin')['locked'] is False  # answer reused until 86405
+    now[0] = 86401  # 6 s later: fresh enough, but the lease is over
+    assert manager.status('nasadmin')['locked'] is True
+    assert nas.locks == 1

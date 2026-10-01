@@ -108,27 +108,38 @@ final class DriveController: ObservableObject {
         checking = true
         defer { checking = false }
         let started = Date()
-        var next = status
-        next.checkedAt = Date()
+        // Only the fields this check owns: the helper and network fields can
+        // change while whoami runs, so a stale copy of status must not win.
+        let checkedAt = Date()
+        var reachable: Bool?
+        var latency: Int?
+        var info: (email: String, shares: [DriveStatus.Share])?
         do {
             let out = try await CLIRun(["--json", "--server", serverURL, "whoami"]).output()
-            let info = DriveStatus.account(fromWhoami: out)
-            account = .signedIn(info.username)
-            next.email = info.email
-            next.shares = info.shares
-            next.driveReachable = true
-            next.latencyMs = Int(Date().timeIntervalSince(started) * 1000)
+            let who = DriveStatus.account(fromWhoami: out)
+            account = .signedIn(who.username)
+            info = (who.email, who.shares)
+            reachable = true
+            latency = Int(Date().timeIntervalSince(started) * 1000)
             if message == CLIError.signedOut.errorDescription { message = nil }
         } catch CLIError.signedOut {
             account = .signedOut
-            next.driveReachable = true
+            reachable = true
+            latency = status.latencyMs
         } catch {
             // Offline or the Drive is down: keep what we knew, retry later.
-            next.driveReachable = false
-            next.latencyMs = nil
+            reachable = false
             if account == .unknown { message = error.localizedDescription }
         }
-        status = next
+        status.checkedAt = checkedAt
+        status.driveReachable = reachable
+        // While the helper runs it reports the real round trip (a warm
+        // connection); this timing includes starting a process and signing in.
+        if status.helperSince == nil || reachable == false { status.latencyMs = latency }
+        if let info {
+            status.email = info.email
+            status.shares = info.shares
+        }
     }
 
     /// Re-checks the Drive if the last check is older than maxAge.
@@ -384,6 +395,10 @@ final class DriveController: ObservableObject {
         switch event {
         case .route(let viaLAN):
             status.viaLAN = viaLAN
+        case .latency(let ms, let viaLAN):
+            status.latencyMs = ms
+            status.viaLAN = viaLAN
+            status.driveReachable = true
         case .writing(let open):
             openWrites = open
             if !isTransferring { updater.transfersIdle() }

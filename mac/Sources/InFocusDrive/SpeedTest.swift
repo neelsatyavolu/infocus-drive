@@ -163,7 +163,7 @@ struct SpeedTestSection: View {
                     HStack(spacing: 8) {
                         SpeedTile(title: "Download", value: String(format: "%.0f", r.download), unit: "MB/s")
                         SpeedTile(title: "Upload", value: String(format: "%.0f", r.upload), unit: "MB/s")
-                        SpeedTile(title: "Small files", value: String(format: "%.1f", r.smallFiles), unit: "files/s")
+                        SpeedTile(title: "Small files", value: String(format: r.smallFiles < 10 ? "%.1f" : "%.0f", r.smallFiles), unit: "files/s")
                     }
                 }
                 Text(footnote)
@@ -195,8 +195,8 @@ private struct SpeedTile: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title.uppercased()).font(.lexend(9.5, .medium)).tracking(0.9).foregroundStyle(Brand.muted)
             HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value).font(.mono(18, .medium))
-                Text(unit).font(.mono(10.5)).foregroundStyle(Brand.muted)
+                Text(value).font(.mono(18, .medium)).lineLimit(1).fixedSize()
+                Text(unit).font(.mono(10.5)).foregroundStyle(Brand.muted).lineLimit(1).minimumScaleFactor(0.7)
             }
         }
         .padding(.horizontal, 10)

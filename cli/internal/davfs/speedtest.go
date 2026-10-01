@@ -91,7 +91,14 @@ func (s *speedTestFS) Stat(ctx context.Context, name string) (os.FileInfo, error
 func (s *speedTestFS) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
 	inside, ok := speedName(name)
 	if !ok {
-		return s.FS.OpenFile(ctx, name, flag, perm)
+		f, err := s.FS.OpenFile(ctx, name, flag, perm)
+		if err == nil && api.CleanPath(name) == "" {
+			// List the folder at the top of the volume: macOS treats a folder
+			// missing from its parent's listing as deleted.
+			info, _ := s.stat("")
+			f = &rootDir{File: f, extra: info}
+		}
+		return f, err
 	}
 	if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
 		if inside == "" {
@@ -214,7 +221,8 @@ func (w *speedWrite) Close() error {
 		return errors.New("nothing was saved")
 	}
 	size := st.Size()
-	if w.req.method == "PUT" && size > 0 {
+	// Like a real share: "._" and other hidden files stay on the Mac.
+	if w.req.method == "PUT" && size > 0 && !localOnly(w.name) {
 		if err := w.upload(size); err != nil {
 			return w.fs.osErr("write", w.name, err)
 		}
@@ -296,6 +304,22 @@ func (d *speedDir) Close() error                   { return nil }
 func (d *speedDir) Read([]byte) (int, error)       { return 0, errNotSupported }
 func (d *speedDir) Write([]byte) (int, error)      { return 0, errNotSupported }
 func (d *speedDir) Seek(int64, int) (int64, error) { return 0, errNotSupported }
+
+// rootDir is the volume's top folder, plus the speed-test folder.
+type rootDir struct {
+	webdav.File
+	extra fs.FileInfo
+	added bool
+}
+
+func (r *rootDir) Readdir(count int) ([]fs.FileInfo, error) {
+	entries, err := r.File.Readdir(count)
+	if !r.added && (err == nil || err == io.EOF) {
+		r.added = true
+		return append(entries, r.extra), nil
+	}
+	return entries, err
+}
 
 // zeroFile stands in for a file the test wrote (its bytes were discarded).
 type zeroFile struct {

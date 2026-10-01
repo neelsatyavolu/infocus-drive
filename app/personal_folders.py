@@ -20,6 +20,9 @@ from ugos_api import UgosClient, UgosError
 
 SERVICE_USERNAME = "infocus-drive-svc"
 UNLOCK_SECONDS = 24 * 60 * 60
+# UGOS status answers are reused this long: every request inside a personal
+# folder (and every /api/me) needs one, and UGOS can take seconds to answer.
+STATUS_TTL_S = 10
 log = logging.getLogger(__name__)
 
 
@@ -40,6 +43,9 @@ class PersonalFolders:
         self.clock = clock
         self.owner_client_factory = owner_client_factory
         self.lock = threading.RLock()
+        # owner -> (clock time, status): UGOS answers reused for STATUS_TTL_S
+        self._cache = {}
+        self._cache_lock = threading.Lock()
 
     @contextmanager
     def _db(self):
@@ -58,13 +64,52 @@ class PersonalFolders:
             raise ValueError("Invalid personal-folder owner")
         return f"/home/{owner}"
 
+    def _cached(self, owner):
+        """A status UGOS gave in the last STATUS_TTL_S, unless its lease has run out.
+
+        Safe to reuse: a locked answer only denies, and an unlocked one is still
+        checked against the live mount table before any file is touched
+        (shares._personal_root).
+        """
+        with self._cache_lock:
+            hit = self._cache.get(owner)
+        if hit is None:
+            return None
+        at, status = hit
+        now = self.clock()
+        if not 0 <= now - at < STATUS_TTL_S:
+            return None
+        if status["expires_at"] is not None and now >= status["expires_at"]:
+            return None  # the lease ran out: settle (relock) it now
+        return dict(status)
+
+    def _remember(self, owner, status):
+        with self._cache_lock:
+            if status is None:
+                self._cache.pop(owner, None)
+            else:
+                self._cache[owner] = (self.clock(), dict(status))
+
     def status(self, owner):
         path = self._path(owner)
-        with self.lock:
-            client = self.client_factory()
-            state = client.personal_status(path)
-            with self._db() as db:
-                return self._settle(db, client, owner, path, state)
+        cached = self._cached(owner)
+        if cached is not None:
+            return cached
+        return self._live_status(owner, path)
+
+    def _live_status(self, owner, path=None):
+        path = path or self._path(owner)
+        try:
+            with self.lock:
+                client = self.client_factory()
+                state = client.personal_status(path)
+                with self._db() as db:
+                    result = self._settle(db, client, owner, path, state)
+        except Exception:
+            self._remember(owner, None)
+            raise
+        self._remember(owner, result)
+        return result
 
     def statuses(self, owners):
         """Like status() for many owners, with one UGOS round trip instead of one each.
@@ -76,9 +121,15 @@ class PersonalFolders:
         paths = {}
         for owner in owners:
             try:
-                paths[owner] = self._path(owner)
+                path = self._path(owner)
             except ValueError as e:
                 results[owner] = e
+                continue
+            cached = self._cached(owner)
+            if cached is not None:
+                results[owner] = cached
+            else:
+                paths[owner] = path
         if not paths:
             return results
         with self.lock:
@@ -90,7 +141,9 @@ class PersonalFolders:
                     state = states[path] if path in states else client.personal_status(path)
                     with self._db() as db:
                         results[owner] = self._settle(db, client, owner, path, state)
+                    self._remember(owner, results[owner])
                 except Exception as e:
+                    self._remember(owner, None)
                     results[owner] = e
             return results
 
@@ -119,13 +172,13 @@ class PersonalFolders:
         if not key or len(key.encode()) > 65536:
             raise ValueError("Enter an encryption password or key file (up to 64 KB)")
         with self.lock:
-            current = self.status(owner)
+            current = self._live_status(owner, path)
             if not current["locked"]:
                 return current
             if current["state"] != 3:
                 raise ValueError("UGOS is processing this folder. Try again shortly.")
             self._operate(owner, "unlock_personal", path, key, key_file=key_file)
-            return self.status(owner)
+            return self._live_status(owner, path)
 
     def _operate(self, owner, method, *args, **kwargs):
         own_client = self.owner_client_factory(owner) if self.owner_client_factory else None
@@ -145,7 +198,7 @@ class PersonalFolders:
             owners = [row[0] for row in db.execute("SELECT owner FROM unlocks WHERE expires<=?", (self.clock(),))]
         for owner in owners:
             try:
-                self.status(owner)
+                self._live_status(owner)
             except Exception:
                 # Credentials and UGOS response bodies must never appear in logs.
                 log.warning("Personal-folder relock failed; will retry")

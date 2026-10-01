@@ -92,8 +92,9 @@ struct StatusRow: View {
             Text(detail)
                 .font(.lexend(10.5))
                 .foregroundStyle(Brand.muted)
-                .lineLimit(1)
+                .lineLimit(2)
                 .truncationMode(.middle)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .help("\(title): \(value) — \(detail)")
     }

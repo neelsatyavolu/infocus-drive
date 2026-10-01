@@ -339,7 +339,7 @@ func DefaultEnv() (Env, error) {
 		StdinIsTTY:  info != nil && info.Mode()&os.ModeCharDevice != 0,
 		ConfigDir:   dir,
 		Tokens:      config.Keychain{},
-		HTTP:        &http.Client{Transport: fastTransport()},
+		HTTP:        &http.Client{Transport: traceUpstream(fastTransport())},
 		OpenBrowser: openBrowser,
 		ReadSecret:  readSecret,
 		RunEditor:   runEditor,
@@ -350,11 +350,38 @@ func DefaultEnv() (Env, error) {
 
 // fastTransport keeps enough idle connections for parallel chunk uploads and
 // read-ahead (Go's default keeps 2 per host, so extra streams would redo the
-// TLS handshake through the tunnel every time).
+// TLS handshake through the tunnel every time). Idle connections stay open
+// for minutes, and HTTP/2 pings keep the tunnel connection alive between
+// Finder's bursts and notice a dead one (after a network change) in seconds.
 func fastTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.MaxIdleConnsPerHost = 16
+	t.IdleConnTimeout = 5 * time.Minute
 	t.ReadBufferSize = 256 << 10
 	t.WriteBufferSize = 256 << 10
+	t.HTTP2 = &http.HTTP2Config{SendPingTimeout: 15 * time.Second, PingTimeout: 10 * time.Second}
 	return t
 }
+
+// traceUpstream logs each Drive request's time to first byte when
+// INFOCUS_DAV_TRACE is set (see davfs.Handler).
+func traceUpstream(t http.RoundTripper) http.RoundTripper {
+	if os.Getenv("INFOCUS_DAV_TRACE") == "" {
+		return t
+	}
+	return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		start := time.Now()
+		res, err := t.RoundTrip(req)
+		status := 0
+		if res != nil {
+			status = res.StatusCode
+		}
+		fmt.Fprintf(os.Stderr, "upstream %s %s %s %s range=%q -> %d err=%v %s\n", start.Format("05.000"), req.Method,
+			req.URL.Host, req.URL.Path, req.Header.Get("Range"), status, err, time.Since(start).Round(100*time.Microsecond))
+		return res, err
+	})
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }

@@ -18,6 +18,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
@@ -25,7 +26,14 @@ import (
 
 const (
 	listTTL   = 10 * time.Second // Finder re-lists folders constantly; writes update the cache in place
+	listStale = 2 * time.Minute  // until then an older listing is served while a fresh one loads
 	sharesTTL = time.Minute
+	// fetchTimeout bounds a listing or share-list fetch that runs on its own
+	// (shared by several requests, or refreshing in the background).
+	fetchTimeout = time.Minute
+	// pendingGrace: how long a new, still empty file waits for its content
+	// before the empty file is created on the Drive (see writeFile.Close).
+	pendingGrace = 2 * time.Second
 )
 
 // FS implements webdav.FileSystem on top of the Drive API.
@@ -41,15 +49,32 @@ type FS struct {
 	// OnWriting reports how many files are open for writing (a Finder copy in
 	// progress, before its upload starts), so the app never restarts mid-copy.
 	OnWriting func(open int)
+	// PendingGrace is how long a new empty file waits for its content before
+	// it is created empty on the Drive (default pendingGrace).
+	PendingGrace time.Duration
 
-	mu        sync.Mutex
-	lists     map[string]cachedList
-	shares    []api.Share
-	sharesAt  time.Time
-	uploadSeq int64
-	writing   int
-	sharesMu  sync.Mutex // serializes share-list refreshes
-	locks     *pendingLocks
+	mu         sync.Mutex
+	lists      map[string]cachedList
+	listGen    map[string]uint64  // bumped by each local change to a listing
+	flights    map[string]*flight // listings being fetched
+	shares     []api.Share
+	sharesAt   time.Time
+	uploadSeq  int64
+	writing    int
+	sharesMu   sync.Mutex  // serializes share-list fetches
+	refreshing atomic.Bool // a background share-list refresh is running
+	locks      *pendingLocks
+	waiting    map[string]*waiter // new empty files waiting out PendingGrace
+
+	sharesTTL, listTTL, listStale time.Duration // the constants; tests shorten them
+}
+
+// flight is one folder listing being fetched; everyone who needs it waits
+// for the same request.
+type flight struct {
+	done  chan struct{}
+	items []api.Entry
+	err   error
 }
 
 type cachedList struct {
@@ -61,11 +86,29 @@ type cachedList struct {
 // in tempDir, which the caller creates and removes.
 func New(client *api.Client, tempDir string) *FS {
 	return &FS{
-		client: client,
-		local:  newLocalStore(tempDir),
-		start:  time.Now(),
-		lists:  map[string]cachedList{},
+		client:       client,
+		local:        newLocalStore(tempDir),
+		start:        time.Now(),
+		lists:        map[string]cachedList{},
+		listGen:      map[string]uint64{},
+		flights:      map[string]*flight{},
+		waiting:      map[string]*waiter{},
+		PendingGrace: pendingGrace,
+		sharesTTL:    sharesTTL,
+		listTTL:      listTTL,
+		listStale:    listStale,
 	}
+}
+
+// SetShares fills the share list with an /api/me answer the caller already
+// has (the helper checks the sign-in before it starts serving).
+func (f *FS) SetShares(shares []api.Share) {
+	if shares == nil {
+		shares = []api.Share{}
+	}
+	f.mu.Lock()
+	f.shares, f.sharesAt = shares, time.Now()
+	f.mu.Unlock()
 }
 
 // target is a WebDAV name resolved to a share and a path inside it.
@@ -153,8 +196,25 @@ func (f *FS) clientFor(s api.Share) *api.Client {
 	return &c
 }
 
+// listShares returns the share list. Once there is one it never waits: an
+// old list is served while a fresh one loads (/api/me asks UGOS about
+// personal folders, which can take seconds).
 func (f *FS) listShares(ctx context.Context) ([]api.Share, error) {
-	return f.fetchShares(ctx, sharesTTL)
+	f.mu.Lock()
+	shares, at := f.shares, f.sharesAt
+	f.mu.Unlock()
+	if shares == nil {
+		return f.fetchShares(ctx, f.sharesTTL)
+	}
+	if time.Since(at) >= f.sharesTTL && f.refreshing.CompareAndSwap(false, true) {
+		go func() {
+			defer f.refreshing.Store(false)
+			ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+			defer cancel()
+			f.fetchShares(ctx, f.sharesTTL)
+		}()
+	}
+	return shares, nil
 }
 
 func (f *FS) fetchShares(ctx context.Context, maxAge time.Duration) ([]api.Share, error) {
@@ -225,22 +285,64 @@ func (f *FS) resolve(ctx context.Context, name string) (target, error) {
 	return target{}, pathErr("stat", name, os.ErrNotExist)
 }
 
-// list returns a Drive folder's entries, cached briefly.
+// list returns a Drive folder's entries, cached briefly. A listing past its
+// TTL is still served (for up to listStale) while a fresh one loads.
 func (f *FS) list(ctx context.Context, t target) ([]api.Entry, error) {
 	f.mu.Lock()
 	cached, ok := f.lists[t.key()]
 	f.mu.Unlock()
-	if ok && time.Since(cached.at) < listTTL {
+	age := time.Since(cached.at)
+	switch {
+	case ok && age < f.listTTL:
+		return cached.items, nil
+	case ok && age < f.listStale:
+		f.fetchList(t)
 		return cached.items, nil
 	}
-	listing, err := f.clientFor(t.share).List(ctx, t.rel)
-	if err != nil {
-		return nil, f.osErr("readdir", t.rel, err)
+	fl := f.fetchList(t)
+	select {
+	case <-fl.done:
+		return fl.items, fl.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
+}
+
+// fetchList starts fetching t's listing, or joins the fetch already running.
+// The result is cached unless the listing changed locally meanwhile (an
+// upload, delete or move), which a listing from before must not undo.
+func (f *FS) fetchList(t target) *flight {
+	key := t.key()
 	f.mu.Lock()
-	f.lists[t.key()] = cachedList{items: listing.Items, at: time.Now()}
-	f.mu.Unlock()
-	return listing.Items, nil
+	defer f.mu.Unlock()
+	if fl, ok := f.flights[key]; ok {
+		return fl
+	}
+	fl := &flight{done: make(chan struct{})}
+	f.flights[key] = fl
+	gen := f.listGen[key]
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
+		defer cancel()
+		listing, err := f.clientFor(t.share).List(ctx, t.rel)
+		if err != nil {
+			err = f.osErr("readdir", t.rel, err)
+		}
+		f.mu.Lock()
+		delete(f.flights, key)
+		if f.listGen[key] == gen {
+			switch {
+			case err == nil:
+				f.lists[key] = cachedList{items: listing.Items, at: time.Now()}
+			case os.IsNotExist(err):
+				delete(f.lists, key) // gone from the Drive: stop serving it
+			}
+		}
+		f.mu.Unlock()
+		fl.items, fl.err = listing.Items, err
+		close(fl.done)
+	}()
+	return fl
 }
 
 // node is a resolved, existing name.
@@ -450,13 +552,16 @@ func (f *FS) moveRemote(ctx context.Context, c *api.Client, from, to string) err
 	return nil
 }
 
-// finishPending runs when Finder unlocks a file: if it LOCKed a new name but
-// never wrote it (e.g. `touch`), create the empty file on the Drive now.
+// finishPending creates name on the Drive, empty, if it is still a
+// placeholder: Finder LOCKed a new name (or created it with an empty PUT) and
+// never wrote it, e.g. `touch`.
 func (f *FS) finishPending(name string) {
-	t, err := f.resolve(context.Background(), name)
-	if err != nil {
-		return
+	if t, err := f.resolve(context.Background(), name); err == nil {
+		f.finishTarget(t)
 	}
+}
+
+func (f *FS) finishTarget(t target) {
 	entry, ok := f.local.get(t.key())
 	if !ok || !entry.pending {
 		return
@@ -465,6 +570,43 @@ func (f *FS) finishPending(name string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	_ = f.createEmpty(ctx, t, true) // exists already (someone else) is fine
+}
+
+// waiter is a placeholder waiting out PendingGrace for its content.
+type waiter struct {
+	t     target
+	timer *time.Timer
+}
+
+// finishLater finishes t's placeholder after PendingGrace, unless the
+// content arrives first (the PUT clears the placeholder).
+func (f *FS) finishLater(t target) {
+	key := t.key()
+	w := &waiter{t: t}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if old, ok := f.waiting[key]; ok {
+		old.timer.Stop()
+	}
+	f.waiting[key] = w
+	w.timer = time.AfterFunc(f.PendingGrace, func() {
+		f.mu.Lock()
+		current := f.waiting[key] == w
+		if current {
+			delete(f.waiting, key)
+		}
+		f.mu.Unlock()
+		if current {
+			f.finishTarget(t)
+		}
+	})
+}
+
+// finishLaterName is finishLater for a WebDAV name (an UNLOCK).
+func (f *FS) finishLaterName(name string) {
+	if t, err := f.resolve(context.Background(), name); err == nil {
+		f.finishLater(t)
+	}
 }
 
 // createEmpty uploads an empty file to t (only if missing, when mustNotExist).
@@ -483,9 +625,21 @@ func (f *FS) createEmpty(ctx context.Context, t target, mustNotExist bool) error
 	return f.upload(ctx, t, tmp.Name(), opts)
 }
 
-// FinishPending creates every file Finder LOCKed but never wrote (on shutdown).
+// FinishPending creates every file Finder LOCKed or created but never wrote
+// (on shutdown).
 func (f *FS) FinishPending() {
 	if f.locks != nil {
 		f.locks.finishAll()
+	}
+	f.mu.Lock()
+	waiting := make([]*waiter, 0, len(f.waiting))
+	for key, w := range f.waiting {
+		w.timer.Stop()
+		waiting = append(waiting, w)
+		delete(f.waiting, key)
+	}
+	f.mu.Unlock()
+	for _, w := range waiting {
+		f.finishTarget(w.t)
 	}
 }

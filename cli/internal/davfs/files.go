@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"mime"
+	"net/http"
 	"os"
 	"path"
 	"sort"
@@ -108,6 +109,7 @@ func (f *FS) create(ctx context.Context, name string) (webdav.File, error) {
 	case err != nil && !os.IsNotExist(err):
 		return nil, err // unsure whether it exists: never risk replacing it
 	}
+	isNew := err != nil
 	tmp, err := f.local.tempFile()
 	if err != nil {
 		return nil, err
@@ -115,7 +117,7 @@ func (f *FS) create(ctx context.Context, name string) (webdav.File, error) {
 	req := requestOf(ctx)
 	f.writes(+1)
 	return &writeFile{File: tmp, ctx: ctx, fs: f, t: t, name: t.base(), req: req,
-		createOnly: req.method == "LOCK"}, nil
+		createOnly: req.method == "LOCK", isNew: isNew}, nil
 }
 
 // readDir lists a folder: shares at the root, else Drive entries plus local ones.
@@ -194,50 +196,94 @@ func (f *FS) remote(ctx context.Context, share api.Share, rel string, info fileI
 }
 
 // remoteFile reads a Drive file lazily with ranged downloads, so seeking
-// (Range requests from Finder) doesn't fetch the whole file.
+// (Range requests from Finder) doesn't fetch the whole file. It fetches only
+// what the WebDAV request asks for: a small range is one request, a large one
+// is fetched in parallel chunks from the first byte (see readahead.go).
 type remoteFile struct {
-	ctx       context.Context
-	fs        *FS
-	src       byteSource
-	rel       string // for error messages
-	info      fileInfo
-	off       int64
-	body      io.ReadCloser
-	bodyOff   int64
-	bodyStart int64      // where the current stream started
-	version   string     // file version the bytes read so far came from
-	ahead     *readAhead // parallel chunks for large sequential reads
-	noRange   bool       // the Drive ignored ranges: stream instead
+	ctx     context.Context
+	fs      *FS
+	src     byteSource
+	rel     string // for error messages
+	info    fileInfo
+	off     int64
+	buf     []byte // bytes from one ranged request, starting at bufOff
+	bufOff  int64
+	body    io.ReadCloser // the whole-stream fallback (noRange)
+	bodyOff int64
+	version string     // file version the bytes read so far came from
+	ahead   *readAhead // parallel chunks for large reads
+	noRange bool       // the Drive ignored ranges: stream instead
+}
+
+// readEnd is where the current read stops: the end of the requested range,
+// or of the file.
+func (r *remoteFile) readEnd() int64 {
+	if end := requestOf(r.ctx).readEnd; end > r.off && end < r.info.size {
+		return end
+	}
+	return r.info.size
 }
 
 func (r *remoteFile) Read(p []byte) (int, error) {
-	if r.off >= r.info.size {
-		return 0, io.EOF
-	}
-	if r.ahead != nil && r.ahead.pos != r.off {
-		r.stopAhead() // seeked away
-	}
-	// Switch to parallel chunks once this is clearly a big sequential read.
-	if r.ahead == nil && !r.noRange && r.body != nil && r.bodyOff == r.off &&
-		r.off-r.bodyStart >= readAheadAfter && r.info.size-r.off > readChunk {
-		r.closeBody()
-		r.ahead = startReadAhead(r.ctx, r.src, r.off, r.info.size, r.version)
-	}
-	if r.ahead != nil {
-		n, err := r.ahead.Read(r.ctx, p)
-		switch {
-		case rangeUnsupported(err):
-			r.noRange = true
-			r.stopAhead() // fall back to one stream below
-		default:
+	for {
+		if r.off >= r.info.size {
+			return 0, io.EOF
+		}
+		if r.off >= r.bufOff && r.off < r.bufOff+int64(len(r.buf)) {
+			n := copy(p, r.buf[r.off-r.bufOff:])
 			r.off += int64(n)
-			if err != nil && err != io.EOF {
+			return n, nil
+		}
+		if r.ahead != nil && r.ahead.pos != r.off {
+			r.stopAhead() // seeked away
+		}
+		if r.ahead != nil {
+			n, err := r.ahead.Read(r.ctx, p)
+			r.off += int64(n)
+			switch {
+			case rangeUnsupported(err):
+				r.noRange = true
+				r.stopAhead()
+				continue
+			case err == io.EOF && r.off < r.info.size:
+				r.stopAhead() // read past the requested range: fetch more
+				if n > 0 {
+					return n, nil
+				}
+				continue
+			case err != nil && err != io.EOF:
 				requestOf(r.ctx).broken.Store(true)
 				return n, r.fs.osErr("read", r.rel, err)
 			}
 			return n, err
 		}
+		if r.noRange {
+			return r.stream(p)
+		}
+		end := r.readEnd()
+		if end-r.off > smallRead {
+			r.ahead = startReadAhead(r.ctx, r.src, r.off, end, r.version)
+			continue
+		}
+		data, version, err := r.src.Range(r.ctx, r.off, end-r.off)
+		if rangeUnsupported(err) {
+			r.noRange = true
+			continue
+		}
+		if err == nil && r.version != "" && version != r.version {
+			err = errChanged
+		}
+		if err != nil {
+			requestOf(r.ctx).broken.Store(true)
+			return 0, r.fs.osErr("read", r.rel, err)
+		}
+		r.version, r.buf, r.bufOff = version, data, r.off
 	}
+}
+
+// stream reads through one download from the current offset, for a Drive
+// that answers ranged requests with the whole file.
+func (r *remoteFile) stream(p []byte) (int, error) {
 	if r.body == nil || r.bodyOff != r.off {
 		r.closeBody()
 		body, version, err := r.src.From(r.ctx, r.off)
@@ -250,7 +296,7 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 			requestOf(r.ctx).broken.Store(true)
 			return 0, errChanged
 		}
-		r.body, r.bodyOff, r.bodyStart, r.version = body, r.off, r.off, version
+		r.body, r.bodyOff, r.version = body, r.off, version
 	}
 	n, err := r.body.Read(p)
 	r.off += int64(n)
@@ -319,6 +365,7 @@ type writeFile struct {
 	name       string
 	req        *request
 	createOnly bool  // LOCK: create if missing, never replace
+	isNew      bool  // nothing had this name when the write began
 	copyErr    error // first error while filling the temp file
 }
 
@@ -377,10 +424,11 @@ func (f *FS) writes(delta int) {
 
 func (w *writeFile) Close() error {
 	defer w.fs.writes(-1) // after the upload: the copy is only done then
+	placeholder := false  // this write leaves a placeholder for the content to come
 	if !w.createOnly && !localOnly(w.name) {
 		// This PUT settles any placeholder, whether it uploads or fails.
 		defer func() {
-			if old, ok := w.fs.local.get(w.t.key()); ok && old.pending {
+			if old, ok := w.fs.local.get(w.t.key()); ok && old.pending && !placeholder {
 				w.fs.local.remove(w.t.key())
 			}
 		}()
@@ -416,6 +464,15 @@ func (w *writeFile) Close() error {
 		// placeholder instead of uploading an empty file first. The PUT
 		// replaces it; an UNLOCK without a PUT creates the empty file.
 		w.fs.local.put(w.t.key(), localEntry{pending: true, mtime: time.Now()})
+		return nil
+	}
+	if w.isNew && st.Size() == 0 && w.req.method == http.MethodPut {
+		// macOS creates every new file with an empty PUT and sends the content
+		// in a second PUT moments later. Wait for it instead of uploading the
+		// empty file too; if none comes, the empty file is created then.
+		placeholder = true
+		w.fs.local.put(w.t.key(), localEntry{pending: true, mtime: time.Now()})
+		w.fs.finishLater(w.t)
 		return nil
 	}
 	return w.fs.upload(w.ctx, w.t, w.File.Name(), api.UploadOptions{})

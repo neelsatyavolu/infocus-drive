@@ -8,21 +8,22 @@ import (
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
 )
 
-// Parallel read-ahead: one HTTP stream through the tunnel tops out well below
-// what several do (measured ~45 vs ~70 MB/s), so large sequential reads fetch
-// 8 MiB chunks, readStreams at a time, and hand them out in order. At most
-// readWindow chunks are fetched ahead, plus the one being read (48 MiB).
-// It only starts after readAheadAfter bytes of sequential reading, so small
-// range reads stay one request.
+// Parallel reads: one HTTP stream tops out well below what several do
+// (through the tunnel ~45 vs ~150 MB/s), so a large read fetches its range as
+// readChunk pieces, readStreams at a time, and hands them out in order. At
+// most readWindow chunks are fetched ahead of the reader (48 MiB). The first
+// chunk is small, so the first bytes arrive quickly. A read of up to
+// smallRead bytes is a single request.
 //
 // Every chunk must come from the same version of the file (ETag, Last-Modified,
 // size) as the bytes already read; otherwise the read fails instead of
 // stitching an old and a new version together.
 const (
-	readChunk      = 8 << 20
-	readStreams    = 4
-	readWindow     = 5
-	readAheadAfter = 1 << 20
+	readChunk   = 4 << 20
+	firstChunk  = 1 << 20
+	readStreams = 6
+	readWindow  = 12
+	smallRead   = readChunk
 )
 
 // errChanged: the file was replaced on the Drive in the middle of a read.
@@ -66,12 +67,17 @@ func (d driveFile) Range(ctx context.Context, offset, length int64) ([]byte, str
 	return d.client.DownloadRange(ctx, d.rel, offset, length)
 }
 
-func startReadAhead(parent context.Context, src byteSource, from, size int64, version string) *readAhead {
+// startReadAhead fetches bytes [from, end) of src in parallel chunks.
+func startReadAhead(parent context.Context, src byteSource, from, end int64, version string) *readAhead {
 	ctx, cancel := context.WithCancel(parent)
-	n := int((size - from + readChunk - 1) / readChunk)
+	var spans [][2]int64 // offset, length
+	for off, size := from, int64(firstChunk); off < end; off, size = off+size, readChunk {
+		size = min(size, end-off)
+		spans = append(spans, [2]int64{off, size})
+	}
 	r := &readAhead{
 		cancel:  cancel,
-		results: make([]chan chunkResult, n),
+		results: make([]chan chunkResult, len(spans)),
 		window:  make(chan struct{}, readWindow),
 		pos:     from,
 		version: version,
@@ -81,7 +87,7 @@ func startReadAhead(parent context.Context, src byteSource, from, size int64, ve
 	}
 	go func() {
 		streams := make(chan struct{}, readStreams)
-		for i := 0; i < n; i++ {
+		for i, span := range spans {
 			select {
 			case r.window <- struct{}{}: // freed when the reader takes a chunk
 			case <-ctx.Done():
@@ -92,13 +98,11 @@ func startReadAhead(parent context.Context, src byteSource, from, size int64, ve
 			case <-ctx.Done():
 				return
 			}
-			offset := from + int64(i)*readChunk
-			length := min(readChunk, size-offset)
-			go func(i int) {
+			go func() {
 				defer func() { <-streams }()
-				data, version, err := src.Range(ctx, offset, length)
+				data, version, err := src.Range(ctx, span[0], span[1])
 				r.results[i] <- chunkResult{data, version, err}
-			}(i)
+			}()
 		}
 	}()
 	return r

@@ -628,17 +628,19 @@ func TestWebdavSmallFileCopyIsOneRequestPerFile(t *testing.T) {
 }
 
 // `touch` style: LOCK a new name, then UNLOCK without writing: the empty file
-// must still end up on the Drive.
+// must still end up on the Drive (once the grace period for content is over).
 func TestWebdavLockThenUnlockCreatesEmptyFile(t *testing.T) {
 	h := newDavHarness(t)
+	h.fs.PendingGrace = 50 * time.Millisecond
 	_, body := h.do(t, "LOCK", h.url("InFocus Drive", "empty.txt"), lockBody, "Timeout", "Second-60")
 	if _, ok := h.driveHas("empty.txt"); ok {
 		t.Fatal("LOCK uploaded a placeholder right away")
 	}
 	h.do(t, "UNLOCK", h.url("InFocus Drive", "empty.txt"), "", "Lock-Token", "<"+lockToken(t, body)+">")
-	if got, ok := h.driveHas("empty.txt"); !ok || got != "" {
-		t.Fatalf("after UNLOCK: exists=%v content=%q", ok, got)
-	}
+	waitFor(t, "the empty file after UNLOCK", func() bool {
+		got, ok := h.driveHas("empty.txt")
+		return ok && got == ""
+	})
 }
 
 func lockToken(t *testing.T, body string) string {
@@ -803,8 +805,11 @@ func TestWebdavSpeedTestFolder(t *testing.T) {
 	if code, _ := h.propfind(t, h.url(dir, "upload-run1.bin")); code != http.StatusNotFound {
 		t.Fatalf("after DELETE: %d", code)
 	}
-	if code, b := h.propfind(t, h.url()+"/"); strings.Contains(b, "Speed") || code != http.StatusMultiStatus {
-		t.Fatal("speed-test folder shows at the top of the volume")
+	// Listed at the top of the volume, or macOS decides the folder is gone and
+	// fails every new name in it; the leading dot keeps it hidden in Finder.
+	if code, b := h.propfind(t, h.url()+"/"); code != http.StatusMultiStatus ||
+		!strings.Contains(b, url.PathEscape(dir)) || !strings.HasPrefix(dir, ".") {
+		t.Fatalf("root listing (%d) lacks the hidden speed-test folder:\n%s", code, b)
 	}
 }
 
@@ -854,6 +859,10 @@ func TestWebdavSwitchesToLANAndBack(t *testing.T) {
 	}
 	ready := waitFor("ready", "", "")
 	waitFor("route", "via", "lan")
+	// The app shows the round trip Finder's requests actually take.
+	if ev := waitFor("latency", "via", "lan"); ev["ms"] == nil {
+		t.Fatalf("latency event without ms: %v", ev)
+	}
 	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 	get := func() string {
 		req, _ := http.NewRequest("GET", ready["url"].(string)+"InFocus%20Drive/hello.txt", nil)
@@ -885,4 +894,124 @@ func TestWebdavSwitchesToLANAndBack(t *testing.T) {
 	}
 	waitFor("route", "via", "internet")
 	stdinW.Close()
+}
+
+// waitFor polls cond for up to two seconds.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if cond() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+// What macOS sends for each new file: an empty PUT to create it, a LOCK and
+// UNLOCK, then LOCK, the real PUT and UNLOCK. That must be one upload, not an
+// empty file first and the content second.
+func TestWebdavFinderNewFileIsOneUpload(t *testing.T) {
+	h := newDavHarness(t)
+	h.fs.PendingGrace = 50 * time.Millisecond
+	h.drive.dir("Photos")
+	h.propfind(t, h.url("InFocus Drive", "Photos")+"/")
+	_, uploads0, _ := h.counts()
+	for i := 0; i < 3; i++ {
+		file := h.url("InFocus Drive", "Photos", fmt.Sprintf("img%d.jpg", i))
+		if code, _ := h.propfind(t, file); code != http.StatusNotFound {
+			t.Fatalf("PROPFIND before create: %d", code)
+		}
+		if code, _ := h.do(t, "PUT", file, ""); code/100 != 2 {
+			t.Fatalf("empty PUT: %d", code)
+		}
+		if code, _ := h.propfind(t, file); code != http.StatusMultiStatus {
+			t.Fatalf("new file not visible after the empty PUT: %d", code)
+		}
+		_, body := h.do(t, "LOCK", file, lockBody, "Timeout", "Second-60")
+		h.do(t, "UNLOCK", file, "", "Lock-Token", "<"+lockToken(t, body)+">")
+		_, body = h.do(t, "LOCK", file, lockBody, "Timeout", "Second-60")
+		token := lockToken(t, body)
+		if code, _ := h.do(t, "PUT", file, "jpeg-bytes", "If", "(<"+token+">)"); code/100 != 2 {
+			t.Fatalf("PUT content: %d", code)
+		}
+		h.do(t, "UNLOCK", file, "", "Lock-Token", "<"+token+">")
+	}
+	time.Sleep(150 * time.Millisecond) // past the grace period: no late empty uploads
+	if _, uploads, _ := h.counts(); uploads-uploads0 != 3 {
+		t.Fatalf("%d uploads for 3 new files, want 3", uploads-uploads0)
+	}
+	for i := 0; i < 3; i++ {
+		if got, _ := h.driveHas(fmt.Sprintf("Photos/img%d.jpg", i)); got != "jpeg-bytes" {
+			t.Fatalf("img%d.jpg = %q", i, got)
+		}
+	}
+}
+
+// `touch new.txt`: an empty PUT and nothing else still creates the file.
+func TestWebdavEmptyPutCreatesFileAfterGrace(t *testing.T) {
+	h := newDavHarness(t)
+	h.fs.PendingGrace = 50 * time.Millisecond
+	if code, _ := h.do(t, "PUT", h.url("InFocus Drive", "new.txt"), ""); code/100 != 2 {
+		t.Fatalf("empty PUT: %d", code)
+	}
+	waitFor(t, "the empty file on the Drive", func() bool {
+		got, ok := h.driveHas("new.txt")
+		return ok && got == ""
+	})
+}
+
+// Emptying a file that exists is a real change: it uploads right away.
+func TestWebdavEmptyPutOverExistingFileUploadsNow(t *testing.T) {
+	h := newDavHarness(t)
+	h.fs.PendingGrace = time.Hour
+	h.drive.put("notes.txt", "old text")
+	if code, _ := h.do(t, "PUT", h.url("InFocus Drive", "notes.txt"), ""); code/100 != 2 {
+		t.Fatalf("PUT: %d", code)
+	}
+	if got, _ := h.driveHas("notes.txt"); got != "" {
+		t.Fatalf("notes.txt = %q, want emptied", got)
+	}
+}
+
+// Quitting while a new file waits out its grace period still creates it.
+func TestWebdavShutdownCreatesWaitingFiles(t *testing.T) {
+	h := newDavHarness(t)
+	h.fs.PendingGrace = time.Hour
+	h.do(t, "PUT", h.url("InFocus Drive", "a.txt"), "")
+	_, body := h.do(t, "LOCK", h.url("InFocus Drive", "b.txt"), lockBody, "Timeout", "Second-60")
+	h.do(t, "UNLOCK", h.url("InFocus Drive", "b.txt"), "", "Lock-Token", "<"+lockToken(t, body)+">")
+	if _, ok := h.driveHas("a.txt"); ok {
+		t.Fatal("created before the grace period ended")
+	}
+	h.fs.FinishPending()
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if got, ok := h.driveHas(name); !ok || got != "" {
+			t.Fatalf("%s after shutdown: exists=%v content=%q", name, ok, got)
+		}
+	}
+}
+
+// macOS reads 4 MB ranges while it downloads a file; each must fetch just
+// those bytes from the Drive, not start a read-ahead to the end of the file.
+func TestWebdavRangedReadFetchesOnlyThatRange(t *testing.T) {
+	h := newDavHarness(t)
+	data := make([]byte, 64<<20)
+	for i := range data {
+		data[i] = byte(i * 13)
+	}
+	h.drive.put("film.mov", string(data))
+	for _, rng := range [][2]int{{8 << 20, 12<<20 - 1}, {0, 65535}, {100, 4195}} {
+		h.set(func(d *fakeDrive) { d.rangeBytes = 0 })
+		code, body := h.do(t, "GET", h.url("InFocus Drive", "film.mov"), "", "Range", fmt.Sprintf("bytes=%d-%d", rng[0], rng[1]))
+		want := string(data[rng[0] : rng[1]+1])
+		if code != http.StatusPartialContent || body != want {
+			t.Fatalf("GET %v: %d, %d bytes, equal=%v", rng, code, len(body), body == want)
+		}
+		h.drive.mu.Lock()
+		fetched := h.drive.rangeBytes
+		h.drive.mu.Unlock()
+		if fetched != int64(len(want)) {
+			t.Fatalf("GET %v fetched %d bytes from the Drive, want %d", rng, fetched, len(want))
+		}
+	}
 }

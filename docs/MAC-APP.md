@@ -96,26 +96,44 @@ Finder ──WebDAV (NetFS)──► 127.0.0.1:PORT  infocus webdav  ──HTTPS
 
 ### Speed
 
-Measured through the tunnel from a Mac on a fast link: one HTTP stream reads a large
-file at ~65 MB/s (the link peaked at ~70), uploads peak at ~38 MB/s with 4 parallel
-chunks (8 streams add nothing). What the helper does about it:
+Measured on school Wi-Fi 6E (2026-10-01), through the macOS mount: the network tops
+out around 150–170 MB/s both on the LAN and through the tunnel. What the helper does
+about it:
 
-- **Large reads** switch to 8 MiB ranges fetched 4 at a time once a read has gone
-  1 MiB sequentially (small range reads stay one request), handed to Finder in order
-  (`davfs/readahead.go`, at most 48 MiB buffered per file). Every chunk must carry the
-  same version (ETag, Last-Modified, size) as the bytes already read, so a file saved
-  by someone else mid-copy fails the copy instead of mixing versions. On fast,
-  low-latency links one stream is already near line rate; the gain is on high-latency
-  links (home Wi-Fi), where a single TCP stream can't fill the pipe.
+- **Reads fetch exactly what macOS asks for.** macOS downloads a whole file with one
+  GET and, alongside, asks for 4 MB ranges where an app is reading. A range of up to
+  4 MiB is one bounded request; anything larger is fetched as 4 MiB ranges, 6 at a
+  time from the first byte (the first range is 1 MiB, so the first bytes arrive
+  quickly), handed to Finder in order (`davfs/readahead.go`, at most 48 MiB buffered
+  per read). Reads never ask the Drive for bytes past the requested range, and never
+  abandon an open-ended download (on the LAN's plain HTTP that kills the connection).
+  Every chunk must carry the same version (ETag, Last-Modified, size) as the bytes
+  already read, so a file saved by someone else mid-copy fails the copy instead of
+  mixing versions. 256 MB reads: ~70 → ~125 MB/s, LAN and internet alike.
 - **Large writes** upload 32 MiB chunks, 4 at a time (the CLI's chunked upload).
-- **Small files** cost one request each: a new file Finder LOCKs before writing is a
-  local placeholder (not an empty upload), and uploads/mkdirs/deletes update the cached
-  folder listing in place instead of dropping every listing (was ~5 round trips per file).
-  A placeholder that never gets written still becomes an empty file on the Drive: on
-  UNLOCK, when its lock expires (swept on the next lock activity), when it's renamed,
-  or when the helper shuts down. Failed deletes/moves re-list instead of hiding files.
-- The HTTP client keeps 16 idle connections per host, so parallel streams don't redo
-  TLS handshakes; listings are cached for 10 s (writes keep them current).
+- **Small files** cost one upload each. macOS creates every new file with an empty
+  PUT, then LOCK/UNLOCK, then the real PUT: the empty PUT (or a LOCK) of a new name
+  is a local placeholder, not an upload. A placeholder that never gets its content
+  still becomes an empty file on the Drive, 2 s after its empty PUT or UNLOCK, when
+  its lock expires (swept on the next lock activity), when it's renamed, or when the
+  helper shuts down. Uploads/mkdirs/deletes update the cached folder listing in place;
+  failed deletes/moves re-list instead of hiding files. ~10 → ~65 files/s on the LAN;
+  over the internet each file still waits for one upload round trip.
+- **Nothing waits on the share list.** `/api/me` asks UGOS about personal folders and
+  can take seconds; once the helper has a share list it serves it and refreshes it in
+  the background (the startup sign-in check fills it, so mounting asks once). Folder
+  listings are fresh for 10 s, then served for up to 2 min while one background fetch
+  per folder refreshes them; a listing fetched before a local change never overwrites it.
+- **Warm connections.** 16 idle connections per host, kept 5 min; HTTP/2 pings keep the
+  tunnel connection alive and drop a dead one within ~25 s. A request Finder cancels
+  never counts as the LAN failing (that used to switch to the internet until the next
+  30 s check).
+- The **Drive** tile shows the round trip of the helper's 30 s check on the route in use
+  (`{"event":"latency","ms":…,"via":"lan|internet"}`), i.e. what each Finder request waits.
+
+`INFOCUS_DAV_TRACE=1` in the helper's environment logs every WebDAV request and every
+Drive request with its timing to the helper log, to see what Finder asks for and where
+the time goes.
 
 Helper errors go to `~/Library/Logs/InFocus Drive/helper.log` (**Account → Show helper log**).
 
@@ -129,7 +147,7 @@ Helper errors go to `~/Library/Logs/InFocus Drive/helper.log` (**Account → Sho
 - If the app itself crashes, the volume stays mounted but dead until the app runs
   again (it cleans it up on launch).
 - Finder labels/tags on Drive files last only while the app runs (they live in `._` files).
-- Changes made elsewhere show up within a few seconds (listing cache).
+- Changes made elsewhere show up within a few seconds of Finder next looking (listing cache).
 
 ## Build
 

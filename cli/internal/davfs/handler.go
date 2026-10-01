@@ -32,7 +32,7 @@ func Handler(fs *FS, prefix, password string, logf func(format string, args ...a
 		},
 	}
 	want := sha256.Sum256([]byte(User + ":" + password))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var h http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !loopbackHost(r.Host) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
@@ -46,6 +46,40 @@ func Handler(fs *FS, prefix, password string, logf func(format string, args ...a
 		}
 		dav.ServeHTTP(w, withRequest(r, prefix))
 	})
+	if os.Getenv("INFOCUS_DAV_TRACE") != "" && logf != nil {
+		h = trace(h, logf)
+	}
+	return h
+}
+
+// trace logs every request with its status and duration (INFOCUS_DAV_TRACE=1),
+// to see what Finder asks for and where the time goes.
+func trace(next http.Handler, logf func(format string, args ...any)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+		logf("trace %s %s %s depth=%q range=%q len=%d -> %d %dB %s", start.Format("05.000"), r.Method, r.URL.Path,
+			r.Header.Get("Depth"), r.Header.Get("Range"), r.ContentLength, rec.status, rec.bytes,
+			time.Since(start).Round(100*time.Microsecond))
+	})
+}
+
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+	bytes  int64
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	s.status = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(p []byte) (int, error) {
+	n, err := s.ResponseWriter.Write(p)
+	s.bytes += int64(n)
+	return n, err
 }
 
 func loopbackHost(hostport string) bool {
@@ -62,7 +96,7 @@ func loopbackHost(hostport string) bool {
 
 // pendingLocks remembers which name each lock is for, so an UNLOCK (or the
 // lock expiring, or shutdown) can create a file Finder LOCKed but never wrote
-// (see FS.finishPending). x/net/webdav also takes a short lock around every
+// (see FS.finishPending; after an UNLOCK, FS.finishLater). x/net/webdav also takes a short lock around every
 // write, so expired locks are swept on that activity.
 type pendingLocks struct {
 	webdav.LockSystem
@@ -109,7 +143,8 @@ func (l *pendingLocks) Unlock(now time.Time, token string) error {
 	delete(l.roots, token)
 	l.mu.Unlock()
 	if ok {
-		l.fs.finishPending(info.root)
+		// Not right away: macOS unlocks a new file once before it writes it.
+		l.fs.finishLaterName(info.root)
 	}
 	l.sweep(now)
 	return nil

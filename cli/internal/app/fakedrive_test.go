@@ -54,6 +54,8 @@ type fakeDrive struct {
 	uploads    int            // finished uploads (simple or chunked)
 	failUpload bool           // uploads fail with 507 (e.g. quota)
 	truncate   map[string]int // path → download is cut off after N bytes
+	rangeBytes int64          // bytes asked for by ranged downloads
+	meDelay    time.Duration  // /api/me answers this late (UGOS can be slow)
 
 	// The personal folder ~student1: UGOS encryption.
 	personalLocked bool
@@ -111,6 +113,12 @@ func join(dir, name string) string {
 }
 
 func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/me" {
+		d.mu.Lock()
+		delay := d.meDelay
+		d.mu.Unlock()
+		time.Sleep(delay) // without the lock: only /api/me is slow
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	viaLAN := r.Header.Get("X-Test-Lan") != ""
@@ -255,8 +263,9 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 			fail(w, 404, "Not found")
 			return
 		}
-		if r.Header.Get("Range") != "" {
+		if rng := r.Header.Get("Range"); rng != "" {
 			d.rangeReads++
+			d.rangeBytes += requestedBytes(rng, int64(len(f.data)))
 			if d.onRange != nil {
 				defer d.onRange()
 			}
@@ -431,6 +440,15 @@ func (d *fakeDrive) finishUpload(w http.ResponseWriter, p string, data []byte, e
 }
 
 // fingerprintBytes is the Drive's fingerprint (fsops.upload_fingerprint).
+// requestedBytes is how many bytes a "bytes=a-b" or "bytes=a-" header asks for.
+func requestedBytes(rng string, size int64) int64 {
+	var from, to int64
+	if n, _ := fmt.Sscanf(rng, "bytes=%d-%d", &from, &to); n == 2 {
+		return min(to, size-1) - from + 1
+	}
+	return size - from
+}
+
 func fingerprintBytes(data []byte) string {
 	var digests []byte
 	for i := 0; i < len(data); i += 8 << 20 {

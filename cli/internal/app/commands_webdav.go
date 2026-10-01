@@ -82,9 +82,18 @@ func cmdWebdav(ctx context.Context, r *runner, args []string) error {
 		}}
 		lanCtx, stopLAN := context.WithCancel(ctx)
 		defer stopLAN()
-		go (&lanMonitor{client: client}).run(lanCtx, probe)
+		monitor := &lanMonitor{client: client, origin: me.LANOrigin, originAt: time.Now(),
+			onLatency: func(ms int, viaLAN bool) {
+				via := "internet"
+				if viaLAN {
+					via = "lan"
+				}
+				events.send(map[string]any{"event": "latency", "ms": ms, "via": via})
+			}}
+		go monitor.run(lanCtx, probe)
 	}
 	dav := davfs.New(client, tempDir)
+	dav.SetShares(me.Shares) // the mount's first listing needn't ask again
 	dav.OnSignedOut = func() { once.Do(func() { close(signedOut) }) }
 	dav.OnWriting = func(open int) {
 		events.send(map[string]any{"event": "writing", "open": open})
