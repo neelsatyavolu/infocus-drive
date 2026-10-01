@@ -12,19 +12,30 @@ import (
 // (through the tunnel ~45 vs ~150 MB/s), so a large read fetches its range as
 // readChunk pieces, readStreams at a time, and hands them out in order. At
 // most readWindow chunks are fetched ahead of the reader (48 MiB). The first
-// chunk is small, so the first bytes arrive quickly. A read of up to
-// smallRead bytes is a single request.
+// chunks are small (256 KiB, then 1 MiB) so the first bytes arrive in about a
+// round trip, though all streams start at once. A read of up to smallRead
+// bytes is a single request.
 //
 // Every chunk must come from the same version of the file (ETag, Last-Modified,
 // size) as the bytes already read; otherwise the read fails instead of
 // stitching an old and a new version together.
 const (
 	readChunk   = 4 << 20
-	firstChunk  = 1 << 20
 	readStreams = 6
 	readWindow  = 12
 	smallRead   = readChunk
 )
+
+// chunkSize is the length of the i-th chunk of a parallel read.
+func chunkSize(i int) int64 {
+	switch i {
+	case 0:
+		return 256 << 10
+	case 1:
+		return 1 << 20
+	}
+	return readChunk
+}
 
 // errChanged: the file was replaced on the Drive in the middle of a read.
 var errChanged = errors.New("the file changed on the Drive while it was being read; copy it again")
@@ -71,9 +82,10 @@ func (d driveFile) Range(ctx context.Context, offset, length int64) ([]byte, str
 func startReadAhead(parent context.Context, src byteSource, from, end int64, version string) *readAhead {
 	ctx, cancel := context.WithCancel(parent)
 	var spans [][2]int64 // offset, length
-	for off, size := from, int64(firstChunk); off < end; off, size = off+size, readChunk {
-		size = min(size, end-off)
+	for off := from; off < end; {
+		size := min(chunkSize(len(spans)), end-off)
 		spans = append(spans, [2]int64{off, size})
+		off += size
 	}
 	r := &readAhead{
 		cancel:  cancel,
