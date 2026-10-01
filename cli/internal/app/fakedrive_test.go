@@ -47,6 +47,10 @@ type fakeDrive struct {
 	listCalls  int            // /api/files requests
 	onRange    func()         // runs after each ranged download (tests swap files mid-read)
 	failDelete bool           // /api/delete answers 403
+	speedUp    int64          // bytes received by /api/speedtest/upload
+	speedPuts  int            // /api/speedtest/upload requests
+	lanURL     string         // set by withLAN: the fake's "LAN address"
+	lanHits    int            // requests that arrived over the fake LAN
 	uploads    int            // finished uploads (simple or chunked)
 	failUpload bool           // uploads fail with 507 (e.g. quota)
 	truncate   map[string]int // path → download is cut off after N bytes
@@ -109,8 +113,34 @@ func join(dir, name string) string {
 func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.revoked || r.Header.Get("Authorization") != "Bearer "+testToken {
+	viaLAN := r.Header.Get("X-Test-Lan") != ""
+	if viaLAN {
+		d.lanHits++
+	}
+	switch r.URL.Path {
+	case "/api/health":
+		writeJSON(w, 200, map[string]any{"status": "ok"})
+		return
+	case "/api/lan/proof": // like the real Drive: only answers direct LAN requests
+		if !viaLAN {
+			fail(w, 404, "Not Found")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"proof": "p-" + r.URL.Query().Get("nonce")})
+		return
+	}
+	auth := r.Header.Get("Authorization")
+	lanToken := auth == "Bearer ifl_lan" && viaLAN
+	if d.revoked || (auth != "Bearer "+testToken && !lanToken) {
 		fail(w, 401, "Terminal sign-in expired or revoked. Run `infocus login`.")
+		return
+	}
+	if r.URL.Path == "/api/cli/lan-token" {
+		if r.FormValue("proof") != "p-"+r.FormValue("nonce") || lanToken {
+			fail(w, 403, "That LAN host isn't this Drive")
+			return
+		}
+		writeJSON(w, 200, map[string]any{"token": "ifl_lan", "lan_origin": d.lanURL, "expires_in": 28800})
 		return
 	}
 	d.lastShare = r.Header.Get("X-Drive-Share")
@@ -144,7 +174,23 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		writeJSON(w, 200, map[string]any{"authenticated": true, "nas_username": "student1",
-			"email": "student1@example.org", "share": "InFocus Drive", "shares": shares})
+			"email": "student1@example.org", "share": "InFocus Drive", "shares": shares, "lan_origin": d.lanURL})
+	case "/api/speedtest/download":
+		size, _ := strconv.Atoi(q.Get("size"))
+		if r.Header.Get("Range") != "" {
+			d.rangeReads++
+		}
+		data := make([]byte, size)
+		for i := range data {
+			data[i] = byte(i % 251)
+		}
+		w.Header().Set("ETag", `"speedtest"`)
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
+	case "/api/speedtest/upload":
+		n, _ := io.Copy(io.Discard, r.Body)
+		d.speedUp += n
+		d.speedPuts++
+		writeJSON(w, 200, map[string]any{"received": n})
 	case "/api/personal/unlock":
 		d.unlockCalls++
 		switch {
@@ -393,4 +439,18 @@ func fingerprintBytes(data []byte) string {
 	}
 	total := sha256.Sum256(digests)
 	return hex.EncodeToString(total[:])
+}
+
+// withLAN starts a second server for the same fake Drive that acts as its LAN
+// address (requests there are marked as LAN). Close it to "leave the network".
+func (d *fakeDrive) withLAN(t *testing.T) *httptest.Server {
+	lan := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("X-Test-Lan", "1")
+		d.serve(w, r)
+	}))
+	t.Cleanup(lan.Close)
+	d.mu.Lock()
+	d.lanURL = lan.URL
+	d.mu.Unlock()
+	return lan
 }

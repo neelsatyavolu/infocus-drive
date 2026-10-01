@@ -76,7 +76,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, _ os.FileMode)
 		if n.info.dir {
 			return &dirFile{fs: f, ctx: ctx, n: node{t: n.t.with(n.local.ghost), info: n.info}}, nil
 		}
-		return &remoteFile{ctx: ctx, fs: f, client: f.clientFor(n.t.share), rel: n.local.ghost, info: n.info}, nil
+		return f.remote(ctx, n.t.share, n.local.ghost, n.info), nil
 	case n.local != nil:
 		file, err := os.Open(n.local.file)
 		if err != nil {
@@ -84,7 +84,7 @@ func (f *FS) OpenFile(ctx context.Context, name string, flag int, _ os.FileMode)
 		}
 		return &localFile{File: file, info: n.info}, nil
 	}
-	return &remoteFile{ctx: ctx, fs: f, client: f.clientFor(n.t.share), rel: n.t.rel, info: n.info}, nil
+	return f.remote(ctx, n.t.share, n.t.rel, n.info), nil
 }
 
 func (f *FS) create(ctx context.Context, name string) (webdav.File, error) {
@@ -189,13 +189,17 @@ func (d *dirFile) Read([]byte) (int, error)       { return 0, errNotSupported }
 func (d *dirFile) Write([]byte) (int, error)      { return 0, errNotSupported }
 func (d *dirFile) Seek(int64, int) (int64, error) { return 0, errNotSupported }
 
+func (f *FS) remote(ctx context.Context, share api.Share, rel string, info fileInfo) *remoteFile {
+	return &remoteFile{ctx: ctx, fs: f, src: driveFile{f.clientFor(share), rel}, rel: rel, info: info}
+}
+
 // remoteFile reads a Drive file lazily with ranged downloads, so seeking
 // (Range requests from Finder) doesn't fetch the whole file.
 type remoteFile struct {
 	ctx       context.Context
 	fs        *FS
-	client    *api.Client
-	rel       string
+	src       byteSource
+	rel       string // for error messages
 	info      fileInfo
 	off       int64
 	body      io.ReadCloser
@@ -217,7 +221,7 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 	if r.ahead == nil && !r.noRange && r.body != nil && r.bodyOff == r.off &&
 		r.off-r.bodyStart >= readAheadAfter && r.info.size-r.off > readChunk {
 		r.closeBody()
-		r.ahead = startReadAhead(r.ctx, r.client, r.rel, r.off, r.info.size, r.version)
+		r.ahead = startReadAhead(r.ctx, r.src, r.off, r.info.size, r.version)
 	}
 	if r.ahead != nil {
 		n, err := r.ahead.Read(r.ctx, p)
@@ -236,7 +240,7 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 	}
 	if r.body == nil || r.bodyOff != r.off {
 		r.closeBody()
-		body, version, err := r.client.DownloadVersionFrom(r.ctx, r.rel, r.off)
+		body, version, err := r.src.From(r.ctx, r.off)
 		if err != nil {
 			requestOf(r.ctx).broken.Store(true)
 			return 0, r.fs.osErr("read", r.rel, err)

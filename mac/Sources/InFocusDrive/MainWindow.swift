@@ -22,6 +22,7 @@ struct MainWindowView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         StatusSection(drive: drive)
                         SettingsSection(drive: drive)
+                        SpeedTestSection(drive: drive, test: drive.speedTest)
                     }
                     .frame(width: 360)
                 }

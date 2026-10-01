@@ -21,6 +21,7 @@ final class DriveController: ObservableObject {
     /// Files Finder has open for writing (a copy in progress before its upload).
     @Published private(set) var openWrites = 0
     let updater = Updater()
+    let speedTest = SpeedTest()
     /// The encrypted personal folder the Unlock window is working on.
     @Published private(set) var unlocking: PersonalUnlock?
 
@@ -275,7 +276,7 @@ final class DriveController: ObservableObject {
             "Connection: " + connectionText,
             "Helper: " + (status.helperSince.map { "running since \(Formatting.time($0))" } ?? "stopped")
                 + " (restarts: \(status.helperRestarts))",
-            "Network: " + (status.online ? "online \(status.networkKind)" : "offline"),
+            "Network: " + (status.online ? "online \(status.networkKind), " + (status.viaLAN ? "direct to the NAS (LAN)" : "over the internet") : "offline"),
             "Shares: \(status.shares.count)",
             "Transfers: " + transfers.map { "\($0.name) \($0.state.rawValue)\($0.error.isEmpty ? "" : ": " + $0.error)" }
                 .joined(separator: "; "),
@@ -367,6 +368,7 @@ final class DriveController: ObservableObject {
 
     private func helperStopped() {
         status.helperSince = nil
+        status.viaLAN = false
         openWrites = 0
         transfers = transfers.map { transfer in
             guard transfer.state == .active else { return transfer }
@@ -380,6 +382,8 @@ final class DriveController: ObservableObject {
 
     private func helperEvent(_ event: DavServer.Event) {
         switch event {
+        case .route(let viaLAN):
+            status.viaLAN = viaLAN
         case .writing(let open):
             openWrites = open
             if !isTransferring { updater.transfersIdle() }
@@ -457,6 +461,7 @@ final class DriveController: ObservableObject {
                 let cameBack = online && !self.status.online
                 self.status.online = online
                 self.status.networkKind = online ? kind : ""
+                self.dav.probeNetwork() // switch to/from the school network right away
                 guard online else { return }
                 if cameBack || self.account == .unknown { await self.refreshAccount() }
                 await self.ensureConnected()

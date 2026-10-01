@@ -24,6 +24,8 @@ struct DriveStatus: Equatable {
     var helperRestarts = 0
     var online = true
     var networkKind = ""
+    /// The helper is talking to the NAS directly on the school network.
+    var viaLAN = false
 
     /// Folder name a share gets at the volume root (same rule as the helper,
     /// cli/internal/davfs shareName).

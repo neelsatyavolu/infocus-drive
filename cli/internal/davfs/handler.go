@@ -23,7 +23,7 @@ const User = "infocus"
 func Handler(fs *FS, prefix, password string, logf func(format string, args ...any)) http.Handler {
 	dav := &webdav.Handler{
 		Prefix:     prefix,
-		FileSystem: fs,
+		FileSystem: WithSpeedTest(fs),
 		LockSystem: fs.lockSystem(),
 		Logger: func(r *http.Request, err error) {
 			if err != nil && !os.IsNotExist(err) && logf != nil {

@@ -80,7 +80,7 @@ final class CLIRun {
 /// The `infocus webdav` helper: a loopback WebDAV server for Finder.
 @MainActor
 final class DavServer {
-    enum Event { case exited(Int32), signedOut, upload([String: Any]), writing(Int) }
+    enum Event { case exited(Int32), signedOut, upload([String: Any]), writing(Int), route(viaLAN: Bool) }
 
     private var process: Process?
     private var input: Pipe?
@@ -147,6 +147,11 @@ final class DavServer {
     }
 
     /// Stops the helper by closing its stdin, which it treats as "app quit".
+    /// The network changed: have the helper re-check the school-network route now.
+    func probeNetwork() {
+        try? input?.fileHandleForWriting.write(contentsOf: Data("probe\n".utf8))
+    }
+
     func stop() {
         if let ready {
             self.ready = nil
@@ -178,6 +183,8 @@ final class DavServer {
                 onEvent?(.signedOut)
             case "upload":
                 onEvent?(.upload(obj))
+            case "route":
+                onEvent?(.route(viaLAN: obj["via"] as? String == "lan"))
             case "writing":
                 onEvent?(.writing((obj["open"] as? NSNumber)?.intValue ?? 0))
             default:

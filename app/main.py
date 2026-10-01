@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 import mimetypes
 import re
@@ -226,6 +227,75 @@ def _safe_next_url(raw: str | None) -> str:
     return "/"
 
 
+# --- LAN route for the Mac helper -------------------------------------------
+# On the school network the helper talks to LAN_ORIGIN directly (plain HTTP,
+# no tunnel). It first proves that host is this Drive (it must sign a nonce
+# with SESSION_SECRET, and only answers direct LAN requests, so the proof
+# can't be relayed through the internet), then trades its sign-in for a
+# short-lived LAN-only token: the long-lived token never crosses the LAN.
+LAN_TOKEN_PREFIX = "ifl_"
+_LAN_TOKEN_TTL_S = 8 * 3600
+_LAN_NONCE_RE = re.compile(r"[A-Za-z0-9_-]{32,128}")
+
+
+def _direct_lan(request: Request) -> bool:
+    """True for a request that reached LAN_ORIGIN directly (not via Cloudflare)."""
+    lan = (settings.lan_origin or "").strip()
+    if not lan:
+        return False
+    from urllib.parse import urlparse
+
+    lan_host = (urlparse(lan).hostname or "").lower()
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    relayed = any(h in request.headers for h in ("cf-ray", "cf-connecting-ip", "cdn-loop"))
+    return bool(lan_host) and host == lan_host and not relayed
+
+
+def _lan_proof(nonce: str) -> str:
+    return hmac.new(settings.session_secret.encode(), b"lan-proof\0" + nonce.encode(), hashlib.sha256).hexdigest()
+
+
+def _lan_token_ser() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(settings.session_secret, salt="lan-token")
+
+
+def _lan_token_user(request: Request, token: str) -> dict[str, Any] | None:
+    if not _direct_lan(request):
+        return None
+    try:
+        data = _lan_token_ser().loads(token[len(LAN_TOKEN_PREFIX):], max_age=_LAN_TOKEN_TTL_S)
+    except (BadSignature, SignatureExpired):
+        return None
+    user = cli_tokens.lookup_id(str(data.get("t") or ""))
+    if user is None or user["uid"] != data.get("u"):
+        return None
+    return {**user, "lan_token": True}
+
+
+@app.get("/api/lan/proof")
+def api_lan_proof(request: Request, nonce: str = Query("", max_length=128)) -> dict[str, str]:
+    if not _direct_lan(request):
+        raise HTTPException(status_code=404)
+    if not _LAN_NONCE_RE.fullmatch(nonce):
+        raise HTTPException(status_code=400, detail="Bad nonce")
+    return {"proof": _lan_proof(nonce)}
+
+
+@app.post("/api/cli/lan-token")
+def api_cli_lan_token(request: Request, nonce: str = Form("", max_length=128),
+                      proof: str = Form("", max_length=128)) -> dict[str, Any]:
+    user = _require_user(request)
+    lan = (settings.lan_origin or "").strip().rstrip("/")
+    if not lan:
+        raise HTTPException(status_code=404, detail="No LAN route on this Drive")
+    if "cli_token_id" not in user or user.get("lan_token"):
+        raise HTTPException(status_code=403, detail="Only a terminal sign-in can get a LAN token")
+    if not _LAN_NONCE_RE.fullmatch(nonce) or not hmac.compare_digest(proof, _lan_proof(nonce)):
+        raise HTTPException(status_code=403, detail="That LAN host isn't this Drive")
+    token = LAN_TOKEN_PREFIX + _lan_token_ser().dumps({"t": user["cli_token_id"], "u": user["uid"]})
+    return {"token": token, "lan_origin": lan, "expires_in": _LAN_TOKEN_TTL_S}
+
+
 def _bearer_token(request: Request) -> str | None:
     auth = request.headers.get("authorization") or ""
     if auth[:7].lower() != "bearer ":
@@ -250,6 +320,11 @@ def _require_user(request: Request) -> dict[str, Any]:
     token = _bearer_token(request)
     if token is None:
         return _require_session_user(request)
+    if token.startswith(LAN_TOKEN_PREFIX):
+        user = _lan_token_user(request, token)
+        if user is None:
+            raise HTTPException(status_code=401, detail="LAN sign-in expired")
+        return user
     user = cli_tokens.lookup(token)
     if user is None:
         raise HTTPException(
@@ -1740,31 +1815,45 @@ _SPEEDTEST_MAX = 512 * 1024 * 1024  # 512 MiB hard cap
 _SPEEDTEST_PIECE_MAX = 32 * 1024 * 1024
 
 
+# Random, so proxies (Cloudflare) can't compress the stream and overstate the
+# speed. The test "file" repeats this block, so byte ranges are consistent.
+_SPEEDTEST_BLOCK = secrets.token_bytes(_SPEEDTEST_CHUNK)
+_RANGE_RE = re.compile(r"bytes=(\d+)-(\d*)$")
+
+
 @app.get("/api/speedtest/download")
 async def speedtest_download(
     request: Request,
     size: int = Query(32 * 1024 * 1024, ge=64 * 1024, le=_SPEEDTEST_MAX),
 ) -> StreamingResponse:
     _require_user(request)
-    chunk = b"\0" * _SPEEDTEST_CHUNK
+    start, end = 0, size - 1
+    status = 200
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Pragma": "no-cache",
+        "X-Accel-Buffering": "no",
+        "ETag": '"speedtest"',
+    }
+    if match := _RANGE_RE.match(request.headers.get("range", "").strip()):
+        start = int(match.group(1))
+        end = min(int(match.group(2)), size - 1) if match.group(2) else size - 1
+        if start >= size or start > end:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        status = 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    headers["Content-Length"] = str(end - start + 1)
 
     async def generate() -> AsyncIterator[bytes]:
-        remaining = size
-        while remaining > 0:
-            n = min(_SPEEDTEST_CHUNK, remaining)
-            yield chunk if n == _SPEEDTEST_CHUNK else chunk[:n]
-            remaining -= n
+        pos = start
+        while pos <= end:
+            offset = pos % _SPEEDTEST_CHUNK
+            n = min(_SPEEDTEST_CHUNK - offset, end - pos + 1)
+            yield _SPEEDTEST_BLOCK[offset:offset + n]
+            pos += n
 
-    return StreamingResponse(
-        generate(),
-        media_type="application/octet-stream",
-        headers={
-            "Content-Length": str(size),
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-            "Pragma": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
-    )
+    return StreamingResponse(generate(), status_code=status, media_type="application/octet-stream", headers=headers)
 
 
 @app.post("/api/speedtest/upload")
