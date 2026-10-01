@@ -12,6 +12,8 @@ import (
 	"os"
 	"path"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
@@ -136,7 +138,7 @@ func (f *FS) readDir(ctx context.Context, n node) ([]fs.FileInfo, error) {
 		}
 		return out, nil
 	}
-	items, err := f.list(ctx, n.t)
+	items, err := f.list(ctx, n.t, true)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +194,9 @@ func (d *dirFile) Write([]byte) (int, error)      { return 0, errNotSupported }
 func (d *dirFile) Seek(int64, int) (int64, error) { return 0, errNotSupported }
 
 func (f *FS) remote(ctx context.Context, share api.Share, rel string, info fileInfo) *remoteFile {
-	return &remoteFile{ctx: ctx, fs: f, src: driveFile{f.clientFor(share), rel}, rel: rel, info: info}
+	t := target{share: share, rel: rel}
+	return &remoteFile{ctx: ctx, fs: f, src: driveFile{f.clientFor(share), rel}, rel: rel, info: info,
+		onChanged: func() { f.cacheDropParent(t) }}
 }
 
 // remoteFile reads a Drive file lazily with ranged downloads, so seeking
@@ -213,6 +217,38 @@ type remoteFile struct {
 	version string     // file version the bytes read so far came from
 	ahead   *readAhead // parallel chunks for large reads
 	noRange bool       // the Drive ignored ranges: stream instead
+	// onChanged runs when the Drive's file isn't the one the listing
+	// described (optional): that listing is out of date.
+	onChanged func()
+}
+
+// adopt checks a download's version: the same as the bytes already read, and
+// the size this read promised (the listing's). Serving another size would
+// cut the file short or pad it, so that fails the read instead.
+func (r *remoteFile) adopt(version string) error {
+	if r.version != "" && version != r.version {
+		return r.changed()
+	}
+	if size, ok := versionSize(version); ok && size != r.info.size {
+		return r.changed()
+	}
+	r.version = version
+	return nil
+}
+
+func (r *remoteFile) changed() error {
+	requestOf(r.ctx).broken.Store(true)
+	if r.onChanged != nil {
+		r.onChanged()
+	}
+	return errChanged
+}
+
+// versionSize is the total size an api.Version names, if it names one.
+func versionSize(version string) (int64, bool) {
+	i := strings.LastIndexByte(version, '|')
+	size, err := strconv.ParseInt(version[i+1:], 10, 64)
+	return size, i >= 0 && err == nil
 }
 
 // readEnd is where the current read stops: the end of the requested range,
@@ -251,6 +287,8 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 					return n, nil
 				}
 				continue
+			case errors.Is(err, errChanged):
+				return n, r.changed()
 			case err != nil && err != io.EOF:
 				requestOf(r.ctx).broken.Store(true)
 				return n, r.fs.osErr("read", r.rel, err)
@@ -262,7 +300,7 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 		}
 		end := r.readEnd()
 		if end-r.off > smallRead {
-			r.ahead = startReadAhead(r.ctx, r.src, r.off, end, r.version)
+			r.ahead = startReadAhead(r.ctx, r.src, r.off, end, r.version, r.info.size)
 			continue
 		}
 		data, version, err := r.src.Range(r.ctx, r.off, end-r.off)
@@ -270,14 +308,14 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 			r.noRange = true
 			continue
 		}
-		if err == nil && r.version != "" && version != r.version {
-			err = errChanged
-		}
 		if err != nil {
 			requestOf(r.ctx).broken.Store(true)
 			return 0, r.fs.osErr("read", r.rel, err)
 		}
-		r.version, r.buf, r.bufOff = version, data, r.off
+		if err := r.adopt(version); err != nil {
+			return 0, err
+		}
+		r.buf, r.bufOff = data, r.off
 	}
 }
 
@@ -291,12 +329,11 @@ func (r *remoteFile) stream(p []byte) (int, error) {
 			requestOf(r.ctx).broken.Store(true)
 			return 0, r.fs.osErr("read", r.rel, err)
 		}
-		if r.version != "" && version != r.version {
+		if err := r.adopt(version); err != nil {
 			body.Close()
-			requestOf(r.ctx).broken.Store(true)
-			return 0, errChanged
+			return 0, err
 		}
-		r.body, r.bodyOff, r.version = body, r.off, version
+		r.body, r.bodyOff = body, r.off
 	}
 	n, err := r.body.Read(p)
 	r.off += int64(n)
@@ -335,6 +372,9 @@ func (r *remoteFile) closeBody() {
 
 func (r *remoteFile) stopAhead() {
 	if r.ahead != nil {
+		if r.version == "" {
+			r.version = r.ahead.version // what it read must match what comes next
+		}
 		r.ahead.Close()
 		r.ahead = nil
 	}

@@ -99,17 +99,18 @@ class PersonalFolders:
 
     def _live_status(self, owner, path=None):
         path = path or self._path(owner)
-        try:
-            with self.lock:
+        # Remember inside the lock: a slower check can't overwrite a newer answer.
+        with self.lock:
+            try:
                 client = self.client_factory()
                 state = client.personal_status(path)
                 with self._db() as db:
                     result = self._settle(db, client, owner, path, state)
-        except Exception:
-            self._remember(owner, None)
-            raise
-        self._remember(owner, result)
-        return result
+            except Exception:
+                self._remember(owner, None)
+                raise
+            self._remember(owner, result)
+            return result
 
     def statuses(self, owners):
         """Like status() for many owners, with one UGOS round trip instead of one each.

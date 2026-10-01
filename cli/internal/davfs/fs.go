@@ -55,7 +55,6 @@ type FS struct {
 
 	mu         sync.Mutex
 	lists      map[string]cachedList
-	listGen    map[string]uint64  // bumped by each local change to a listing
 	flights    map[string]*flight // listings being fetched
 	shares     []api.Share
 	sharesAt   time.Time
@@ -70,11 +69,15 @@ type FS struct {
 }
 
 // flight is one folder listing being fetched; everyone who needs it waits
-// for the same request.
+// for the same request. Local changes made while it runs (an upload landing)
+// are replayed onto its result, which a listing from before must not undo.
 type flight struct {
-	done  chan struct{}
-	items []api.Entry
-	err   error
+	done    chan struct{}
+	items   []api.Entry
+	err     error
+	started time.Time
+	edits   []func([]api.Entry) []api.Entry // local changes since it started
+	dropped bool                            // the folder's state became unknown: don't cache
 }
 
 type cachedList struct {
@@ -90,7 +93,6 @@ func New(client *api.Client, tempDir string) *FS {
 		local:        newLocalStore(tempDir),
 		start:        time.Now(),
 		lists:        map[string]cachedList{},
-		listGen:      map[string]uint64{},
 		flights:      map[string]*flight{},
 		waiting:      map[string]*waiter{},
 		PendingGrace: pendingGrace,
@@ -285,9 +287,11 @@ func (f *FS) resolve(ctx context.Context, name string) (target, error) {
 	return target{}, pathErr("stat", name, os.ErrNotExist)
 }
 
-// list returns a Drive folder's entries, cached briefly. A listing past its
-// TTL is still served (for up to listStale) while a fresh one loads.
-func (f *FS) list(ctx context.Context, t target) ([]api.Entry, error) {
+// list returns a Drive folder's entries, cached briefly. With stale (Finder
+// showing a folder) a listing past its TTL is still served, for up to
+// listStale, while a fresh one loads. Looking up one name never uses a stale
+// listing: its size decides what a read serves, and whether a write is new.
+func (f *FS) list(ctx context.Context, t target, stale bool) ([]api.Entry, error) {
 	f.mu.Lock()
 	cached, ok := f.lists[t.key()]
 	f.mu.Unlock()
@@ -295,7 +299,7 @@ func (f *FS) list(ctx context.Context, t target) ([]api.Entry, error) {
 	switch {
 	case ok && age < f.listTTL:
 		return cached.items, nil
-	case ok && age < f.listStale:
+	case ok && stale && age < f.listStale:
 		f.fetchList(t)
 		return cached.items, nil
 	}
@@ -309,8 +313,6 @@ func (f *FS) list(ctx context.Context, t target) ([]api.Entry, error) {
 }
 
 // fetchList starts fetching t's listing, or joins the fetch already running.
-// The result is cached unless the listing changed locally meanwhile (an
-// upload, delete or move), which a listing from before must not undo.
 func (f *FS) fetchList(t target) *flight {
 	key := t.key()
 	f.mu.Lock()
@@ -318,9 +320,8 @@ func (f *FS) fetchList(t target) *flight {
 	if fl, ok := f.flights[key]; ok {
 		return fl
 	}
-	fl := &flight{done: make(chan struct{})}
+	fl := &flight{done: make(chan struct{}), started: time.Now()}
 	f.flights[key] = fl
-	gen := f.listGen[key]
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 		defer cancel()
@@ -329,17 +330,23 @@ func (f *FS) fetchList(t target) *flight {
 			err = f.osErr("readdir", t.rel, err)
 		}
 		f.mu.Lock()
-		delete(f.flights, key)
-		if f.listGen[key] == gen {
-			switch {
-			case err == nil:
-				f.lists[key] = cachedList{items: listing.Items, at: time.Now()}
-			case os.IsNotExist(err):
-				delete(f.lists, key) // gone from the Drive: stop serving it
-			}
+		if f.flights[key] == fl {
+			delete(f.flights, key)
 		}
+		items := listing.Items
+		switch {
+		case err == nil:
+			for _, edit := range fl.edits {
+				items = edit(items)
+			}
+			if !fl.dropped {
+				f.lists[key] = cachedList{items: items, at: fl.started}
+			}
+		case !fl.dropped && (os.IsNotExist(err) || errors.Is(err, os.ErrPermission)):
+			delete(f.lists, key) // gone, locked or forbidden: stop serving it
+		}
+		fl.items, fl.err = items, err
 		f.mu.Unlock()
-		fl.items, fl.err = listing.Items, err
 		close(fl.done)
 	}()
 	return fl
@@ -373,7 +380,7 @@ func (f *FS) find(ctx context.Context, name string) (node, error) {
 		return node{}, pathErr("stat", name, os.ErrNotExist)
 	}
 	dir, base := api.SplitPath(t.rel)
-	items, err := f.list(ctx, t.with(dir))
+	items, err := f.list(ctx, t.with(dir), false)
 	if err != nil {
 		return node{}, err
 	}
@@ -522,6 +529,10 @@ func (f *FS) Rename(ctx context.Context, oldName, newName string) error {
 	}
 	if n.info.dir {
 		f.local.moveTree(src.share.ID, src.rel, dst.rel)
+		// New files inside that wait for their content moved too.
+		for _, rel := range f.local.pending(dst.share.ID, dst.rel)[dst.share.ID] {
+			f.finishLater(dst.with(rel))
+		}
 	}
 	if hidden {
 		// The Drive hides the new name, so remember it or it would vanish.
@@ -569,7 +580,23 @@ func (f *FS) finishTarget(t target) {
 	f.local.remove(t.key())
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	_ = f.createEmpty(ctx, t, true) // exists already (someone else) is fine
+	// Exists already (someone else made it) is fine; anything else is a file
+	// Finder showed that never reached the Drive: report it.
+	if err := f.createEmpty(ctx, t, true); err != nil && !os.IsExist(err) {
+		f.reportFailed(t, err)
+	}
+}
+
+// reportFailed reports an upload that failed with nobody waiting on it.
+func (f *FS) reportFailed(t target, err error) {
+	if f.OnUpload == nil {
+		return
+	}
+	f.mu.Lock()
+	f.uploadSeq++
+	id := f.uploadSeq
+	f.mu.Unlock()
+	f.OnUpload(Upload{ID: id, Path: shareName(t.share) + "/" + t.rel, State: "failed", Error: err.Error()})
 }
 
 // waiter is a placeholder waiting out PendingGrace for its content.
@@ -638,8 +665,21 @@ func (f *FS) FinishPending() {
 		waiting = append(waiting, w)
 		delete(f.waiting, key)
 	}
+	shares := f.shares
 	f.mu.Unlock()
 	for _, w := range waiting {
 		f.finishTarget(w.t)
+	}
+	// Anything still waiting for content (e.g. LOCKed inside a folder that
+	// was renamed before its UNLOCK).
+	for id, rels := range f.local.pending("", "") {
+		for _, s := range shares {
+			if s.ID != id {
+				continue
+			}
+			for _, rel := range rels {
+				f.finishTarget(target{share: s, rel: rel})
+			}
+		}
 	}
 }

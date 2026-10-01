@@ -105,8 +105,9 @@ about it:
   4 MiB is one bounded request; anything larger is fetched as 4 MiB ranges, 6 at a
   time from the first byte (the first range is 1 MiB, so the first bytes arrive
   quickly), handed to Finder in order (`davfs/readahead.go`, at most 48 MiB buffered
-  per read). Reads never ask the Drive for bytes past the requested range, and never
-  abandon an open-ended download (on the LAN's plain HTTP that kills the connection).
+  per read). Reads never ask the Drive for bytes past the requested range (the type
+  comes from the extension, so nothing is read to sniff it), and never abandon an
+  open-ended download (on the LAN's plain HTTP that kills the connection).
   Every chunk must carry the same version (ETag, Last-Modified, size) as the bytes
   already read, so a file saved by someone else mid-copy fails the copy instead of
   mixing versions. 256 MB reads: ~70 → ~125 MB/s, LAN and internet alike.
@@ -115,20 +116,24 @@ about it:
 - **Small files** cost one upload each. macOS creates every new file with an empty
   PUT, then LOCK/UNLOCK, then the real PUT: the empty PUT (or a LOCK) of a new name
   is a local placeholder, not an upload. A placeholder that never gets its content
-  still becomes an empty file on the Drive, 2 s after its empty PUT or UNLOCK, when
-  its lock expires (swept on the next lock activity), when it's renamed, or when the
-  helper shuts down. Uploads/mkdirs/deletes update the cached folder listing in place;
+  still becomes an empty file on the Drive, 2 s after its empty PUT or UNLOCK (or its
+  folder's rename), when its lock expires (swept on the next lock activity), when it's
+  renamed, or when the helper shuts down; if that fails, the app shows a failed upload. Uploads/mkdirs/deletes update the cached folder listing in place;
   failed deletes/moves re-list instead of hiding files. ~10 → ~65 files/s on the LAN;
   over the internet each file still waits for one upload round trip.
 - **Nothing waits on the share list.** `/api/me` asks UGOS about personal folders and
   can take seconds; once the helper has a share list it serves it and refreshes it in
   the background (the startup sign-in check fills it, so mounting asks once). Folder
-  listings are fresh for 10 s, then served for up to 2 min while one background fetch
-  per folder refreshes them; a listing fetched before a local change never overwrites it.
+  listings are fresh for 10 s. Finder's folder views are then served the older listing
+  (up to 2 min) while one background fetch per folder refreshes it; looking up a single
+  name (open, stat, create) always waits for a fresh one, since its size decides what a
+  read serves. Local changes made while a listing loads are replayed onto it, so it
+  never undoes an upload. A download whose size differs from the listing's fails the
+  read and re-lists instead of serving a cut-off file.
 - **Warm connections.** 16 idle connections per host, kept 5 min; HTTP/2 pings keep the
   tunnel connection alive and drop a dead one within ~25 s. A request Finder cancels
   never counts as the LAN failing (that used to switch to the internet until the next
-  30 s check).
+  30 s check); one that times out still does.
 - The **Drive** tile shows the round trip of the helper's 30 s check on the route in use
   (`{"event":"latency","ms":…,"via":"lan|internet"}`), i.e. what each Finder request waits.
 

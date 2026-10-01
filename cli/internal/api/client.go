@@ -158,7 +158,8 @@ func (c *Client) newRequest(ctx context.Context, method, endpoint string, query 
 // do sends req and turns non-2xx responses into *Error.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
 	res, err := c.httpClient().Do(req)
-	cancelled := err != nil && req.Context().Err() != nil // the caller gave up: says nothing about the LAN
+	// The caller gave up: says nothing about the LAN (a timeout does).
+	cancelled := err != nil && errors.Is(req.Context().Err(), context.Canceled)
 	if c.LAN.carried(req) && !cancelled && (err != nil || res.StatusCode == http.StatusUnauthorized) {
 		// Left the school network, or the LAN token lapsed: back to the
 		// internet. A LAN 401 is never "signed out".

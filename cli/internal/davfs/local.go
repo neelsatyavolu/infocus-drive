@@ -92,6 +92,23 @@ func (s *localStore) removeTree(shareID, dir string) {
 	}
 }
 
+// pending returns the share-relative paths of every placeholder (a new file
+// not written yet) in shareID below dir ("" = the whole share), or in every
+// share when shareID is "" (map: share ID → paths).
+func (s *localStore) pending(shareID, dir string) map[string][]string {
+	out := map[string][]string{}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, e := range s.entries {
+		id, rel, _ := strings.Cut(key, "\x00")
+		if !e.pending || (shareID != "" && id != shareID) || (dir != "" && !strings.HasPrefix(rel, dir+"/")) {
+			continue
+		}
+		out[id] = append(out[id], rel)
+	}
+	return out
+}
+
 // moveTree re-keys everything below from to below to (a renamed folder).
 func (s *localStore) moveTree(shareID, from, to string) {
 	prefix := shareID + "\x00" + from + "/"

@@ -3,9 +3,11 @@ package davfs
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"mime"
 	"net"
 	"net/http"
 	"os"
+	"path"
 	"sync"
 	"time"
 
@@ -43,6 +45,15 @@ func Handler(fs *FS, prefix, password string, logf func(format string, args ...a
 			w.Header().Set("WWW-Authenticate", `Basic realm="InFocus Drive"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
+		}
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			// Otherwise http.ServeContent reads the first 512 bytes to sniff
+			// the type: a Drive read of its own, for every extensionless file.
+			ctype := mime.TypeByExtension(path.Ext(r.URL.Path))
+			if ctype == "" {
+				ctype = "application/octet-stream"
+			}
+			w.Header().Set("Content-Type", ctype)
 		}
 		dav.ServeHTTP(w, withRequest(r, prefix))
 	})

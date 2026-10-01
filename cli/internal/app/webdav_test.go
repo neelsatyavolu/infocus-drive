@@ -1034,3 +1034,36 @@ func TestWebdavMidSizeUploadUsesParallelChunks(t *testing.T) {
 		t.Fatalf("20 MB went up in %d chunks, want at least 4 for parallel streams", pieces)
 	}
 }
+
+// A new empty file waiting for its content moves with its folder.
+func TestWebdavWaitingFileFollowsFolderMove(t *testing.T) {
+	h := newDavHarness(t)
+	h.fs.PendingGrace = 50 * time.Millisecond
+	h.drive.dir("Docs")
+	if code, _ := h.do(t, "PUT", h.url("InFocus Drive", "Docs", "new.txt"), ""); code/100 != 2 {
+		t.Fatalf("PUT: %d", code)
+	}
+	if code, _ := h.do(t, "MOVE", h.url("InFocus Drive", "Docs")+"/", "", "Destination", h.url("InFocus Drive", "Docs2")+"/"); code/100 != 2 {
+		t.Fatalf("MOVE: %d", code)
+	}
+	waitFor(t, "Docs2/new.txt on the Drive", func() bool {
+		got, ok := h.driveHas("Docs2/new.txt")
+		return ok && got == ""
+	})
+}
+
+// If creating a waiting empty file fails, the app hears about it.
+func TestWebdavFailedEmptyCreateIsReported(t *testing.T) {
+	h := newDavHarness(t)
+	h.fs.PendingGrace = 50 * time.Millisecond
+	h.set(func(d *fakeDrive) { d.failUpload = true })
+	h.do(t, "PUT", h.url("InFocus Drive", "touched.txt"), "")
+	waitFor(t, "a failed upload event", func() bool {
+		for _, u := range h.uploadEvents() {
+			if u.State == "failed" && strings.HasSuffix(u.Path, "touched.txt") {
+				return true
+			}
+		}
+		return false
+	})
+}

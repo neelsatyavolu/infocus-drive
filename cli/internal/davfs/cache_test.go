@@ -105,13 +105,18 @@ func TestSetSharesSeedsTheList(t *testing.T) {
 	}
 }
 
-// A folder listing older than its TTL is served at once and refreshed in the
-// background; Finder's parallel requests share one fetch.
+// Finder showing a folder whose listing is past its TTL gets it at once while
+// one background fetch refreshes it; parallel views share that fetch. Looking
+// up a name waits for the fresh listing (sizes must be current).
 func TestStaleListingIsServedWhileRefreshing(t *testing.T) {
 	d, fs := newSlowDrive(t)
 	fs.listTTL = 10 * time.Millisecond
 	ctx := context.Background()
-	if _, err := fs.Stat(ctx, "/S/Shows/a.mov"); err != nil {
+	shows, err := fs.resolve(ctx, "/S/Shows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fs.readDir(ctx, node{t: shows}); err != nil {
 		t.Fatal(err)
 	}
 	calls := d.listCalls.Load()
@@ -125,15 +130,19 @@ func TestStaleListingIsServedWhileRefreshing(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if took := timed(t, func() error { _, err := fs.Stat(ctx, "/S/Shows/a.mov"); return err }); took > 150*time.Millisecond {
-				t.Errorf("Stat waited %v for a stale listing", took)
+			if took := timed(t, func() error { _, err := fs.readDir(ctx, node{t: shows}); return err }); took > 150*time.Millisecond {
+				t.Errorf("listing the folder waited %v for a stale listing", took)
 			}
 		}()
 	}
 	wg.Wait()
-	eventually(t, "the refreshed listing", func() bool { _, err := fs.Stat(ctx, "/S/Shows/b.mov"); return err == nil })
+	eventually(t, "the background fetch", func() bool { return d.listCalls.Load() > calls })
+	time.Sleep(50 * time.Millisecond) // still within its 300 ms
 	if n := d.listCalls.Load() - calls; n != 1 {
-		t.Fatalf("%d listings for one stale folder, want 1", n)
+		t.Fatalf("%d fetches for one stale folder, want 1", n)
+	}
+	if _, err := fs.Stat(ctx, "/S/Shows/b.mov"); err != nil {
+		t.Fatalf("lookup didn't wait for the fresh listing: %v", err)
 	}
 }
 

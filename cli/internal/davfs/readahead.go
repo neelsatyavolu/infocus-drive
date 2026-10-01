@@ -55,6 +55,7 @@ type readAhead struct {
 	cur     []byte             // unread part of the current chunk
 	pos     int64              // file offset of cur[0]
 	version string             // every chunk must match this version
+	size    int64              // ... and name this total size
 }
 
 // byteSource is where a remoteFile's bytes come from: a Drive file, or the
@@ -79,7 +80,7 @@ func (d driveFile) Range(ctx context.Context, offset, length int64) ([]byte, str
 }
 
 // startReadAhead fetches bytes [from, end) of src in parallel chunks.
-func startReadAhead(parent context.Context, src byteSource, from, end int64, version string) *readAhead {
+func startReadAhead(parent context.Context, src byteSource, from, end int64, version string, size int64) *readAhead {
 	ctx, cancel := context.WithCancel(parent)
 	var spans [][2]int64 // offset, length
 	for off := from; off < end; {
@@ -93,6 +94,7 @@ func startReadAhead(parent context.Context, src byteSource, from, end int64, ver
 		window:  make(chan struct{}, readWindow),
 		pos:     from,
 		version: version,
+		size:    size,
 	}
 	for i := range r.results {
 		r.results[i] = make(chan chunkResult, 1)
@@ -138,6 +140,9 @@ func (r *readAhead) Read(ctx context.Context, p []byte) (int, error) {
 			return 0, res.err
 		}
 		if r.version == "" {
+			if size, ok := versionSize(res.version); ok && size != r.size {
+				return 0, errChanged
+			}
 			r.version = res.version
 		} else if res.version != r.version {
 			return 0, errChanged
