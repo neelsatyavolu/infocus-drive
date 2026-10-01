@@ -44,7 +44,7 @@ struct StatusSection: View {
                       tone: status.helperSince != nil ? .ok : .idle),
             StatusRow(symbol: status.online ? "wifi" : "wifi.slash", title: "Network",
                       detail: !status.online ? "Waiting for a connection"
-                          : status.viaLAN ? "Direct to the NAS (school network)" : "Over the internet",
+                          : status.viaLAN ? "School network, direct" : "Over the internet",
                       value: status.online ? status.networkKind : "Offline",
                       tone: status.online ? .ok : .problem),
         ]
