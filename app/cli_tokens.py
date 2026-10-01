@@ -14,6 +14,7 @@ import pwd
 import re
 import secrets
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -28,6 +29,15 @@ IDLE_TTL_S = 30 * 86400
 MAX_AGE_S = 90 * 86400
 TOUCH_INTERVAL_S = 60
 DEVICE_MAX = 64
+# A token's row is reused this long after a lookup, so a burst of parallel
+# requests (a Finder copy) doesn't queue each one on the credential lock and
+# SQLite. Revoking clears it at once (one server process); expiry and the NAS
+# account are still checked on every request.
+LOOKUP_REUSE_S = 15
+
+_reuse: dict[str, tuple[float, dict[str, Any]]] = {}
+_reuse_gen = 0  # bumped by every revoke: rows read before it are never kept
+_reuse_lock = threading.Lock()
 
 _CHALLENGE_RE = re.compile(r"[A-Za-z0-9_-]{43}")
 _VERIFIER_RE = re.compile(r"[A-Za-z0-9._~-]{43,128}")
@@ -136,22 +146,71 @@ def redeem_code(code: str, verifier: str) -> dict[str, Any] | None:
     return {"token": token, "id": token_id, "username": row["username"], "device": row["device"]}
 
 
+def _reused(key: str, now: float, *, touches: bool) -> dict[str, Any] | None:
+    """The row a recent lookup found, if it's fresh (and, for a lookup that
+    touches last_used_at, not due a touch)."""
+    with _reuse_lock:
+        hit = _reuse.get(key)
+    if hit is None:
+        return None
+    at, row = hit
+    if not 0 <= now - at < LOOKUP_REUSE_S:
+        return None
+    if touches and now - row["last_used_at"] >= TOUCH_INTERVAL_S:
+        return None
+    return row
+
+
+def _generation() -> int:
+    with _reuse_lock:
+        return _reuse_gen
+
+
+def _remember(key: str, row: dict[str, Any], now: float, gen: int) -> None:
+    with _reuse_lock:
+        if gen == _reuse_gen:
+            _reuse[key] = (now, row)
+
+
+def _forget_all() -> None:
+    """After a revoke commits: drop every reused row, and any being read."""
+    global _reuse_gen
+    with _reuse_lock:
+        _reuse.clear()
+        _reuse_gen += 1
+
+
+def _expired(row: Any, now: float) -> bool:
+    return now - row["last_used_at"] >= IDLE_TTL_S or now - row["created_at"] >= MAX_AGE_S
+
+
 def lookup(token: str) -> dict[str, Any] | None:
     """Session-shaped user dict for a live token, else None."""
     if not token or not token.startswith(TOKEN_PREFIX):
         return None
     now = time.time()
-    with _database() as conn:
-        row = conn.execute(
-            "SELECT * FROM cli_tokens WHERE token_hash = ? AND revoked_at IS NULL", (_hash(token),)
-        ).fetchone()
-        if row is None or now - row["last_used_at"] >= IDLE_TTL_S or now - row["created_at"] >= MAX_AGE_S:
-            return None
-        pw = _nas_account(row["username"], row["uid"])
-        if pw is None:
-            return None
-        if now - row["last_used_at"] >= TOUCH_INTERVAL_S:
-            conn.execute("UPDATE cli_tokens SET last_used_at = ? WHERE id = ?", (now, row["id"]))
+    key = "hash:" + _hash(token)
+    row = _reused(key, now, touches=True)
+    if row is None:
+        gen = _generation()
+        with _database() as conn:
+            found = conn.execute(
+                "SELECT * FROM cli_tokens WHERE token_hash = ? AND revoked_at IS NULL", (_hash(token),)
+            ).fetchone()
+            if found is None or _expired(found, now):
+                return None
+            row = dict(found)
+            if _nas_account(row["username"], row["uid"]) is None:
+                return None
+            if now - row["last_used_at"] >= TOUCH_INTERVAL_S:
+                conn.execute("UPDATE cli_tokens SET last_used_at = ? WHERE id = ?", (now, row["id"]))
+                row["last_used_at"] = now
+        _remember(key, row, now, gen)
+    elif _expired(row, now):
+        return None
+    pw = _nas_account(row["username"], row["uid"])
+    if pw is None:
+        return None
     return {
         "email": row["email"],
         "name": pw.pw_name,
@@ -166,11 +225,19 @@ def lookup(token: str) -> dict[str, Any] | None:
 def lookup_id(token_id: str) -> dict[str, Any] | None:
     """Like lookup(), by token id (a LAN token names its parent sign-in)."""
     now = time.time()
-    with _database() as conn:
-        row = conn.execute(
-            "SELECT * FROM cli_tokens WHERE id = ? AND revoked_at IS NULL", (token_id or "",)
-        ).fetchone()
-    if row is None or now - row["last_used_at"] >= IDLE_TTL_S or now - row["created_at"] >= MAX_AGE_S:
+    key = "id:" + (token_id or "")
+    row = _reused(key, now, touches=False)
+    if row is None:
+        gen = _generation()
+        with _database() as conn:
+            found = conn.execute(
+                "SELECT * FROM cli_tokens WHERE id = ? AND revoked_at IS NULL", (token_id or "",)
+            ).fetchone()
+        if found is None:
+            return None
+        row = dict(found)
+        _remember(key, row, now, gen)
+    if _expired(row, now):
         return None
     pw = _nas_account(row["username"], row["uid"])
     if pw is None:
@@ -205,6 +272,7 @@ def revoke(token_id: str, username: str) -> bool:
             "UPDATE cli_tokens SET revoked_at = ? WHERE id = ? AND username = ? AND revoked_at IS NULL",
             (time.time(), token_id, username),
         )
+    _forget_all()
     return cur.rowcount > 0
 
 
@@ -214,6 +282,7 @@ def revoke_token(token: str) -> bool:
             "UPDATE cli_tokens SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL",
             (time.time(), _hash(token or "")),
         )
+    _forget_all()
     return cur.rowcount > 0
 
 
@@ -223,4 +292,5 @@ def revoke_all(username: str) -> int:
             "UPDATE cli_tokens SET revoked_at = ? WHERE username = ? AND revoked_at IS NULL",
             (time.time(), username),
         )
+    _forget_all()
     return cur.rowcount

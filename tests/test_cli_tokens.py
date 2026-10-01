@@ -21,6 +21,7 @@ def challenge_for(verifier: str) -> str:
 def store(tmp_path, monkeypatch):
     monkeypatch.setenv("CLI_TOKENS_DB_PATH", str(tmp_path / "cli.sqlite3"))
     cli_tokens.get_settings.cache_clear()
+    cli_tokens._forget_all()
     users = {"student1": (1001, 100), "student2": (1002, 100), "daemon": (2, 2)}
 
     def getpwnam(name):
@@ -164,3 +165,57 @@ def test_database_access_holds_the_credential_lock(monkeypatch):
     issued = sign_in()
     cli_tokens.lookup(issued["token"])
     assert len(entered) >= 3  # issue, redeem, lookup
+
+
+def count_database_use(monkeypatch):
+    opened = []
+    real = cli_tokens._database
+
+    def counting():
+        opened.append(True)
+        return real()
+
+    monkeypatch.setattr(cli_tokens, "_database", counting)
+    return opened
+
+
+def test_lookups_in_a_burst_reuse_the_answer(store, monkeypatch):
+    """A Finder copy sends many parallel requests: only the first waits for the
+    credential lock and SQLite."""
+    issued = sign_in()
+    opened = count_database_use(monkeypatch)
+    for _ in range(5):
+        assert cli_tokens.lookup(issued["token"])["uid"] == 1001
+    assert len(opened) == 1
+    store["clock"]["now"] += 16
+    assert cli_tokens.lookup(issued["token"])
+    assert len(opened) == 2
+
+
+def test_lan_token_parent_lookups_are_reused(store, monkeypatch):
+    issued = sign_in()
+    store["clock"]["now"] += 3600  # on the LAN all day: the parent isn't touched
+    opened = count_database_use(monkeypatch)
+    for _ in range(3):
+        assert cli_tokens.lookup_id(issued["id"])["username"] == "student1"
+    assert len(opened) == 1
+
+
+def test_revoking_is_immediate_despite_reuse():
+    first, second, third = sign_in(), sign_in(), sign_in()
+    for issued in (first, second, third):
+        assert cli_tokens.lookup(issued["token"]) and cli_tokens.lookup_id(issued["id"])
+    assert cli_tokens.revoke_token(first["token"]) is True
+    assert cli_tokens.lookup(first["token"]) is None and cli_tokens.lookup_id(first["id"]) is None
+    assert cli_tokens.revoke(second["id"], "student1") is True
+    assert cli_tokens.lookup(second["token"]) is None and cli_tokens.lookup_id(second["id"]) is None
+    assert cli_tokens.revoke_all("student1") == 1
+    assert cli_tokens.lookup(third["token"]) is None and cli_tokens.lookup_id(third["id"]) is None
+
+
+def test_reused_answer_still_checks_the_nas_account(store):
+    issued = sign_in()
+    assert cli_tokens.lookup(issued["token"])
+    del store["users"]["student1"]
+    assert cli_tokens.lookup(issued["token"]) is None
+    assert cli_tokens.lookup_id(issued["id"]) is None
