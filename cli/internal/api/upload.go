@@ -178,7 +178,7 @@ func (c *Client) startOrResume(ctx context.Context, dir, name string, size int64
 	var session ChunkSession
 	err := c.postForm(ctx, "/api/upload/init", url.Values{
 		"path": {CleanPath(dir)}, "name": {name},
-		"size": {strconv.FormatInt(size, 10)}, "chunk_size": {strconv.Itoa(chunkSize)},
+		"size": {strconv.FormatInt(size, 10)}, "chunk_size": {strconv.FormatInt(uploadChunkSize(size), 10)},
 	}, &session)
 	if err != nil {
 		return ChunkSession{}, nil, err
@@ -189,6 +189,14 @@ func (c *Client) startOrResume(ctx context.Context, dir, name string, size int64
 		}
 	}
 	return session, map[int]bool{}, nil
+}
+
+// uploadChunkSize splits a file into at least chunkStreams chunks (whole
+// MiB, at most chunkSize) so mid-size files use every stream too.
+func uploadChunkSize(size int64) int64 {
+	const mib = 1 << 20
+	per := (size + chunkStreams - 1) / chunkStreams
+	return min(chunkSize, (per+mib-1)/mib*mib)
 }
 
 func (c *Client) uploadChunked(ctx context.Context, dir, name string, file io.ReaderAt, size int64, opts UploadOptions) (Entry, error) {

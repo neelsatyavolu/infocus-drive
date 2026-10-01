@@ -101,7 +101,7 @@ func TestPutBatchContinuesPastExistingFiles(t *testing.T) {
 
 func TestPutResumesInterruptedUpload(t *testing.T) {
 	h := newHarness(t)
-	big := bytes.Repeat([]byte("r"), 70<<20) // 3 chunks of 32 MiB
+	big := bytes.Repeat([]byte("r"), 70<<20) // 4 chunks of 18 MiB
 	root := t.TempDir()
 	local := filepath.Join(root, "big.mov")
 	os.WriteFile(local, big, 0o644)

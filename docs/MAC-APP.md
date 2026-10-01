@@ -110,7 +110,8 @@ about it:
   Every chunk must carry the same version (ETag, Last-Modified, size) as the bytes
   already read, so a file saved by someone else mid-copy fails the copy instead of
   mixing versions. 256 MB reads: ~70 → ~125 MB/s, LAN and internet alike.
-- **Large writes** upload 32 MiB chunks, 4 at a time (the CLI's chunked upload).
+- **Writes over 8 MiB** upload in at least 4 chunks (whole MiB, up to 32 MiB each), 4 at
+  a time (the CLI's chunked upload), so a 20 MB file uses every stream, not one.
 - **Small files** cost one upload each. macOS creates every new file with an empty
   PUT, then LOCK/UNLOCK, then the real PUT: the empty PUT (or a LOCK) of a new name
   is a local placeholder, not an upload. A placeholder that never gets its content

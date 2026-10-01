@@ -1015,3 +1015,22 @@ func TestWebdavRangedReadFetchesOnlyThatRange(t *testing.T) {
 		}
 	}
 }
+
+// A 20 MB file (a photo burst, a short clip) goes up as several chunks in
+// parallel, not as one 32 MiB chunk on a single stream.
+func TestWebdavMidSizeUploadUsesParallelChunks(t *testing.T) {
+	h := newDavHarness(t)
+	data := strings.Repeat("m", 20<<20)
+	if code, _ := h.do(t, "PUT", h.url("InFocus Drive", "clip.mov"), data); code != http.StatusCreated {
+		t.Fatalf("PUT: %d", code)
+	}
+	if got, _ := h.driveHas("clip.mov"); got != data {
+		t.Fatalf("clip.mov has %d bytes", len(got))
+	}
+	h.drive.mu.Lock()
+	pieces := h.drive.chunkPuts
+	h.drive.mu.Unlock()
+	if pieces < 4 {
+		t.Fatalf("20 MB went up in %d chunks, want at least 4 for parallel streams", pieces)
+	}
+}
