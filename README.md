@@ -19,6 +19,7 @@ It was built for InFocus, a student news program. It runs in production on the p
 - **Roster sync (optional):** provisions and removes NAS accounts from an external roster through a localhost-only helper, with protected-account lists.
 - Alternative sign-in: email codes (Resend) and NAS username + password with UGOS 2FA.
 - **InFocus for Mac (optional):** a Swift app that mounts the Drive in Finder over a local WebDAV helper, and can also show the program's Portal web app in native windows with Mac notifications ([docs/MAC-APP.md](docs/MAC-APP.md)).
+- **InFocus Portal for iPhone and iPad (optional):** a SwiftUI shell around the program's Portal web app, with the same browser sign-in hand-off and iOS notifications ([ios/README.md](ios/README.md)).
 
 ## Architecture
 

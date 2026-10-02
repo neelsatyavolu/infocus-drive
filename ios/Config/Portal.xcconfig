@@ -1,0 +1,12 @@
+// Build-time addresses, so the source has no hostnames (same idea as the Mac
+// app's PORTAL_URL / DRIVE_URL). Hosts only: "//" starts a comment here.
+//   INFOCUS_PORTAL_HOST  the Portal (its subdomains stay in the app too)
+//   INFOCUS_DRIVE_HOST   optional; opened in Safari even though it's a subdomain
+//   INFOCUS_TEAM_ID      Apple team for signing
+// Put real values in Portal.local.xcconfig (gitignored); scripts/release-ios.sh
+// passes them on the command line.
+INFOCUS_PORTAL_HOST = portal.example.com
+INFOCUS_DRIVE_HOST =
+INFOCUS_TEAM_ID =
+
+#include? "Portal.local.xcconfig"
