@@ -23,14 +23,40 @@ struct CalendarMonth: Decodable, Sendable, Equatable {
 
     struct ShowManager: Decodable, Sendable, Equatable {
         let name: String
+        /// "rotation" (the Portal's default order) or "manual" (a producer picked someone).
+        var source: String? = nil
+
+        var isManual: Bool { source == "manual" }
+    }
+
+    /// A Spirit Week day: the dress-up theme and the crew lists producers fill.
+    struct SpiritWeekDay: Decodable, Sendable, Equatable {
+        let theme: String
+        let crewRoles: [String]
     }
 
     let month: String
     let canEdit: Bool
-    let entries: [Entry]
+    var entries: [Entry]
     let schedule: [ScheduleDay]
     let queuedPackages: [QueuedPackage]
-    let showManagers: [String: ShowManager]
+    var showManagers: [String: ShowManager]
+    /// Producers' editing data (absent from older Portals): everyone but advisers, by on-screen name.
+    var members: [String]? = nil
+    /// Who can be show manager: EPs, the super admin and APs.
+    var showManagerPool: [String]? = nil
+    /// Anchors & PA counts are exec-only.
+    var canViewCastCounts: Bool? = nil
+    var spiritWeek: [String: SpiritWeekDay]? = nil
+
+    func content(of date: String) -> String { entries.first { $0.date == date }?.content ?? "" }
+
+    /// The month with one cell replaced (an empty cell is removed, as the Portal does).
+    func replacing(_ date: String, content: String) -> CalendarMonth {
+        var copy = self
+        copy.entries = entries.filter { $0.date != date } + (content.isEmpty ? [] : [Entry(date: date, content: content)])
+        return copy
+    }
 }
 
 /// The Portal's `ScheduleKind`: show day, PA (Monday) day, a class day with neither, or no school.

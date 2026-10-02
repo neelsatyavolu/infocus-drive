@@ -1,13 +1,13 @@
 import SwiftUI
 
 /// One school day: kind, who's anchoring / on PA / managing, packages airing, notes.
-/// Producers can edit it in the Portal's Master Calendar.
+/// Producers edit it natively (`DayEditorView`).
 struct DayDetailView: View {
     let date: String
 
     @Environment(\.portalClient) private var client
     @Environment(SessionStore.self) private var session
-    @Environment(Router.self) private var router
+    @State private var editing = false
     private let store = CalendarStore.shared
 
     var body: some View {
@@ -26,6 +26,18 @@ struct DayDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load(force: true) }
         .task { await load(force: false) }
+        .toolbar {
+            if store.canEdit(monthKey), store.day(date) != nil {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { editing = true }
+                }
+            }
+        }
+        .sheet(isPresented: $editing) { DayEditorView(date: date) }
+        #if DEBUG
+        // Screenshots: `-InFocusStubSession producer -InFocusCalendarDay 2026-10-07 -InFocusCalendarEdit 1`.
+        .task { if UserDefaults.standard.bool(forKey: "InFocusCalendarEdit") { editing = true } }
+        #endif
     }
 
     private var monthKey: String { CalendarDates.monthKey(of: date) }
@@ -88,9 +100,9 @@ struct DayDetailView: View {
 
         if store.canEdit(monthKey) {
             Button {
-                router.openPortal("master-calendar?date=\(day.date)", title: "Master Calendar")
+                editing = true
             } label: {
-                Label("Edit in Master Calendar", systemImage: "square.and.pencil")
+                Label("Edit this day", systemImage: "square.and.pencil")
             }
             .buttonStyle(.brandSecondary)
         }
