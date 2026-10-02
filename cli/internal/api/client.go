@@ -47,9 +47,17 @@ func (c *Client) newBulkRequest(ctx context.Context, method, endpoint string, qu
 	return c.newRequest(context.WithValue(ctx, bulkKey{}, true), method, endpoint, query, body)
 }
 
+type warmKey struct{}
+
+// Warm marks ctx's requests as latency-bound (a small read, the first bytes
+// of a large one): they stay on the warm shared connection, since a bulk one
+// may first need a TLS handshake.
+func Warm(ctx context.Context) context.Context { return context.WithValue(ctx, warmKey{}, true) }
+
 // clientFor picks the connections req goes over.
 func (c *Client) clientFor(req *http.Request) *http.Client {
-	if c.Bulk != nil && req.Context().Value(bulkKey{}) != nil {
+	ctx := req.Context()
+	if c.Bulk != nil && ctx.Value(bulkKey{}) != nil && ctx.Value(warmKey{}) == nil {
 		return c.Bulk
 	}
 	return c.httpClient()

@@ -95,3 +95,21 @@ func TestBulkTransfersUseTheBulkClient(t *testing.T) {
 		t.Fatalf("bulk connections carried %v", bulk.paths)
 	}
 }
+
+// The first bytes of a read are latency-bound: Warm keeps them on the warm
+// shared connection instead of a bulk one that may need a TLS handshake.
+func TestWarmReadsUseTheSharedClient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "", time.Time{}, strings.NewReader("0123456789"))
+	}))
+	defer srv.Close()
+	base, _ := url.Parse(srv.URL)
+	shared, bulk := &countingTransport{}, &countingTransport{}
+	c := &Client{Base: base, Token: "ifd_x", HTTP: &http.Client{Transport: shared}, Bulk: &http.Client{Transport: bulk}}
+	if _, _, err := c.DownloadRange(Warm(context.Background()), "a.bin", 0, 4); err != nil {
+		t.Fatal(err)
+	}
+	if len(shared.paths) != 1 || len(bulk.paths) != 0 {
+		t.Fatalf("shared %v, bulk %v", shared.paths, bulk.paths)
+	}
+}

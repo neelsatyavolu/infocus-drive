@@ -114,7 +114,11 @@ func startReadAhead(parent context.Context, src byteSource, from, end int64, ver
 			}
 			go func() {
 				defer func() { <-streams }()
-				data, version, err := src.Range(ctx, span[0], span[1])
+				chunkCtx := ctx
+				if i == 0 {
+					chunkCtx = api.Warm(ctx) // the first bytes: no handshake wait
+				}
+				data, version, err := src.Range(chunkCtx, span[0], span[1])
 				r.results[i] <- chunkResult{data, version, err}
 			}()
 		}
