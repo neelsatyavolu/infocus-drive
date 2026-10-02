@@ -31,13 +31,17 @@ final class PushRegistrar: ObservableObject {
 
     private var center: UNUserNotificationCenter { .current() }
 
-    /// At launch: Apple wants registration every launch once notifications are allowed.
+    /// At launch: Apple wants registration every launch. The token doesn't need
+    /// alert permission (that only decides whether anything is shown), so ask
+    /// even before the person has allowed notifications.
     func start() async {
         let settings = await center.notificationSettings()
-        if Self.allowed(settings.authorizationStatus) { NSApp.registerForRemoteNotifications() }
+        NSLog("InFocus: push permission %@; registering with APNs", Self.permission(settings.authorizationStatus))
+        NSApp.registerForRemoteNotifications()
     }
 
     func didRegister(_ token: Data) {
+        NSLog("InFocus: got APNs token")
         deviceToken = Self.hex(token)
         Task { await sync(force: true) }
     }
@@ -73,9 +77,13 @@ final class PushRegistrar: ObservableObject {
     }
 
     func sync(force: Bool) async {
-        guard let token = deviceToken, let portal = AppConfig.shared.portalURL, !syncing else { return }
+        guard let token = deviceToken, let portal = AppConfig.shared.portalURL, !syncing else {
+            if force, deviceToken == nil { NSLog("InFocus: push sync waiting for an APNs token") }
+            return
+        }
         let cookies = await PortalCookies.forPortal(portal)
         guard let session = cookies.first(where: { $0.name == PortalSignIn.sessionCookieName })?.value else {
+            if force { NSLog("InFocus: push sync skipped: not signed in to the Portal") }
             registeredFor = nil
             return
         }
@@ -86,6 +94,7 @@ final class PushRegistrar: ObservableObject {
         let ok = await send("POST", body: [
             "token": token, "environment": Self.environment, "appVersion": DriveController.appVersion,
         ], cookies: cookies, portal: portal)
+        if ok { NSLog("InFocus: this Mac is registered for Portal notifications") }
         registeredFor = ok ? key : nil
     }
 
@@ -127,6 +136,12 @@ final class PushRegistrar: ObservableObject {
 
     func status() async -> Status {
         let settings = await center.notificationSettings()
+        // Settings asks often: retry anything unfinished (no token yet, or never sent).
+        if deviceToken == nil {
+            NSApp.registerForRemoteNotifications()
+        } else if registeredFor == nil {
+            await sync(force: true)
+        }
         return Status(permission: Self.permission(settings.authorizationStatus),
                       registered: registeredFor != nil,
                       appVersion: DriveController.appVersion)
