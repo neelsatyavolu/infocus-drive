@@ -59,6 +59,15 @@ final class Windows: NSObject, NSWindowDelegate {
         backgroundIfIdle()
     }
 
+    /// Quit with "Keep Drive connected after Quit" on: really close every window
+    /// (Portal web views are released), then run on in the background.
+    func closeAllForQuit() {
+        for window in Array(open.values) { window.close() }
+        for controller in portals { controller.window?.close() } // windowWillClose → portalClosed
+        portals.removeAll()
+        backgroundIfIdle()
+    }
+
     /// After signing in or out: other Portal windows pick up the new session.
     func reloadPortals(except webView: WKWebView?) {
         for controller in portals where controller.web.webView !== webView {

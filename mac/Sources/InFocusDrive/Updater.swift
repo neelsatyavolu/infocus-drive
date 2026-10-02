@@ -131,7 +131,7 @@ final class Updater: ObservableObject {
         do {
             try Self.replaceApp(with: staged)
             Self.relaunch(showWindow: Windows.shared.hasOpenWindows)
-            NSApp.terminate(nil) // unmounts; the new copy remounts
+            QuitPolicy.quitCompletely() // unmounts; the new copy remounts
         } catch {
             state = .failed("Couldn't install \(version): \(error.localizedDescription) Run the install command from the Drive's Mac app & CLI window.")
         }

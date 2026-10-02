@@ -357,7 +357,9 @@ private struct MenuFooter: View {
             UpdateButton(updater: drive.updater)
             Spacer(minLength: 4)
             VersionLabel(updater: drive.updater)
-            Button("Quit") { NSApp.terminate(nil) }.buttonStyle(LinkButtonStyle()).fixedSize()
+            Button("Quit Completely") { QuitPolicy.quitCompletely() }
+                .buttonStyle(LinkButtonStyle()).fixedSize()
+                .help("Disconnects Drive and closes InFocus")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)

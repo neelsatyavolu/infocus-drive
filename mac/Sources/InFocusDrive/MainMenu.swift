@@ -33,7 +33,12 @@ enum MainMenu {
         others.keyEquivalentModifierMask = [.command, .option]
         menu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         menu.addItem(.separator())
+        // With "Keep Drive connected after Quit" on, Quit leaves Drive mounted; hold Option for a full quit.
         menu.addItem(withTitle: "Quit InFocus", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let quitAll = action("Quit InFocus Completely", #selector(MenuActions.quitCompletely(_:)), "q")
+        quitAll.keyEquivalentModifierMask = [.command, .option]
+        quitAll.isAlternate = true
+        menu.addItem(quitAll)
         return menu
     }
 
@@ -125,6 +130,10 @@ final class MenuActions: NSObject {
 
     @objc func newPortalWindow(_ sender: Any?) {
         if let drive { Windows.shared.newPortalWindow(drive, tabbedWith: nil) }
+    }
+
+    @objc func quitCompletely(_ sender: Any?) {
+        QuitPolicy.quitCompletely()
     }
 
     @objc func showPortal(_ sender: Any?) {

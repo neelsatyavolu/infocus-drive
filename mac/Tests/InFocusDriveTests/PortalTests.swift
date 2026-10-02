@@ -225,3 +225,26 @@ final class MoveToApplicationsTests: XCTestCase {
         XCTAssertEqual(MoveToApplications.destinationFolder(home: home, systemWritable: false).path, "/Users/student1/Applications")
     }
 }
+
+final class QuitPolicyTests: XCTestCase {
+    func testQuitKeepsDriveUnlessAFullQuitIsNeeded() {
+        XCTAssertEqual(QuitPolicy.decide(keepDrive: true, fullQuitRequested: false, externalQuit: false), .background)
+        XCTAssertEqual(QuitPolicy.decide(keepDrive: false, fullQuitRequested: false, externalQuit: false), .terminate)
+        XCTAssertEqual(QuitPolicy.decide(keepDrive: true, fullQuitRequested: true, externalQuit: false), .terminate)
+        XCTAssertEqual(QuitPolicy.decide(keepDrive: true, fullQuitRequested: false, externalQuit: true), .terminate)
+    }
+
+    func testOnByDefault() {
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: QuitPolicy.keepDriveKey)
+        defaults.removeObject(forKey: QuitPolicy.keepDriveKey)
+        XCTAssertTrue(QuitPolicy.keepDrive)
+        defaults.set(false, forKey: QuitPolicy.keepDriveKey)
+        XCTAssertFalse(QuitPolicy.keepDrive)
+        if let saved { defaults.set(saved, forKey: QuitPolicy.keepDriveKey) } else { defaults.removeObject(forKey: QuitPolicy.keepDriveKey) }
+    }
+
+    func testCommandQHasNoAppleEventSoItIsNotExternal() {
+        XCTAssertFalse(QuitPolicy.isExternalQuit)
+    }
+}

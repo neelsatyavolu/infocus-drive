@@ -76,8 +76,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        drive.shutdown()
-        return .terminateNow
+        switch QuitPolicy.decide(keepDrive: QuitPolicy.keepDrive,
+                                 fullQuitRequested: QuitPolicy.fullQuitRequested,
+                                 externalQuit: QuitPolicy.isExternalQuit) {
+        case .background:
+            Windows.shared.closeAllForQuit() // Drive stays mounted; menu bar icon stays
+            return .terminateCancel
+        case .terminate:
+            drive.shutdown()
+            return .terminateNow
+        }
     }
 
     func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

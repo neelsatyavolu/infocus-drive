@@ -59,6 +59,14 @@ downloaded app. Needs macOS 13 or later.
 6. **Show in menu bar** (on by default) adds a menu-bar icon with the same status.
    With it off the app has no menu bar or Dock icon and just keeps the drive
    mounted; opening the app again shows its window (and a Dock icon while it's open).
+7. **Keep Drive connected after Quit** (on by default, `QuitPolicy.swift`): Quit
+   (Cmd+Q, InFocus → Quit, or the Dock) closes every Portal window and the Dock
+   icon, but the app keeps running in the menu bar with the drive mounted; opening
+   InFocus again brings the Portal back. **Quit InFocus Completely** (menu bar,
+   Drive window → More, or hold Option in the InFocus menu, Option+Cmd+Q) unmounts
+   and exits. Updates, log out, restart, shut down and quit requests from other
+   programs (the install script) always quit completely. Turn the setting off and
+   Quit unmounts and exits as before.
 
 The menu shows everything at a glance: what to do next (Open in Finder,
 Connect, Sign in), live **Uploads** with progress, speed and errors, a **Status**

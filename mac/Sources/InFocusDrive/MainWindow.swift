@@ -77,10 +77,11 @@ struct BrandMark: View {
     }
 }
 
-/// Settings: menu bar icon, start at login, account actions.
+/// Settings: menu bar icon, start at login, quit behavior, account actions.
 struct SettingsSection: View {
     @ObservedObject var drive: DriveController
     @AppStorage(showInMenuBarKey) private var showInMenuBar = true
+    @AppStorage(QuitPolicy.keepDriveKey) private var keepDriveAfterQuit = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -94,6 +95,11 @@ struct SettingsSection: View {
                 SettingToggle(symbol: "power", title: "Start at login",
                               detail: "Mounts the drive in the background when you log in",
                               isOn: Binding(get: { drive.startsAtLogin }, set: { drive.setStartsAtLogin($0) }))
+                Rectangle().fill(Brand.border).frame(height: 1)
+                SettingToggle(symbol: "externaldrive.badge.checkmark", title: "Keep Drive connected after Quit",
+                              detail: keepDriveAfterQuit ? "Quit closes the Portal; Drive stays in Finder"
+                                  : "Quit disconnects Drive and closes InFocus",
+                              isOn: $keepDriveAfterQuit)
                 Rectangle().fill(Brand.border).frame(height: 1)
                 UpdateSetting(updater: drive.updater)
             }
@@ -109,7 +115,7 @@ struct SettingsSection: View {
                     }
                     Button("Change Drive address…") { drive.changeServer() }
                     Divider()
-                    Button("Quit InFocus") { NSApp.terminate(nil) }
+                    Button("Quit InFocus Completely") { QuitPolicy.quitCompletely() }
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
