@@ -6,7 +6,9 @@ struct PackageCyclesDestination: View {
 
     var body: some View {
         switch route {
-        case .home: PortalFallback(path: "package-progress", title: "Package Cycles")
+        case .home: PackageCyclesHome()
+        case .cycle(let number): PackageCyclesHome(cycle: number)
+        case .group(let rowId, let cycle): RosterGroupScreen(rowId: rowId, cycle: cycle)
         }
     }
 }
