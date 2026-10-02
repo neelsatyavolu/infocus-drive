@@ -53,7 +53,10 @@ downloaded app. Needs macOS 13 or later.
    (`spctl`), swaps the app bundle, quits (unmounting cleanly) and relaunches the
    same way it was running, which remounts the drive. It never restarts while Finder
    is copying: the helper reports open writes (`{"event":"writing","open":N}`) and
-   uploads, and the install waits until both are zero. Turn it off in
+   uploads, and the install waits until both are zero. An automatic install also
+   waits until no Portal window is open (an upload or video there would be cut off);
+   it installs as soon as the last one closes. Clicking **Update** installs with the
+   Portal open (still waiting for Drive copies). Turn it off in
    **Settings → Update automatically** (the button still appears). Development and
    ad-hoc builds don't update.
 6. **Show in menu bar** (on by default) adds a menu-bar icon with the same status.

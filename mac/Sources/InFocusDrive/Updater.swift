@@ -25,6 +25,8 @@ final class Updater: ObservableObject {
     nonisolated private static let asset = "InFocus-Drive-mac.zip"
 
     @Published private(set) var state: State = .idle
+    /// Someone clicked Update / Check for updates: don't wait for the Portal to close.
+    private var userRequested = false
     @Published private(set) var checkedAt: Date?
     @Published var automatic: Bool {
         didSet { UserDefaults.standard.set(automatic, forKey: "autoUpdate") }
@@ -76,6 +78,7 @@ final class Updater: ObservableObject {
     /// "Check for updates" / the Update button: installs as soon as it's safe.
     func updateNow() async {
         installWhenIdle = true
+        userRequested = true
         if case .ready = state { installIfReady(); return }
         await check(manual: true)
     }
@@ -106,6 +109,7 @@ final class Updater: ObservableObject {
             staged = try await Self.download(latest, team: team)
             state = .ready(latest)
             if automatic || manual { installWhenIdle = true }
+            if manual { userRequested = true }
             installIfReady()
         } catch {
             state = .failed("Update check failed: \(error.localizedDescription)")
@@ -117,16 +121,30 @@ final class Updater: ObservableObject {
         installIfReady()
     }
 
+    /// Called when the last Portal window closes: an automatic update may install now.
+    func portalsClosed() {
+        installIfReady()
+    }
+
+    /// Automatic installs wait for Drive copies, a folder unlock, and any open
+    /// Portal window (an upload or video there would be cut off). Clicking
+    /// Update installs with the Portal open; it still waits for Drive.
+    nonisolated static func mayInstall(transferring: Bool, unlocking: Bool, portalOpen: Bool, userRequested: Bool) -> Bool {
+        !transferring && !unlocking && (userRequested || !portalOpen)
+    }
+
     /// True when an install is waiting only for a copy to finish.
     var waitingForCopy: Bool {
         if case .ready = state, installWhenIdle, drive?.isTransferring == true { return true }
         return false
     }
 
-    /// Installs the verified update unless Finder is in the middle of a copy.
+    /// Installs the verified update once it's safe (see `mayInstall`).
     private func installIfReady() {
         guard case .ready(let version) = state, installWhenIdle, let staged, let drive else { return }
-        if drive.isTransferring || drive.unlocking?.busy == true { return } // retried every 5 min
+        guard Self.mayInstall(transferring: drive.isTransferring, unlocking: drive.unlocking?.busy == true,
+                              portalOpen: Windows.shared.hasPortalWindows, userRequested: userRequested)
+        else { return } // retried every 5 min, after copies, and when the Portal closes
         state = .installing(version)
         do {
             try Self.replaceApp(with: staged)
@@ -274,7 +292,7 @@ extension Updater {
         case .checking: return "Checking for updates…"
         case .upToDate: return "Up to date (\(current))\(checked)"
         case .available(let v): return "Downloading \(v)…"
-        case .ready(let v): return "\(v) is ready — installs when no copy is running"
+        case .ready(let v): return "\(v) is ready — installs when the Portal is closed and no copy is running"
         case .installing(let v): return "Installing \(v)…"
         case .failed(let reason): return reason
         }

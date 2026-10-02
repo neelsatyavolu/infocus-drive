@@ -248,3 +248,17 @@ final class QuitPolicyTests: XCTestCase {
         XCTAssertFalse(QuitPolicy.isExternalQuit)
     }
 }
+
+final class UpdaterInstallPolicyTests: XCTestCase {
+    func testAutomaticInstallWaitsForPortalAndDrive() {
+        XCTAssertTrue(Updater.mayInstall(transferring: false, unlocking: false, portalOpen: false, userRequested: false))
+        XCTAssertFalse(Updater.mayInstall(transferring: false, unlocking: false, portalOpen: true, userRequested: false))
+        XCTAssertFalse(Updater.mayInstall(transferring: true, unlocking: false, portalOpen: false, userRequested: false))
+        XCTAssertFalse(Updater.mayInstall(transferring: false, unlocking: true, portalOpen: false, userRequested: false))
+    }
+
+    func testClickingUpdateDoesNotWaitForThePortalButStillWaitsForDrive() {
+        XCTAssertTrue(Updater.mayInstall(transferring: false, unlocking: false, portalOpen: true, userRequested: true))
+        XCTAssertFalse(Updater.mayInstall(transferring: true, unlocking: false, portalOpen: true, userRequested: true))
+    }
+}

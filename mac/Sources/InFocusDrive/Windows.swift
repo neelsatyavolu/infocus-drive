@@ -16,6 +16,9 @@ final class Windows: NSObject, NSWindowDelegate {
         !open.isEmpty || portals.contains { $0.window?.isVisible == true }
     }
 
+    /// Any Portal window or tab, even minimized (an upload or video may be running).
+    var hasPortalWindows: Bool { !portals.isEmpty }
+
     // MARK: Portal
 
     /// Shows the frontmost Portal window (making one if needed), optionally at
@@ -49,6 +52,11 @@ final class Windows: NSObject, NSWindowDelegate {
     func portalClosed(_ controller: PortalWindowController) {
         portals.removeAll { $0 === controller }
         backgroundIfIdle()
+        // A waiting automatic update was holding off for the Portal.
+        // Next run-loop turn: this can run inside applicationShouldTerminate (Quit to background).
+        if portals.isEmpty {
+            DispatchQueue.main.async { MenuActions.shared.drive?.updater.portalsClosed() }
+        }
     }
 
     /// Quit with "Keep Drive connected after Quit" on: really close every window
