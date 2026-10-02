@@ -82,7 +82,7 @@ extension PortalUser {
         case "admin":
             PortalUser(email: "superadmin@example.edu", name: "Admin Example", role: .superAdmin, onStudentPackage: false)
         case "sample":
-            .sample(email: "review@example.edu")
+            .sample
         default:
             PortalUser(email: "abby@example.edu", name: "Abby Example", role: nil, onStudentPackage: true)
         }
@@ -92,8 +92,7 @@ extension PortalUser {
 extension PortalUser {
     /// The App Review sample app's person: an associate producer who is also on a
     /// package, so Packages, Groups and every producer tool appear. Fictional.
-    static func sample(email: String) -> PortalUser {
-        PortalUser(email: email, name: "Otto Example", nickname: "Otto", role: .associateProducer,
-                   onStudentPackage: true, sampleOnly: true)
-    }
+    /// Otto matches the fixtures: a member of the "Club Fair" package and producer of two groups.
+    static let sample = PortalUser(email: "otto@example.edu", name: "Otto Example", nickname: "Otto",
+                                   role: .associateProducer, onStudentPackage: true, sampleOnly: true)
 }

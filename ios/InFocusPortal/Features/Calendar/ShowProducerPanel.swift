@@ -163,5 +163,6 @@ struct ShowProducerPanel: View {
             Button("Upload show") { router.openPortal("show-roles?date=\(show.date)", title: "The Show") }
                 .buttonStyle(.brandSecondary)
         }
+        .hiddenInSampleApp() // the script and the upload are Portal pages
     }
 }

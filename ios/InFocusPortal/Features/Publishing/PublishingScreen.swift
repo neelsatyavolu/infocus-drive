@@ -120,6 +120,7 @@ struct PublishingScreen: View {
                     Button("Upload a whole show on the web", systemImage: "film.stack") {
                         router.openPortal("show-roles", title: "The Show")
                     }
+                    .hiddenInSampleApp()
                 } label: {
                     Image(systemName: "plus.circle")
                 }

@@ -112,6 +112,7 @@ struct SubmittedView: View {
                 Button { router.openPortal("submit-announcement", title: "Submit") } label: {
                     Label("Submit an announcement", systemImage: "plus")
                 }
+                .hiddenInSampleApp()
                 if let link = model.state.value?.collegeVisitsUrl, let url = URL(string: link) {
                     Button { openURL(url) } label: { Label("College Visits", systemImage: "graduationcap") }
                 }

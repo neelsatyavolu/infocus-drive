@@ -3,8 +3,8 @@ import Foundation
 /// Fictional chats for `-InFocusStubSession` screenshots. Never real people.
 extension ChatService {
     static let stub: ChatService = {
-        let me = ChatPerson(id: "me", name: "Abby")
-        let otto = ChatPerson(id: "otto", name: "Otto")
+        let me = ChatPerson(id: "me", name: "Otto")
+        let abby = ChatPerson(id: "abby", name: "Abby")
         let sage = ChatPerson(id: "sage", name: "Sage")
         let now = Date()
         func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
@@ -13,13 +13,13 @@ extension ChatService {
                              subtitle: "Club Fair · Cycle 2", packageRowId: "row-1", peer: nil)
         let messages = [
             ChatMessage(id: "m1", body: "Interview with the club fair organizers is set for Thursday at lunch.",
-                        createdAt: ago(60 * 26), authorId: "otto", author: otto),
+                        createdAt: ago(60 * 26), authorId: "abby", author: abby),
             ChatMessage(id: "m2", body: "Nice! I'll bring the shotgun mic and the small tripod.",
                         createdAt: ago(60 * 25), authorId: "me", author: me),
             ChatMessage(id: "m3", body: "Can someone grab B-roll of the booths during setup?",
                         createdAt: ago(42), authorId: "sage", author: sage),
             ChatMessage(id: "m4", body: "On it, I'm free 4th period.", createdAt: ago(38), authorId: "me", author: me),
-            ChatMessage(id: "m5", body: "Perfect. Initial cut due Monday 🎬", createdAt: ago(5), authorId: "otto", author: otto),
+            ChatMessage(id: "m5", body: "Perfect. Initial cut due Monday 🎬", createdAt: ago(5), authorId: "abby", author: abby),
         ]
         let inbox = ChatInbox(
             me: me, canStartDirect: true, unreadCount: 3,
@@ -32,7 +32,7 @@ extension ChatService {
                 ChatSummary(chatId: nil, kind: .group, title: "Abby & Otto", subtitle: "Gas Prices · Cycle 1",
                             preview: nil, updatedAt: nil, unreadCount: 0, packageRowId: "row-2", peer: nil),
             ],
-            members: [otto, sage]
+            members: [abby, sage]
         )
         let thread = ChatThread(me: me, chat: group, messages: messages)
         return ChatService(

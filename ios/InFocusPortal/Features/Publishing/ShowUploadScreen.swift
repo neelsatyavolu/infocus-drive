@@ -23,6 +23,7 @@ struct ShowUploadScreen: View {
                         router.openPortal("show-roles", title: "The Show")
                     }
                     .buttonStyle(.brandSecondary)
+                    .hiddenInSampleApp()
                 }
                 .padding(Brand.gutter)
             }

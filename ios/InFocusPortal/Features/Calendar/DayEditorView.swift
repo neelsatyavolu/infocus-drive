@@ -182,5 +182,6 @@ struct DayEditorView: View {
             Label("Edit packages and other text in the Portal", systemImage: "square.and.pencil")
         }
         .buttonStyle(.brandQuiet)
+        .hiddenInSampleApp()
     }
 }

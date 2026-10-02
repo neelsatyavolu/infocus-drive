@@ -48,6 +48,7 @@ struct GroupStageScreen: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { router.openPortal("groups/\(rowId)/\(webSlug)", title: stage.title) } label: { Image(systemName: "safari") }
                     .accessibilityLabel("Open on the Portal")
+                    .hiddenInSampleApp()
             }
         }
         .task { if row.value == nil { await load() } }
@@ -170,6 +171,7 @@ struct GroupStageScreen: View {
             if view?.isProducer == true {
                 Button("Grade on the Portal") { router.openPortal("groups/\(rowId)/final-cut", title: "Final Cut") }
                     .buttonStyle(.brandSecondary)
+                    .hiddenInSampleApp()
             }
         }
     }

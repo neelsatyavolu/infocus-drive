@@ -25,7 +25,7 @@ final class SessionStore {
         do {
             let person = try await client.get("api/profile", as: Profile.self)
             if person.sampleOnly == true { // the App Review account: the sample app
-                state = .loaded(.sample(email: person.email ?? ""))
+                state = .loaded(.sample)
                 return
             }
             let platform = try await client.get("api/platform/me", as: PlatformMe.self)

@@ -21,7 +21,7 @@ struct EquipmentScreen: View {
         .brandBackground()
         .navigationTitle("Equipment")
         .toolbar {
-            if model?.canManage == true {
+            if model?.canManage == true && !SampleMode.isOn { // both tools are web pages
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
                         Button("Inventory on the web", systemImage: "shippingbox") {

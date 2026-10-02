@@ -1,18 +1,29 @@
 import SwiftUI
 
-/// Across the top of the App Review sample app, so nobody mistakes it for real class data.
-struct SampleStrip: View {
-    var body: some View {
-        Text("Sample app · fictional data")
-            .font(.lexend(11, .medium))
-            .textCase(.uppercase)
-            .tracking(1.5)
-            .foregroundStyle(Brand.green)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 5)
-            .background(Brand.card)
-            .overlay(alignment: .bottom) { Rectangle().fill(Brand.line).frame(height: 1) }
-            .accessibilityLabel("Sample app with fictional data")
+/// A "SAMPLE" tag in each tab's navigation bar, so nobody mistakes the App Review
+/// sample app for real class data.
+struct SampleTagToolbar: ViewModifier {
+    let isSample: Bool
+
+    func body(content: Content) -> some View {
+        if isSample {
+            content.toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Text("Sample")
+                        .font(.lexend(11, .semibold))
+                        .textCase(.uppercase)
+                        .tracking(1.2)
+                        .foregroundStyle(Brand.green)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Brand.greenTint, in: RoundedRectangle(cornerRadius: 4))
+                        .fixedSize()
+                        .accessibilityLabel("Sample app with fictional data")
+                }
+            }
+        } else {
+            content
+        }
     }
 }
 
@@ -30,5 +41,14 @@ struct SampleNoticeView: View {
             .padding(.horizontal, Brand.gutter)
             .accessibilityAddTraits(.isStaticText)
             .onAppear { UIAccessibility.post(notification: .announcement, argument: text) }
+    }
+}
+
+extension View {
+    /// Leaves out a control that only opens a Portal web page: the sample app has no
+    /// web pages, so it would lead nowhere for the reviewer.
+    @ViewBuilder
+    func hiddenInSampleApp() -> some View {
+        if SampleMode.isOn { EmptyView() } else { self }
     }
 }

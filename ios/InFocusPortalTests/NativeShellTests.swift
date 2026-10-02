@@ -139,7 +139,7 @@ final class SampleAccountTests: XCTestCase {
     }
 
     func testTheSampleAppShowsEveryTabAndTool() {
-        let sample = PortalUser.sample(email: "review@example.edu")
+        let sample = PortalUser.sample
         XCTAssertEqual(AppTab.visible(for: sample), AppTab.allCases)
         XCTAssertTrue(sample.isProducer)
         XCTAssertTrue(sample.doesStudentWork)

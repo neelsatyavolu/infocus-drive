@@ -67,6 +67,7 @@ struct GroupDetailScreen: View {
             ToolbarItem(placement: .primaryAction) {
                 Button { router.openPortal("groups/\(rowId)", title: "Group") } label: { Image(systemName: "safari") }
                     .accessibilityLabel("Open on the Portal")
+                    .hiddenInSampleApp()
             }
         }
         .task { if state.value == nil { await load() } }

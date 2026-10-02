@@ -45,6 +45,7 @@ struct StudentStageScreen: View {
                     Image(systemName: "safari")
                 }
                 .accessibilityLabel("Open on the Portal")
+                .hiddenInSampleApp()
             }
         }
         .task { if state.value == nil { await load() } }

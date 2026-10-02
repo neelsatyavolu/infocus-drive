@@ -47,6 +47,7 @@ struct ExtensionsScreen: View {
                 Button { router.openPortal("extension-requests", title: "Extension requests") } label: {
                     Label("Grant an extension", systemImage: "plus")
                 }
+                .hiddenInSampleApp()
             }
         }
     }

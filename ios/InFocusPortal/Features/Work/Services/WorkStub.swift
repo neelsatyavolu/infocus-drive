@@ -25,11 +25,12 @@ enum WorkStub {
 
     static let abby = PackagePerson(userId: "u-abby", name: "Abby", email: "abby@example.edu")
     static let otto = PackagePerson(userId: "u-otto", name: "Otto", email: "otto@example.edu")
+    static let kai = PackagePerson(userId: "u-kai", name: "Kai", email: "kai@example.edu")
     static let sage = PackagePerson(userId: "u-sage", name: "Sage", email: "sage@example.edu")
 
     static let home = HomePayload(
         upNext: UpNext(cycleNumber: 2, groupTopic: "Club Fair returns to the Quad", finalCutDate: day(9),
-                       producerName: "Otto", memberNames: ["Abby", "Sage"], checkInsDone: 2, checkInsTotal: 4,
+                       producerName: "Sage", memberNames: ["Abby", "Otto"], checkInsDone: 2, checkInsTotal: 4,
                        stages: [
                            DueStage(key: "proofOfContact", label: "Proof of contact", done: true, dueDate: day(-6)),
                            DueStage(key: "aRollBRoll", label: "A-roll/B-roll", done: true, dueDate: day(-1)),
@@ -60,7 +61,14 @@ enum WorkStub {
     static let row = StageRow(id: "row-1", cycleNumber: 2, groupTopic: "Club Fair returns to the Quad", headline: nil, toss: nil,
                               proofOfContact: true, aRollBRoll: true, aRollNeedsChanges: false, initialCut: false, finalCut: false,
                               awaitingRevisedInitialCut: false, initialCutNeedsRevisions: true, queuedForAirAt: nil,
-                              approvalStage: "DRAFT", remainingExecutiveSignoffs: nil, assignedProducer: otto, members: [abby, sage])
+                              approvalStage: "DRAFT", remainingExecutiveSignoffs: nil, assignedProducer: sage, members: [abby, otto])
+
+    /// A group Otto produces (associates never review their own package).
+    static let producedRow = StageRow(id: "g2", cycleNumber: 2, groupTopic: "Robotics team heads to state", headline: nil, toss: nil,
+                                      proofOfContact: true, aRollBRoll: true, aRollNeedsChanges: false, initialCut: false, finalCut: false,
+                                      awaitingRevisedInitialCut: false, initialCutNeedsRevisions: false, queuedForAirAt: nil,
+                                      approvalStage: "ASSOCIATE_REVIEW", remainingExecutiveSignoffs: 2, assignedProducer: otto,
+                                      members: [abby, kai])
 
     /// A producer (`rowId` given) may review; a student may upload.
     static func stage(_ slug: String, producer: Bool) -> StageView {
@@ -71,7 +79,7 @@ enum WorkStub {
                                    awaitingRevisedInitialCut: false, remainingExecutiveSignoffs: 2)
         return StageView(empty: false, slug: slug, isProducer: producer, unlocked: true, canUpload: !producer, canComment: producer,
                          canApproveAroll: producer, allowSecondFinalCut: false,
-                         cutApproval: producer && slug == "initial-cut" ? approval : nil, row: row, media: media)
+                         cutApproval: producer && slug == "initial-cut" ? approval : nil, row: producer ? producedRow : row, media: media)
     }
 
     static func clip(_ id: String, _ title: String, _ roll: String?) -> StageMedia {
@@ -81,24 +89,26 @@ enum WorkStub {
 
     static let comments = [
         StageComment(id: "c1", body: "Tighten the open: start on the interview, then cut to the Quad.", createdAt: now.addingTimeInterval(-7_200),
-                     author: .init(userId: "u-otto", name: "Otto", email: "otto@example.edu")),
+                     author: .init(userId: "u-sage", name: "Sage", email: "sage@example.edu")),
     ]
 
     static let groups = GroupsPayload(
         activeCycleNumber: 2,
         cycles: [1, 2, 3].map { CycleInfo(cycleNumber: $0, focus: nil, dates: .init(pitching: nil, proofOfContact: nil, aRollBRoll: nil, initialCut: nil, finalCut: nil)) },
         rows: [
-            group("g1", "Club Fair returns to the Quad", pitching: true, proof: true, aRoll: true, cut: "ASSOCIATE_REVIEW", producer: sage),
-            group("g2", "Robotics team heads to state", pitching: true, proof: true, aRoll: false, cut: "DRAFT", producer: sage, aRollMedia: true),
+            group("g1", "Club Fair returns to the Quad", pitching: true, proof: true, aRoll: true, cut: "DRAFT", producer: sage,
+                  members: [abby, otto]),
+            group("g2", "Robotics team heads to state", pitching: true, proof: true, aRoll: true, cut: "ASSOCIATE_REVIEW", producer: otto),
             group("g3", "New library hours", pitching: false, proof: false, aRoll: false, cut: "DRAFT", producer: otto),
             group("g4", "Fall concert preview", pitching: true, proof: true, aRoll: true, cut: "APPROVED", producer: otto, queued: true),
         ]
     )
 
     static func group(_ id: String, _ topic: String, pitching: Bool, proof: Bool, aRoll: Bool, cut: String,
-                      producer: PackagePerson, aRollMedia: Bool = false, queued: Bool = false) -> GroupRow {
+                      producer: PackagePerson, members: [PackagePerson] = [abby, kai], aRollMedia: Bool = false,
+                      queued: Bool = false) -> GroupRow {
         GroupRow(id: id, groupTopic: topic, groupType: "News", assignedProducerUserId: producer.userId, assignedProducer: producer,
-                 assignedExecutiveProducerUserId: nil, assignedExecutiveProducer: nil, members: [abby, otto],
+                 assignedExecutiveProducerUserId: nil, assignedExecutiveProducer: nil, members: members,
                  reviewReadyAt: .init(brainstorming: nil, aRoll: now.addingTimeInterval(-3_600 * 5), initialCut: now.addingTimeInterval(-3_600 * 20)),
                  pitching: pitching, proofOfContact: proof, aRollBRoll: aRoll, aRollHasMedia: aRollMedia || aRoll, aRollNeedsChanges: false,
                  initialCutMediaItemId: cut == "DRAFT" ? nil : "cut-\(id)", initialCutVersionNumber: cut == "DRAFT" ? nil : 1,
@@ -110,7 +120,7 @@ enum WorkStub {
     static let brainstorm = BrainstormPayload(activeCycleNumber: 2, packages: [
         BrainstormPackage(id: "row-1", cycleNumber: 2, groupTopic: "Club Fair returns to the Quad",
                           brainstormDocUrl: "https://docs.google.com/document/d/example", proofOfContact: false,
-                          assignedProducer: otto, members: [abby, sage],
+                          assignedProducer: sage, members: [abby, otto],
                           proofs: [ProofView(id: "pr1", slot: 1, fileName: "email.jpg", imageUrl: "/api/brainstorming/proofs/pr1/image")]),
     ])
 }
