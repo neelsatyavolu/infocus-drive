@@ -7,9 +7,9 @@ struct AnnouncementsDestination: View {
     var body: some View {
         switch route {
         case .feed: AnnouncementsView()
-        case .announcement(let id): AnnouncementDetailView(id: id)
-        case .submitted: PortalFallback(path: "announcements/submitted", title: "Submitted")
-        case .pa: PortalFallback(path: "announcements/pa", title: "PA")
+        case .announcement(let id): SlackPostDetailView(id: id)
+        case .submitted: SubmittedView()
+        case .pa: PAEditorView()
         }
     }
 }

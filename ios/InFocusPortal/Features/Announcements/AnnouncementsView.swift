@@ -1,31 +1,20 @@
 import SwiftUI
 
-/// Class announcements, newest first: unread marked, like in place, open for comments.
-/// Producers can post; the public submissions inbox stays on the Portal.
+/// #announcements from Slack, newest first, grouped by day (as `/announcements` shows it).
+/// Posting happens in Slack; producers get Submitted and PA from the toolbar.
 struct AnnouncementsView: View {
     @Environment(\.portalClient) private var client
     @Environment(SessionStore.self) private var session
-    @Environment(Router.self) private var router
     @Environment(BadgeCenter.self) private var badges
-    @State private var composing = false
     private let feed = AnnouncementsStore.shared
+    @State private var unreadAtOpen: Set<String> = []
 
     var body: some View {
         ScrollView {
-            LoadableView(feed.state, retry: { Task { await feed.load(api: api, force: true) } }) { list in
-                if list.isEmpty {
-                    EmptyStateView(title: "No announcements yet", message: "Class announcements from producers show up here.")
-                } else {
-                    LazyVStack(spacing: 12) {
-                        ForEach(list) { item in
-                            NavigationLink(value: Route.announcements(.announcement(id: item.id))) {
-                                AnnouncementCard(announcement: item, lineLimit: 6) {
-                                    Task { await feed.toggleLike(item.id, api: api) }
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                Nameplate(eyebrow: "Slack", title: "Announcements", subtitle: "Posts from #announcements.")
+                LoadableView(feed.state, retry: { Task { await feed.load(api: api, force: true) } }) { channel in
+                    content(channel)
                 }
             }
             .padding(Brand.gutter)
@@ -35,20 +24,42 @@ struct AnnouncementsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .refreshable { await feed.load(api: api, force: true) }
-        .task { await feed.load(api: api) }
-        .onChange(of: feed.unreadCount) { _, count in badges.set(count, for: .calendar) }
-        .sheet(isPresented: $composing) { ComposeAnnouncementView() }
-        .alert("Couldn't do that", isPresented: errorShown) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(feed.actionError ?? "")
+        .task {
+            await feed.load(api: api)
+            unreadAtOpen = Set(feed.posts.filter(feed.isUnread).map(\.id))
+            feed.markAllSeen()
+            badges.set(feed.unreadCount, for: .calendar)
         }
     }
 
-    private var api: CalendarAPI { CalendarAPI.current(client) }
+    private var api: AnnouncementsAPI { AnnouncementsAPI.current(client) }
 
-    private var errorShown: Binding<Bool> {
-        Binding(get: { feed.actionError != nil }, set: { if !$0 { feed.actionError = nil } })
+    @ViewBuilder
+    private func content(_ channel: SlackFeed) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let error = channel.error {
+                MessageBanner(text: error)
+            }
+            if !channel.configured {
+                EmptyStateView(title: "Slack isn't connected", message: "Slack announcements are not connected yet.")
+            } else if channel.items.isEmpty {
+                EmptyStateView(title: "No announcements yet", message: "Posts in #announcements show up here.")
+            } else {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    ForEach(AnnouncementDays.group(channel.items), id: \.label) { day in
+                        Eyebrow(day.label, color: Brand.muted)
+                            .padding(.top, 8)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(day.posts) { post in
+                            NavigationLink(value: Route.announcements(.announcement(id: post.id))) {
+                                SlackPostCard(post: post, unread: unreadAtOpen.contains(post.id), lineLimit: 8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @ToolbarContentBuilder
@@ -56,60 +67,51 @@ struct AnnouncementsView: View {
         if session.user?.isProducer == true {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Button { composing = true } label: { Label("New announcement", systemImage: "square.and.pencil") }
-                    Button {
-                        router.openPortal("announcements/submitted", title: "Submitted")
-                    } label: { Label("Submitted announcements", systemImage: "tray") }
+                    NavigationLink(value: Route.announcements(.submitted)) {
+                        Label("Submitted announcements", systemImage: "tray.full")
+                    }
+                    NavigationLink(value: Route.announcements(.pa)) {
+                        Label("PA script", systemImage: "mic")
+                    }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "ellipsis.circle")
                 }
-                .accessibilityLabel("Announcement options")
+                .accessibilityLabel("Announcement tools")
             }
         }
     }
 }
 
-/// One announcement: author, when, text, mentions, likes and comment count.
-struct AnnouncementCard: View {
-    let announcement: ClassAnnouncement
-    var lineLimit: Int?
-    let onLike: () -> Void
+/// Posts grouped under their day label, in feed order (the Portal sends newest first).
+enum AnnouncementDays {
+    struct Day: Equatable {
+        let label: String
+        var posts: [SlackPost]
+    }
+
+    static func group(_ posts: [SlackPost]) -> [Day] {
+        var days: [Day] = []
+        for post in posts {
+            if days.last?.label == post.dateLabel {
+                days[days.count - 1].posts.append(post)
+            } else {
+                days.append(Day(label: post.dateLabel, posts: [post]))
+            }
+        }
+        return days
+    }
+}
+
+/// A warning-tinted line for a problem the screen can still work around.
+struct MessageBanner: View {
+    let text: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(announcement.author.name).font(.lexend(15, .semibold, relativeTo: .subheadline))
-                Text(announcement.createdAt, format: .relative(presentation: .named))
-                    .font(.small).foregroundStyle(Brand.muted)
-                Spacer()
-                if announcement.unread { StatusTag(text: "New", tone: .success) }
-            }
-            Text(announcement.content)
-                .font(.bodyText)
-                .lineLimit(lineLimit)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            if !announcement.mentions.isEmpty {
-                Text("With " + announcement.mentions.map(\.name).joined(separator: ", "))
-                    .font(.small).foregroundStyle(Brand.green)
-            }
-            HStack(spacing: 20) {
-                Button(action: onLike) {
-                    Label("\(announcement.likeCount)", systemImage: announcement.likedByMe ? "hand.thumbsup.fill" : "hand.thumbsup")
-                        .frame(minHeight: 44)
-                }
-                .foregroundStyle(announcement.likedByMe ? Brand.green : Brand.secondary)
-                .accessibilityLabel(announcement.likedByMe ? "Liked, \(announcement.likeCount) likes" : "Like, \(announcement.likeCount) likes")
-                Label("\(announcement.comments.count)", systemImage: "bubble.left")
-                    .foregroundStyle(Brand.secondary)
-                    .accessibilityLabel("\(announcement.comments.count) comments")
-                Spacer()
-            }
-            .font(.mono(14))
-            .buttonStyle(.plain)
-        }
-        .card()
-        .overlay(alignment: .leading) {
-            if announcement.unread { Rectangle().fill(Brand.fill).frame(width: 4) }
-        }
+        Label(text, systemImage: "exclamationmark.triangle")
+            .font(.small)
+            .foregroundStyle(Brand.warning)
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Brand.warningTint, in: RoundedRectangle(cornerRadius: Brand.radius))
     }
 }
