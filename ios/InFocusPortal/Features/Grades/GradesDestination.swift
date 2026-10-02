@@ -7,7 +7,8 @@ struct GradesDestination: View {
     var body: some View {
         switch route {
         case .grades: GradesScreen()
-        case .extensions, .extensionRequest: ExtensionsScreen()
+        case .extensions: ExtensionsScreen()
+        case .extensionRequest(let id): ExtensionRequestScreen(id: id)
         }
     }
 }
