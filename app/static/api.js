@@ -282,6 +282,17 @@ export const UPLOAD_CHUNK_STREAMS = 8;
 /** Files at or above this size use chunked multi-stream upload. */
 export const UPLOAD_CHUNK_THRESHOLD = 8 * 1024 * 1024;
 
+/**
+ * Chunk size for one file: at least UPLOAD_CHUNK_STREAMS pieces (whole MiB,
+ * 1–32 MiB, the server's limits), so a 20 MB file uses every stream instead
+ * of going up as one 32 MiB chunk on a single connection.
+ */
+export function uploadChunkSize(size) {
+  const mib = 1024 * 1024;
+  const per = Math.ceil(Math.max(1, size) / UPLOAD_CHUNK_STREAMS);
+  return Math.min(UPLOAD_CHUNK_SIZE, Math.max(mib, Math.ceil(per / mib) * mib));
+}
+
 /** Large file downloads use parallel Range GETs (same idea as upload streams). */
 export const DOWNLOAD_RANGE_THRESHOLD = 8 * 1024 * 1024;
 export const DOWNLOAD_RANGE_STREAMS = 8;
@@ -745,7 +756,7 @@ export function uploadFileChunked(path, file, onProgress) {
   let uploadId = null;
 
   const promise = (async () => {
-    const chunkSize = UPLOAD_CHUNK_SIZE;
+    const chunkSize = uploadChunkSize(file.size);
     let session = null;
     const existing = loadResumeId(path, file);
 

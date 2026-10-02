@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20260929-windows";
-import * as api from "./api.js?v=20260929-windows";
-import { ApiError } from "./api.js?v=20260929-windows";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261001-uploads";
+import * as api from "./api.js?v=20261001-uploads";
+import { ApiError } from "./api.js?v=20261001-uploads";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20260929-windows";
-import { $, el, icon, show } from "./dom.js?v=20260929-windows";
+} from "./format.js?v=20261001-uploads";
+import { $, el, icon, show } from "./dom.js?v=20261001-uploads";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20260929-windows";
+} from "./quick.js?v=20261001-uploads";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2387,7 +2387,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20260929-windows").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261001-uploads").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,

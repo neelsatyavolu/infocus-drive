@@ -1,6 +1,6 @@
-import { el } from "./dom.js?v=20260929-windows";
-import { marked } from "./vendor/marked.js?v=20260929-windows";
-import DOMPurify from "./vendor/dompurify.js?v=20260929-windows";
+import { el } from "./dom.js?v=20261001-uploads";
+import { marked } from "./vendor/marked.js?v=20261001-uploads";
+import DOMPurify from "./vendor/dompurify.js?v=20261001-uploads";
 
 export function isMarkdown(name) {
   return /\.(md|markdown)$/i.test(name);
