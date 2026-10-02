@@ -1066,22 +1066,7 @@ def write_upload_stream(
             )
 
         with as_user(uid, gid), _translate_os_errors():
-            _check_expected_mtime(dest, expect_mtime_ns)
-            if expect_mtime_ns == -1:
-                # Create-only: link() fails atomically if a file appeared since the check.
-                try:
-                    os.link(tmp, dest)
-                except FileExistsError as e:
-                    raise FSError("A file with that name already exists", 409) from e
-                os.unlink(tmp)
-            else:
-                # Atomic replace: overwrites existing file without delete-first.
-                os.replace(tmp, dest)
-            try:
-                os.chown(dest, uid, gid)
-            except OSError:
-                pass
-            return _entry(dest, drive_root())
+            return _place_upload(tmp, dest, uid, gid, expect_mtime_ns)
     except Exception:
         if out is not None:
             try:
@@ -1103,6 +1088,54 @@ def write_upload_stream(
         except OSError:
             pass
         raise
+
+
+def _place_upload(tmp: Path, dest: Path, uid: int, gid: int, expect_mtime_ns: int | None) -> dict[str, Any]:
+    """Move a finished upload into place. Caller holds as_user(uid, gid)."""
+    _check_expected_mtime(dest, expect_mtime_ns)
+    if expect_mtime_ns == -1:
+        # Create-only: link() fails atomically if a file appeared since the check.
+        try:
+            os.link(tmp, dest)
+        except FileExistsError as e:
+            raise FSError("A file with that name already exists", 409) from e
+        os.unlink(tmp)
+    else:
+        # Atomic replace: overwrites existing file without delete-first.
+        os.replace(tmp, dest)
+    try:
+        os.chown(dest, uid, gid)
+    except OSError:
+        pass
+    return _entry(dest, drive_root())
+
+
+def finalize_partial(
+    tmp: Path,
+    rel_dir: str,
+    filename: str,
+    uid: int,
+    gid: int,
+    *,
+    expected_bytes: int,
+    expect_mtime_ns: int | None = None,
+) -> dict[str, Any]:
+    """Move a partial file that chunked-upload pieces were written into
+    (chunk_upload) into place, once it holds exactly ``expected_bytes``."""
+    filename = Path(filename).name
+    if not filename or filename in (".", ".."):
+        raise FSError("Invalid filename")
+    rel_dir = (rel_dir or "").strip().lstrip("/")
+    dest = resolve_rel(str(Path(rel_dir) / filename) if rel_dir else filename)
+    if tmp.parent != dest.parent or not tmp.name.endswith(".partial"):
+        raise FSError("The upload's folder moved — upload again", 409)
+    with as_user(uid, gid), _translate_os_errors():
+        if dest.exists() and dest.is_dir():
+            raise FSError("Cannot overwrite directory")
+        got = os.stat(tmp).st_size
+        if got != expected_bytes:
+            raise FSError(f"Incomplete upload (got {got}, expected {expected_bytes})", 400)
+        return _place_upload(tmp, dest, uid, gid, expect_mtime_ns)
 
 
 def _encrypted_home_mount(root: Path) -> bool:

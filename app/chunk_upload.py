@@ -1,8 +1,12 @@
 """Chunked / resumable upload sessions for multi-stream transfers through the tunnel.
 
-Sessions live under the process temp dir (not the share listing). Chunks are
-written as separate files so the client can PUT them in parallel and resume
-after a drop by re-querying which indices exist.
+Sessions live under the process temp dir (not the share listing). When the
+caller passes the destination folder, chunks are written straight into the
+hidden ``.<name>.<hex>.partial`` file there (at their offsets, as the user), so
+completing is a size check and a rename; otherwise (legacy) each chunk is a
+file here and completing copies them into place. Either way an empty marker
+per received chunk lets the client PUT in parallel and resume after a drop by
+re-querying which indices exist.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterator
 
-from fsops import FSError, as_root, write_upload_stream
+from fsops import FSError, _translate_os_errors, as_root, as_user, finalize_partial, write_upload_stream
 
 CHUNK_SIZE_DEFAULT = 32 * 1024 * 1024  # 32 MiB
 CHUNK_SIZE_MIN = 1 * 1024 * 1024
@@ -79,6 +83,8 @@ def cleanup_expired() -> int:
                 meta = _load_meta_from_disk(child.name)
                 created = float(meta.get("created", 0)) if meta else 0
                 if not meta or now - created > SESSION_TTL_SEC:
+                    if meta:
+                        _remove_partial(meta)
                     shutil.rmtree(child, ignore_errors=True)
                     _sessions.pop(child.name, None)
                     removed += 1
@@ -110,7 +116,10 @@ def create_session(
     filename: str,
     size: int,
     chunk_size: int | None = None,
+    dest_dir: Path | None = None,
 ) -> dict[str, Any]:
+    """Start a session. ``dest_dir``: the resolved destination folder (share
+    root pinned by the caller) to write chunks into directly."""
     cleanup_expired()
     filename = _safe_filename(filename)
     max_bytes = package_upload_max_bytes(rel_dir)
@@ -137,6 +146,11 @@ def create_session(
         "total_chunks": int(total_chunks),
         "created": _now(),
     }
+    if dest_dir is not None:
+        partial = Path(dest_dir) / f".{filename}.{secrets.token_hex(8)}.partial"
+        with as_user(int(uid), int(gid), username or None), _translate_os_errors():
+            os.close(os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666))
+        meta["partial"] = str(partial)
     try:
         with as_root():
             SESSION_ROOT.mkdir(parents=True, exist_ok=True)
@@ -146,6 +160,7 @@ def create_session(
             tmp.write_text(json.dumps(meta), encoding="utf-8")
             os.replace(tmp, path)
     except OSError as e:
+        _remove_partial(meta)
         raise FSError("Could not start upload session — retry", 503) from e
     with _lock:
         _sessions[upload_id] = meta
@@ -241,6 +256,9 @@ def write_chunk(
         if want <= 0:
             want = size if total == 1 else cs
 
+    if meta.get("partial"):
+        return _write_chunk_in_place(meta, index, chunks, want, expected_size)
+
     dest = _chunk_path(upload_id, index)
     # Unique temp per attempt so a retry cannot interleave with an in-flight write.
     tmp = _session_dir(upload_id) / f"c{index:06d}.{secrets.token_hex(8)}.part"
@@ -286,6 +304,60 @@ def write_chunk(
     return {"index": index, "received": written, "ok": True}
 
 
+def _write_chunk_in_place(
+    meta: dict[str, Any], index: int, chunks: Iterator[bytes], want: int, expected_size: int | None
+) -> dict[str, Any]:
+    """Write one chunk at its offset in the partial file, then mark it received.
+
+    The fd is opened as the user and stays valid after euid is restored, so the
+    network-paced body pump doesn't hold the credential lock. A retry rewrites
+    the same range; the marker only appears once the whole chunk is written.
+    """
+    upload_id = meta["upload_id"]
+    offset = index * int(meta["chunk_size"])
+    with as_user(int(meta["uid"]), int(meta["gid"]), meta.get("username") or None), _translate_os_errors():
+        fd = os.open(meta["partial"], os.O_WRONLY)
+    written = 0
+    try:
+        for piece in chunks:
+            if not piece:
+                continue
+            if written + len(piece) > want:
+                raise FSError("Chunk larger than expected", 413)
+            view = memoryview(piece)
+            while view:
+                n = os.pwrite(fd, view, offset + written)
+                written += n
+                view = view[n:]
+    except OSError as e:
+        raise FSError("Could not write the upload — retry", 503) from e
+    finally:
+        os.close(fd)
+    if expected_size is not None and written != expected_size:
+        raise FSError("Chunk size mismatch", 400)
+    if written != want:
+        raise FSError(f"Incomplete chunk (got {written}, expected {want})", 400)
+    with as_root():
+        _chunk_path(upload_id, index).touch()
+    return {"index": index, "received": written, "ok": True}
+
+
+def _remove_partial(meta: dict[str, Any]) -> None:
+    """Delete a session's partial file, if it has one left."""
+    partial = meta.get("partial")
+    if not partial:
+        return
+    try:
+        with as_user(int(meta["uid"]), int(meta["gid"]), meta.get("username") or None):
+            Path(partial).unlink(missing_ok=True)
+    except (FSError, OSError):
+        try:
+            with as_root():
+                Path(partial).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def complete_session(
     upload_id: str, *, username: str, uid: int, expect_mtime_ns: int | None = None
 ) -> dict[str, Any]:
@@ -295,6 +367,19 @@ def complete_session(
     missing = [i for i in range(total) if i not in got]
     if missing:
         raise FSError(f"Missing chunks: {missing[:12]}{'…' if len(missing) > 12 else ''}", 400)
+
+    if meta.get("partial"):
+        result = finalize_partial(
+            Path(meta["partial"]),
+            meta["path"],
+            meta["name"],
+            int(meta["uid"]),
+            int(meta["gid"]),
+            expected_bytes=int(meta["size"]),
+            expect_mtime_ns=expect_mtime_ns,
+        )
+        abort_session(upload_id, username=username, uid=uid, force=True)
+        return result
 
     def iter_all() -> Iterator[bytes]:
         for i in range(total):
@@ -328,8 +413,10 @@ def abort_session(
     uid: int,
     force: bool = False,
 ) -> dict[str, Any]:
-    if not force:
-        get_session(upload_id, username=username, uid=uid)
+    meta = get_session(upload_id, username=username, uid=uid) if not force else (
+        _sessions.get(upload_id) or _load_meta_from_disk(upload_id))
+    if meta:
+        _remove_partial(meta)  # gone already after a successful complete
     with _lock:
         _sessions.pop(upload_id, None)
     d = _session_dir(upload_id)

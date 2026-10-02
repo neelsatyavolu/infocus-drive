@@ -1664,16 +1664,19 @@ def api_upload_init(
                 parent = resolve_rel(rel)
                 if not parent.is_dir():
                     raise FSError("Parent not found", 404)
-        return create_session(
-            username=str(user.get("username") or ""),
-            uid=int(user["uid"]),
-            gid=int(user["gid"]),
-            share=share,
-            rel_dir=path or "",
-            filename=name,
-            size=int(size),
-            chunk_size=int(chunk_size),
-        )
+            # Chunks go straight into the destination folder, so completing
+            # is a rename rather than another copy of every byte.
+            return create_session(
+                username=str(user.get("username") or ""),
+                uid=int(user["uid"]),
+                gid=int(user["gid"]),
+                share=share,
+                rel_dir=path or "",
+                filename=name,
+                size=int(size),
+                chunk_size=int(chunk_size),
+                dest_dir=parent,
+            )
     except FSError as e:
         raise _fs_http(e) from e
 
