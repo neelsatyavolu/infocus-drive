@@ -1,10 +1,10 @@
 /**
- * Public shared-file page. No Drive chrome, no session.
+ * Public shared file / folder page. No Drive chrome, no session.
  */
-import { el, icon } from "./dom.js?v=20261001-uploads";
-import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20261001-uploads";
-import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20261001-uploads";
-import { createMediaPlayer } from "./player.js?v=20261001-uploads";
+import { el, icon } from "./dom.js?v=20261002-foldershare";
+import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20261002-foldershare";
+import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20261002-foldershare";
+import { createMediaPlayer } from "./player.js?v=20261002-foldershare";
 
 const THEME_KEY = "ifd-theme";
 const TEXT_LIMIT_BYTES = 1_500_000;
@@ -12,8 +12,13 @@ const TEXT_LIMIT_BYTES = 1_500_000;
 const ERROR_COPY = {
   invalid: "This link isn’t valid.",
   expired: "This link expired.",
-  unavailable: "This file is no longer available.",
+  unavailable: "This file or folder is no longer available.",
 };
+
+/** The one media player on screen, torn down when the view changes. */
+let activePlayer = null;
+/** Latest navigation; older fetches that land late are dropped. */
+let showSeq = 0;
 
 function tokenFromPath() {
   const raw = location.pathname.replace(/^\/s\//, "").replace(/\/+$/, "");
@@ -64,13 +69,30 @@ function formatExpiry(iso) {
   });
 }
 
-function fileUrls(token) {
+/** `path` is the item inside a folder link ("" for the link itself). */
+function fileUrls(token, path = "") {
   const base = `/api/s/${encodeURIComponent(token)}`;
+  const q = path ? `?path=${encodeURIComponent(path)}` : "";
   return {
-    meta: base,
-    inline: `${base}/file?inline=1`,
-    download: `${base}/file`,
+    meta: `${base}${q}`,
+    inline: `${base}/file${q}${q ? "&" : "?"}inline=1`,
+    download: `${base}/file${q}`,
+    zip: `${base}/zip${q}`,
   };
+}
+
+/** Position inside a folder link lives in the #fragment, so it never reaches server logs. */
+function currentPath() {
+  try {
+    return decodeURIComponent(location.hash.slice(1));
+  } catch {
+    return "";
+  }
+}
+
+function pageUrl(path) {
+  const hash = path ? `#${path.split("/").map(encodeURIComponent).join("/")}` : "";
+  return `${location.pathname}${hash}`;
 }
 
 function mount(node) {
@@ -132,6 +154,7 @@ function renderPreview(item, inlineUrl, downloadUrl) {
       },
     });
     stage.append(player.node);
+    activePlayer = player;
     void player.start();
     return stage;
   }
@@ -155,6 +178,7 @@ function renderPreview(item, inlineUrl, downloadUrl) {
         player.node,
       ]),
     );
+    activePlayer = player;
     void player.start();
     return stage;
   }
@@ -202,13 +226,93 @@ function renderPreview(item, inlineUrl, downloadUrl) {
   return null;
 }
 
-function fileCard(data, urls) {
+/** Folder › sub › item trail inside a folder link; null at the link's top level. */
+function crumbs(data, go) {
+  const parts = (data.path || "").split("/").filter(Boolean);
+  if (!parts.length) return null;
+  const trail = [{ label: data.folder || "Shared folder", path: "" }];
+  parts.forEach((part, i) => trail.push({ label: part, path: parts.slice(0, i + 1).join("/") }));
+  const nodes = [];
+  trail.forEach((crumb, i) => {
+    if (i) nodes.push(el("span", { class: "share__crumb-sep", "aria-hidden": "true" }, [icon("#i-chev-r", 12)]));
+    nodes.push(
+      i === trail.length - 1
+        ? el("span", { class: "share__crumb", "aria-current": "page", text: displayName(crumb.label) })
+        : el("a", {
+            class: "share__crumb",
+            href: pageUrl(crumb.path),
+            text: displayName(crumb.label),
+            onclick: (event) => go(event, crumb.path),
+          }),
+    );
+  });
+  return el("nav", { class: "share__crumbs", "aria-label": "Folder" }, nodes);
+}
+
+function folderCard(data, token, go) {
+  const expiry = formatExpiry(data.expires_at);
+  const count = data.items.length;
+  const rows = data.items.map((item) => {
+    const kindMeta = describeKind(item);
+    return el("li", { class: "share__item" }, [
+      el(
+        "a",
+        { class: "share__row", href: pageUrl(item.path), onclick: (event) => go(event, item.path) },
+        [
+          el("span", { class: "share__row-icon", style: `color:${kindMeta.color}` }, [icon(kindMeta.icon, 18)]),
+          el("span", { class: "share__row-name", text: displayName(item.name) }),
+          el("span", { class: "share__row-meta", text: item.is_dir ? "" : formatSize(item.size) }),
+        ],
+      ),
+      item.is_dir
+        ? null
+        : el(
+            "a",
+            {
+              class: "icon-btn share__row-dl",
+              href: fileUrls(token, item.path).download,
+              "aria-label": `Download ${displayName(item.name)}`,
+              title: "Download",
+            },
+            [icon("#i-download", 15)],
+          ),
+    ]);
+  });
+
+  return el("div", { class: "share__card" }, [
+    crumbs(data, go),
+    el("div", { class: "share__head" }, [
+      el("div", { class: "share__kind", style: `color:${describeKind({ is_dir: true, name: data.name }).color}` }, [
+        icon("#i-folder", 22),
+      ]),
+      el("div", { class: "share__head-text" }, [
+        el("h1", { class: "share__title", text: displayName(data.name) }),
+        el("p", {
+          class: "share__meta",
+          text: [`${count} item${count === 1 ? "" : "s"}`, expiry ? `Expires ${expiry}` : ""].filter(Boolean).join(" · "),
+        }),
+      ]),
+    ]),
+    count
+      ? el("ul", { class: "share__list" }, rows)
+      : el("p", { class: "share__preview-fail", text: "This folder is empty." }),
+    count
+      ? el("a", { class: "btn btn--primary btn--modal share__download", href: fileUrls(token, data.path).zip }, [
+          icon("#i-download", 16),
+          "Download folder",
+        ])
+      : null,
+  ]);
+}
+
+function fileCard(data, urls, go) {
   const item = { name: data.name, size: data.size, is_dir: false };
   const kindMeta = describeKind(item);
   const expiry = formatExpiry(data.expires_at);
   const preview = data.previewable ? renderPreview({ ...item, kind: data.kind }, urls.inline, urls.download) : null;
 
   return el("div", { class: "share__card" }, [
+    crumbs(data, go),
     el("div", { class: "share__head" }, [
       el("div", { class: "share__kind", style: `color:${kindMeta.color}` }, [icon(kindMeta.icon, 22)]),
       el("div", { class: "share__head-text" }, [
@@ -244,7 +348,21 @@ async function boot() {
     mount(errorCard("invalid"));
     return;
   }
-  const urls = fileUrls(token);
+  // Inside a folder link, rows and crumbs navigate in place (#sub/path) so Back works.
+  const go = (event, path) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    history.pushState(null, "", pageUrl(path));
+    window.scrollTo(0, 0);
+    void show(token, path, go);
+  };
+  window.addEventListener("popstate", () => void show(token, currentPath(), go));
+  await show(token, currentPath(), go);
+}
+
+async function show(token, path, go) {
+  const seq = ++showSeq;
+  const urls = fileUrls(token, path);
   try {
     const res = await fetch(urls.meta, { credentials: "same-origin", cache: "no-store" });
     let data = {};
@@ -253,14 +371,18 @@ async function boot() {
     } catch {
       data = {};
     }
+    if (seq !== showSeq) return;
+    activePlayer?.destroy();
+    activePlayer = null;
     if (!res.ok) {
+      document.title = "Shared · InFocus Drive";
       mount(errorCard(data.error || "invalid", data));
       return;
     }
     document.title = `${displayName(data.name)} · InFocus Drive`;
-    mount(fileCard(data, urls));
+    mount(data.is_dir ? folderCard(data, token, go) : fileCard(data, urls, go));
   } catch {
-    mount(errorCard("unavailable"));
+    if (seq === showSeq) mount(errorCard("unavailable"));
   }
 }
 

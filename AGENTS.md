@@ -108,10 +108,11 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | PUT | `/api/upload/chunk?upload_id=&index=` | Raw body ≤32 MiB piece |
 | GET | `/api/upload/status` | Resume: which chunks received |
 | POST | `/api/upload/complete` `/api/upload/abort` | Assemble or discard session |
-| POST | `/api/file-link` | Mint public file URL (`path`, `days` 1–30, default 7). Not `POST /api/share` (NAS switcher). |
+| POST | `/api/file-link` | Mint public file or folder URL (`path`, `days` 1–30, default 7). Not `POST /api/share` (NAS switcher). |
 | GET | `/s/{token}` | Public share page (no login) |
-| GET | `/api/s/{token}` | Public file metadata |
-| GET | `/api/s/{token}/file?inline=` | Public download / preview stream |
+| GET | `/api/s/{token}?path=` | Public file metadata, or folder listing (`path` = item inside a folder link; never leaves the folder) |
+| GET | `/api/s/{token}/file?path=&inline=` | Public download / preview stream |
+| GET | `/api/s/{token}/zip?path=` | Folder link: STORE zip of the folder or a subfolder |
 | GET | `/api/download?path=&inline=` | `inline=1` for preview |
 | GET | `/api/download/zip?path=&path=` | STORE zip stream (files + folders; folders expanded) |
 | GET | `/api/speedtest/download?size=` | Synthetic zeros, max 512MiB |

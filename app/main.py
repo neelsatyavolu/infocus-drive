@@ -45,6 +45,7 @@ from file_links import (
     MAX_DAYS,
     MIN_DAYS,
     LinkError,
+    is_folder as is_folder_link,
     iso_utc,
     mint as mint_file_link,
     preview_kind,
@@ -52,6 +53,7 @@ from file_links import (
     verify as verify_file_link,
 )
 from fsops import (
+    RECYCLE_NAME,
     FSError,
     as_user,
     collect_zip_entries,
@@ -68,6 +70,7 @@ from fsops import (
     open_for_download,
     rename,
     resolve_rel,
+    resolve_within,
     search,
     use_share_root,
     upload_fingerprint,
@@ -2025,6 +2028,10 @@ def api_download_zip(
         zip_name = f"{Path(entries[0][0]).name}.zip"
     else:
         zip_name = f"InFocus-Drive-{len(paths)}-items.zip"
+    return _zip_response(entries, zip_name)
+
+
+def _zip_response(entries: list[tuple[str, Path]], zip_name: str) -> StreamingResponse:
     # Content-Disposition with RFC 5987 filename*
     cd = f"attachment; filename=\"{zip_name}\"; filename*=UTF-8''{quote(zip_name)}"
 
@@ -2067,24 +2074,71 @@ def _file_link_error(err: LinkError) -> JSONResponse:
     return JSONResponse(status_code=404, content=body)
 
 
-def _open_file_link(token: str) -> tuple[dict[str, Any], Path, str]:
+def _link_target(token: str, sub: str = "") -> tuple[dict[str, Any], Path, str, str]:
+    """Verify a link → (payload, share root, target path under that root, sub path).
+
+    A file link takes no sub path; a folder link's sub path never leaves the folder.
+    """
     payload = verify_file_link(token)
+    folder = is_folder_link(payload)
+    if (sub or "").strip("/ ") and not folder:
+        raise LinkError("unavailable", payload)
     try:
-        root = share_path(str(payload["share"]))
-        with use_share_root(root):
-            file_path, name = open_for_download(
-                str(payload["path"]),
-                int(payload["uid"]),
-                int(payload["gid"]),
-            )
+        with use_share_root(share_path(str(payload["share"]))) as root:
+            if folder:
+                target, sub = resolve_within(str(payload["path"]), sub)
+            else:
+                target, sub = resolve_rel(str(payload["path"])), ""
+            rel = target.relative_to(root).as_posix()
     except (FSError, TypeError, ValueError) as e:
         raise LinkError("unavailable", payload) from e
-    return payload, file_path, name
+    return payload, root, rel, sub
+
+
+def _link_file(payload: dict[str, Any], root: Path, rel: str) -> tuple[Path, str]:
+    try:
+        with use_share_root(root):
+            return open_for_download(rel, int(payload["uid"]), int(payload["gid"]))
+    except (FSError, TypeError, ValueError) as e:
+        raise LinkError("unavailable", payload) from e
+
+
+def _link_listing(payload: dict[str, Any], root: Path, rel: str, sub: str) -> dict[str, Any] | None:
+    """Public listing of a folder link's directory; None when `rel` is a file."""
+    uid, gid = int(payload["uid"]), int(payload["gid"])
+    try:
+        with use_share_root(root):
+            with as_user(uid, gid):
+                if not resolve_rel(rel).is_dir():
+                    return None
+            listing = list_dir(rel, uid, gid)
+    except FSError as e:
+        raise LinkError("unavailable", payload) from e
+    items = [
+        {
+            "name": item["name"],
+            "path": f"{sub}/{item['name']}" if sub else item["name"],
+            "is_dir": item["is_dir"],
+            "size": item["size"],
+            "mtime": item["mtime"],
+        }
+        for item in listing["items"]
+        if not item["is_link"] and item["name"] != RECYCLE_NAME
+    ]
+    return {
+        "is_dir": True,
+        "name": Path(rel).name,
+        "folder": payload.get("name"),
+        "path": sub,
+        "items": items,
+        "expires_at": iso_utc(payload["exp"]),
+        "error": None,
+    }
 
 
 @app.post("/api/file-link")
 async def api_mint_file_link(request: Request) -> dict[str, Any]:
-    """Mint a public, expiring download link for a single file the user can read."""
+    """Mint a public, expiring link for a file or folder the user can read."""
     user = _require_user(request)
     share = _active_share(request, user)
     try:
@@ -2101,36 +2155,51 @@ async def api_mint_file_link(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="days must be 1–30") from e
     if days < MIN_DAYS or days > MAX_DAYS:
         raise HTTPException(status_code=400, detail="days must be 1–30")
+    uid, gid = int(user["uid"]), int(user["gid"])
     try:
-        with use_share_root(share_path(share)):
+        with use_share_root(share_path(share)) as root:
             target = resolve_rel(rel)
-            with as_user(int(user["uid"]), int(user["gid"])):
-                if target.is_dir():
-                    raise FSError("Folders can't be shared", 400)
-            _file_path, name = open_for_download(rel, int(user["uid"]), int(user["gid"]))
+            with as_user(uid, gid):
+                is_dir = target.is_dir()
+            if is_dir:
+                canonical = target.relative_to(root)
+                if not canonical.parts or canonical.parts[0] == RECYCLE_NAME:
+                    raise FSError("This folder can't be shared", 400)
+                list_dir(rel, uid, gid)  # the sharer must be able to open it
+                # Store the resolved path so a symlink swapped in later can't redirect the link.
+                rel, name = canonical.as_posix(), target.name
+            else:
+                _file_path, name = open_for_download(rel, uid, gid)
     except FSError as e:
         raise _fs_http(e) from e
     token = mint_file_link(
         share=share,
         path=rel,
         days=days,
-        uid=int(user["uid"]),
-        gid=int(user["gid"]),
+        uid=uid,
+        gid=gid,
         name=name,
+        is_dir=is_dir,
     )
     payload = verify_file_link(token)
     return {"url": file_link_public_url(token), "expires_at": iso_utc(payload["exp"])}
 
 
 @app.get("/api/s/{token}", response_model=None)
-def api_file_link_meta(token: str):
+def api_file_link_meta(token: str, path: str = Query("", description="Item inside a folder link")):
     try:
-        payload, file_path, name = _open_file_link(token)
+        payload, root, rel, sub = _link_target(token, path)
+        if is_folder_link(payload):
+            listing = _link_listing(payload, root, rel, sub)
+            if listing is not None:
+                return listing
+        file_path, name = _link_file(payload, root, rel)
     except LinkError as e:
         return _file_link_error(e)
     stat = file_path.stat()
     kind = preview_kind(name)
-    return {
+    meta = {
+        "is_dir": False,
         "name": name,
         "size": stat.st_size,
         "mtime": iso_utc(stat.st_mtime),
@@ -2139,18 +2208,45 @@ def api_file_link_meta(token: str):
         "expires_at": iso_utc(payload["exp"]),
         "error": None,
     }
+    if is_folder_link(payload):
+        meta.update(folder=payload.get("name"), path=sub)
+    return meta
 
 
 @app.get("/api/s/{token}/file", response_model=None)
 def api_file_link_file(
     token: str,
+    path: str = Query("", description="File inside a folder link"),
     inline: bool = Query(False, description="Serve for in-browser preview when true"),
 ):
     try:
-        _payload, file_path, name = _open_file_link(token)
+        payload, root, rel, _sub = _link_target(token, path)
+        file_path, name = _link_file(payload, root, rel)
     except LinkError as e:
         return _file_link_error(e)
     return _user_file_response(file_path, name, inline)
+
+
+@app.get("/api/s/{token}/zip", response_model=None)
+def api_folder_link_zip(token: str, path: str = Query("", description="Subfolder inside a folder link")):
+    try:
+        payload, root, rel, _sub = _link_target(token, path)
+        if not is_folder_link(payload):
+            raise LinkError("unavailable", payload)
+    except LinkError as e:
+        return _file_link_error(e)
+    try:
+        with use_share_root(root):
+            entries = collect_zip_entries(
+                [rel],
+                int(payload["uid"]),
+                int(payload["gid"]),
+                max_files=_ZIP_MAX_FILES,
+                max_total=_ZIP_MAX_TOTAL,
+            )
+    except FSError as e:
+        raise _fs_http(e) from e
+    return _zip_response(entries, f"{Path(rel).name}.zip")
 
 
 @app.get("/s/{token}")

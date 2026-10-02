@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261001-uploads";
-import * as api from "./api.js?v=20261001-uploads";
-import { ApiError } from "./api.js?v=20261001-uploads";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261002-foldershare";
+import * as api from "./api.js?v=20261002-foldershare";
+import { ApiError } from "./api.js?v=20261002-foldershare";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261001-uploads";
-import { $, el, icon, show } from "./dom.js?v=20261001-uploads";
+} from "./format.js?v=20261002-foldershare";
+import { $, el, icon, show } from "./dom.js?v=20261002-foldershare";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261001-uploads";
+} from "./quick.js?v=20261002-foldershare";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2076,6 +2076,9 @@ function buildRowMenu(item) {
         symbol: "#i-download",
         run: () => downloadItems([item]),
       });
+      if (!isRecycleRoot(item.path) && !isUnderRecycle(item.path)) {
+        entries.push({ label: "Share…", symbol: "#i-share", run: () => openShareModal(item) });
+      }
     } else {
       if (previewKind(item)) {
         entries.push({ label: "Preview", symbol: "#i-ext", run: () => openPreview(item) });
@@ -2387,7 +2390,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261001-uploads").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261002-foldershare").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -2868,7 +2871,7 @@ function openNewFolderModal() {
 }
 
 function openShareModal(item) {
-  if (!item || item.is_dir) return;
+  if (!item) return;
 
   let days = 7;
   const PRESETS = [1, 7, 14, 30];
@@ -2954,11 +2957,16 @@ function openShareModal(item) {
     el("div", { class: "modal__lead" }, [
       el("div", { class: "modal__badge", style: `color:${kind.color}` }, [icon("#i-share", 17)]),
       el("div", {}, [
-        el("h3", { text: "Share file" }),
+        el("h3", { text: item.is_dir ? "Share folder" : "Share file" }),
         el("p", { class: "modal__hint", text: displayName(item.name) }),
       ]),
     ]),
-    el("p", { class: "modal__hint", text: "Anyone with the link can view and download — no Drive account needed. Copy it now; we don’t keep a list." }),
+    el("p", {
+      class: "modal__hint",
+      text: item.is_dir
+        ? "Anyone with the link can browse and download everything in this folder, including files added later — no Drive account needed. Copy it now; we don’t keep a list."
+        : "Anyone with the link can view and download — no Drive account needed. Copy it now; we don’t keep a list.",
+    }),
     el("label", { class: "share-days__label", text: "Expires in" }),
     el("div", { class: "share-days__row" }, [chips, daysInput]),
     urlField,

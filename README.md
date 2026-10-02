@@ -12,7 +12,7 @@ It was built for InFocus, a student news program. It runs in production on the p
 - **File manager:** list/grid views, a nested resizable sidebar tree, drag-and-drop move, rename, mkdir, delete to `#recycle`, zip-streamed folder downloads, and search.
 - **Big uploads:** resumable chunked uploads through Cloudflare Tunnel. Uploading a folder that already exists offers Replace or Merge, and Merge skips unchanged files by content fingerprint.
 - **Previews:** images, video/audio (range requests), PDF, text, and Markdown (sanitized preview / raw). Video thumbnails come from ffmpeg.
-- **Expiring share links:** signed public links for single files, with inline preview.
+- **Expiring share links:** signed public links for a file or a whole folder (browse, preview, download one file or the folder as ZIP).
 - **Personal folders:** UGOS encrypted home folders, unlocked in the browser.
 - **LAN fast path:** on campus, the UI hands the session off to the NAS's LAN address to skip the tunnel hop.
 - **UGOS single sign-on:** Google sign-in carried into the UGOS admin portal through a narrowly scoped PAM bridge (one-use, 30-second, browser-bound credentials; see [docs/UGOS-GOOGLE-LOGIN.md](docs/UGOS-GOOGLE-LOGIN.md)).

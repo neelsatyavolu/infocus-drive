@@ -169,8 +169,7 @@ def test_mint_and_public_get_without_session(client, drive_root):
     assert "noindex" in page.text
 
 
-def test_mint_rejects_directory_and_bad_days(client):
-    assert client.post("/api/file-link", json={"path": "Camp", "days": 7}).status_code == 400
+def test_mint_rejects_bad_days(client):
     assert client.post("/api/file-link", json={"path": "clip.mp4", "days": 0}).status_code == 400
     assert client.post("/api/file-link", json={"path": "clip.mp4", "days": 31}).status_code == 400
 
@@ -261,3 +260,145 @@ def test_file_inline_vs_attachment(client):
     assert inline.status_code == 200
     disp = inline.headers.get("content-disposition", "").lower()
     assert "inline" in disp
+
+
+# ---------------------------------------------------------------------------
+# Folder links
+# ---------------------------------------------------------------------------
+
+
+def test_mint_marks_folder_links(secret):
+    import file_links
+
+    file_token = file_links.mint(
+        share="InFocus Drive", path="a.txt", days=7, uid=1, gid=1, name="a.txt"
+    )
+    assert "dir" not in file_links.verify(file_token)
+    dir_token = file_links.mint(
+        share="InFocus Drive", path="Camp", days=7, uid=1, gid=1, name="Camp", is_dir=True
+    )
+    assert file_links.verify(dir_token)["dir"] is True
+
+
+@pytest.fixture()
+def folder_token(client, drive_root):
+    camp = drive_root / "Camp"
+    clips = camp / "clips"
+    clips.mkdir()
+    (clips / "b.txt").write_text("bee")
+    (camp / ".DS_Store").write_bytes(b"junk")
+    (camp / "#recycle").mkdir()
+    (camp / "#recycle" / "gone.txt").write_text("gone")
+    os.symlink(drive_root / "notes.txt", camp / "escape.txt")
+    res = client.post("/api/file-link", json={"path": "Camp", "days": 7})
+    assert res.status_code == 200, res.text
+    return res.json()["url"].rsplit("/", 1)[-1]
+
+
+def test_folder_link_lists_contents(client, folder_token):
+    public = TestClient(client.app)
+    res = public.get(f"/api/s/{folder_token}")
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["is_dir"] is True
+    assert data["name"] == "Camp"
+    assert data["folder"] == "Camp"
+    assert data["path"] == ""
+    assert "expires_at" in data
+    items = {i["name"]: i for i in data["items"]}
+    # Junk, the recycle bin and symlinks never show up.
+    assert set(items) == {"clips", "take.mp4"}
+    assert items["clips"]["is_dir"] is True
+    assert items["clips"]["path"] == "clips"
+    assert items["take.mp4"]["size"] == len(b"nested-bytes")
+    assert items["take.mp4"]["path"] == "take.mp4"
+    assert "uid" not in res.text
+    assert "mode" not in items["take.mp4"]
+
+
+def test_folder_link_subfolder_and_files(client, folder_token):
+    public = TestClient(client.app)
+    sub = public.get(f"/api/s/{folder_token}", params={"path": "clips"}).json()
+    assert sub["is_dir"] is True
+    assert sub["name"] == "clips"
+    assert sub["path"] == "clips"
+    assert [i["path"] for i in sub["items"]] == ["clips/b.txt"]
+
+    meta = public.get(f"/api/s/{folder_token}", params={"path": "clips/b.txt"}).json()
+    assert meta["is_dir"] is False
+    assert meta["name"] == "b.txt"
+    assert meta["size"] == 3
+    assert meta["kind"] == "text"
+    assert meta["folder"] == "Camp"
+    assert meta["path"] == "clips/b.txt"
+
+    body = public.get(f"/api/s/{folder_token}/file", params={"path": "clips/b.txt"})
+    assert body.status_code == 200
+    assert body.content == b"bee"
+    assert "attachment" in body.headers.get("content-disposition", "").lower()
+
+
+@pytest.mark.parametrize(
+    "sub",
+    ["../clip.mp4", "../notes.txt", "escape.txt", "#recycle", "#recycle/gone.txt", "clips/../../notes.txt"],
+)
+def test_folder_link_stays_inside_folder(client, folder_token, sub):
+    public = TestClient(client.app)
+    meta = public.get(f"/api/s/{folder_token}", params={"path": sub})
+    assert meta.status_code == 404, meta.text
+    assert meta.json()["error"] == "unavailable"
+    raw = public.get(f"/api/s/{folder_token}/file", params={"path": sub})
+    assert raw.status_code == 404
+    assert b"hello share" not in raw.content
+    assert b"gone" not in raw.content
+
+
+def test_folder_link_zip(client, folder_token):
+    import io
+    import zipfile
+
+    public = TestClient(client.app)
+    res = public.get(f"/api/s/{folder_token}/zip")
+    assert res.status_code == 200, res.text
+    assert 'filename="Camp.zip"' in res.headers["content-disposition"]
+    names = sorted(zipfile.ZipFile(io.BytesIO(res.content)).namelist())
+    assert names == ["Camp/clips/b.txt", "Camp/take.mp4"]
+
+    sub = public.get(f"/api/s/{folder_token}/zip", params={"path": "clips"})
+    assert sub.status_code == 200
+    assert zipfile.ZipFile(io.BytesIO(sub.content)).namelist() == ["clips/b.txt"]
+
+    outside = public.get(f"/api/s/{folder_token}/zip", params={"path": ".."})
+    assert outside.status_code == 404
+
+
+def test_file_link_takes_no_subpath_or_zip(client):
+    res = client.post("/api/file-link", json={"path": "notes.txt", "days": 7})
+    token = res.json()["url"].rsplit("/", 1)[-1]
+    public = TestClient(client.app)
+    assert public.get(f"/api/s/{token}").json()["is_dir"] is False
+    assert public.get(f"/api/s/{token}", params={"path": "x"}).status_code == 404
+    assert public.get(f"/api/s/{token}/file", params={"path": "x"}).status_code == 404
+    assert public.get(f"/api/s/{token}/zip").status_code == 404
+
+
+@pytest.mark.parametrize("path", [".", "/", "#recycle"])
+def test_mint_refuses_share_root_and_recycle(client, drive_root, path):
+    (drive_root / "#recycle").mkdir(exist_ok=True)
+    assert client.post("/api/file-link", json={"path": path, "days": 7}).status_code == 400
+
+
+def test_folder_link_refuses_symlink_swapped_in(client, drive_root, folder_token):
+    # Someone with write access replaces the shared folder with a symlink to a
+    # folder only the sharer can read: the link must not follow it.
+    (drive_root / "Camp").rename(drive_root / "Camp-old")
+    private = drive_root / "Private"
+    private.mkdir()
+    (private / "secret.txt").write_text("secret")
+    os.symlink(private, drive_root / "Camp")
+    public = TestClient(client.app)
+    res = public.get(f"/api/s/{folder_token}")
+    assert res.status_code == 404
+    assert "secret" not in res.text
+    assert public.get(f"/api/s/{folder_token}/file", params={"path": "secret.txt"}).status_code == 404
+    assert public.get(f"/api/s/{folder_token}/zip").status_code == 404

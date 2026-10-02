@@ -1,4 +1,4 @@
-"""Signed, unlisted public download links for a single file."""
+"""Signed, unlisted public download links for a single file or a folder."""
 
 from __future__ import annotations
 
@@ -61,7 +61,9 @@ def iso_utc(ts: int | float) -> str:
     return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def mint(*, share: str, path: str, days: int, uid: int, gid: int, name: str) -> str:
+def mint(
+    *, share: str, path: str, days: int, uid: int, gid: int, name: str, is_dir: bool = False
+) -> str:
     days = int(days)
     if days < MIN_DAYS or days > MAX_DAYS:
         raise ValueError("days must be 1–30")
@@ -74,6 +76,8 @@ def mint(*, share: str, path: str, days: int, uid: int, gid: int, name: str) -> 
         "uid": int(uid),
         "gid": int(gid),
     }
+    if is_dir:
+        payload["dir"] = True
     return _ser().dumps(payload)
 
 
@@ -88,6 +92,10 @@ def decode(token: str) -> dict:
         if key not in payload:
             raise LinkError("invalid")
     return payload
+
+
+def is_folder(payload: dict) -> bool:
+    return payload.get("dir") is True
 
 
 def verify(token: str) -> dict:

@@ -235,7 +235,7 @@ export function revokeCliSession(id) {
   return request(`/api/cli/sessions/${encodeURIComponent(id)}`, { method: "DELETE", skipShareHeader: true });
 }
 
-/** Mint a public expiring download link for a single file. */
+/** Mint a public expiring link for a file or folder. */
 export function createFileLink(path, days) {
   return request("/api/file-link", {
     method: "POST",

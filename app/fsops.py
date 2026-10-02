@@ -130,6 +130,27 @@ def resolve_rel(rel: str) -> Path:
     return target
 
 
+def resolve_within(base_rel: str, sub_rel: str) -> tuple[Path, str]:
+    """Resolve `sub_rel` inside folder `base_rel` → (absolute path, normalized sub path).
+
+    For public folder links. `base_rel` is the canonical path stored at mint;
+    if it now resolves elsewhere (a symlink was swapped in) it is refused.
+    Also refuses `..`, the recycle bin, and symlinks that land outside the folder.
+    """
+    base = resolve_rel(base_rel)
+    if base != drive_root().joinpath(base_rel):
+        raise FSError("Not found", 404)
+    parts = [p for p in Path((sub_rel or "").strip().lstrip("/")).parts if p not in ("", ".")]
+    if any(p in ("..", RECYCLE_NAME) for p in parts):
+        raise FSError("Invalid path", 400)
+    target = base.joinpath(*parts).resolve()
+    try:
+        sub = target.relative_to(base)
+    except ValueError as e:
+        raise FSError("Path outside shared folder", 400) from e
+    return target, sub.as_posix() if sub.parts else ""
+
+
 @contextmanager
 def as_user(uid: int, gid: int, username: str | None = None) -> Iterator[None]:
     """Temporarily set effective uid/gid **and supplementary groups**.
