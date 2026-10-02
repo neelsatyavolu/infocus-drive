@@ -18,7 +18,7 @@ struct AnnouncementsView: View {
                 } else {
                     LazyVStack(spacing: 12) {
                         ForEach(list) { item in
-                            NavigationLink(value: Route.calendar(.announcement(id: item.id))) {
+                            NavigationLink(value: Route.announcements(.announcement(id: item.id))) {
                                 AnnouncementCard(announcement: item, lineLimit: 6) {
                                     Task { await feed.toggleLike(item.id, api: api) }
                                 }

@@ -47,7 +47,7 @@ final class DeepLinkTests: XCTestCase {
         XCTAssertEqual(resolve("https://portal.example.edu/master-calendar?date=2026-10-07"),
                        DeepLinkMatch(tab: .calendar, route: .calendar(.day(date: "2026-10-07"))))
         XCTAssertEqual(resolve("https://portal.example.edu/announcements"),
-                       DeepLinkMatch(tab: .calendar, route: .calendar(.announcements)))
+                       DeepLinkMatch(tab: .calendar, route: .announcements(.feed)))
         XCTAssertEqual(resolve("https://portal.example.edu/grades"), DeepLinkMatch(tab: .more, route: .grades(.grades)))
         XCTAssertEqual(resolve("https://portal.example.edu/extension-requests"),
                        DeepLinkMatch(tab: .more, route: .grades(.extensions)))
@@ -57,9 +57,9 @@ final class DeepLinkTests: XCTestCase {
     }
 
     func testEverythingElseOpensThePortalPage() {
-        let url = URL(string: "https://portal.example.edu/publishing-queue")!
+        let url = URL(string: "https://portal.example.edu/teleprompter")!
         XCTAssertEqual(DeepLink.resolve(url, portal: portal), DeepLinkMatch(tab: nil, route: .portal(PortalPage(url: url))))
-        let submitted = URL(string: "https://portal.example.edu/announcements/submitted")!
+        let submitted = URL(string: "https://portal.example.edu/admin/people")!
         XCTAssertEqual(DeepLink.resolve(submitted, portal: portal).route, .portal(PortalPage(url: submitted)))
     }
 
@@ -169,5 +169,24 @@ final class EmbeddedCookieTests: XCTestCase {
         XCTAssertEqual(cookie.value, "1")
         XCTAssertEqual(cookie.domain, "portal.example.edu")
         XCTAssertTrue(cookie.isSecure)
+    }
+}
+
+final class ProducerToolLinkTests: XCTestCase {
+    private let portal = URL(string: "https://portal.example.edu")!
+
+    private func resolve(_ path: String) -> DeepLinkMatch {
+        DeepLink.resolve(URL(string: "https://portal.example.edu/\(path)")!, portal: portal)
+    }
+
+    func testProducerToolsOpenTheirNativeAreas() {
+        XCTAssertEqual(resolve("announcements/submitted").route, .announcements(.submitted))
+        XCTAssertEqual(resolve("announcements/pa").route, .announcements(.pa))
+        XCTAssertEqual(resolve("package-progress").route, .packageCycles(.home))
+        XCTAssertEqual(resolve("package-cycles").route, .packageCycles(.home))
+        XCTAssertEqual(resolve("publishing-queue").route, .publishing(.home))
+        XCTAssertEqual(resolve("grade-editor").route, .gradeEditor(.home))
+        XCTAssertEqual(DeepLink.resolve(URL(string: "https://grades.portal.example.edu/grade-editor")!, portal: portal).route,
+                       .gradeEditor(.home))
     }
 }

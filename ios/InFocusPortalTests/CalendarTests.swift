@@ -113,7 +113,7 @@ final class CalendarDeepLinkTests: XCTestCase {
                        DeepLinkMatch(tab: .calendar, route: .calendar(.day(date: "2026-10-07"))))
         XCTAssertEqual(resolve("https://portal.example.edu/master-calendar?date=bad").route, nil)
         XCTAssertEqual(resolve("https://portal.example.edu/announcements"),
-                       DeepLinkMatch(tab: .calendar, route: .calendar(.announcements)))
+                       DeepLinkMatch(tab: .calendar, route: .announcements(.feed)))
         XCTAssertEqual(resolve("https://portal.example.edu/show-roles").route, .calendar(.theShow))
     }
 }

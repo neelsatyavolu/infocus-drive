@@ -8,8 +8,9 @@ enum DeepLink {
 
     /// Tried in order; the first match wins.
     static let parsers: [Parser] = [
-        WorkRoute.deepLink, CalendarRoute.deepLink, GradesRoute.deepLink,
-        MessagesRoute.deepLink, MoreRoute.deepLink,
+        WorkRoute.deepLink, AnnouncementsRoute.deepLink, CalendarRoute.deepLink,
+        GradeEditorRoute.deepLink, GradesRoute.deepLink, MessagesRoute.deepLink,
+        PackageCyclesRoute.deepLink, PublishingRoute.deepLink, MoreRoute.deepLink,
     ]
 
     static func resolve(_ url: URL, portal: URL) -> DeepLinkMatch {

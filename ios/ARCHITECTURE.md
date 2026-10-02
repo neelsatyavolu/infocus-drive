@@ -18,6 +18,10 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination` | **Calendar agent** (Master Calendar, The Show, announcements) |
 | `Features/Grades/` | `GradesScreen`, `ExtensionsScreen`, `GradesRoute`, `GradesDestination` | **Grades agent** (grades, extension requests) |
 | `Features/Messages/` | `MessagesTab`, `MessagesRoute`, `MessagesDestination`, `Equipment/EquipmentScreen`, `Livestreams/LivestreamsScreen` | **Messages agent** (chats, equipment checkout, livestream sign-ups) |
+| `Features/Announcements/` | `AnnouncementsRoute`, `AnnouncementsDestination`, feed/detail/compose views | **Announcements agent** (class feed, submitted announcements, PA script) |
+| `Features/PackageCycles/` | `PackageCyclesRoute`, `PackageCyclesDestination` | **Package Cycles agent** (roster: topic, members, producer; cycle dates) |
+| `Features/Publishing/` | `PublishingRoute`, `PublishingDestination` | **Publishing agent** (Publishing Queue, YouTube publication status) |
+| `Features/GradeEditor/` | `GradeEditorRoute`, `GradeEditorDestination` | **Grade Editor agent** (execs: gradebook editing) |
 | `Features/More/` | `MoreTab`, `SettingsScreen`, `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
 | `Web/` | `PortalWebController` (one WKWebView), `PortalWebView`, `PortalPageScreen` (fallback page), `PortalNavigation` (link policy), `PortalBridge` (JS bridge), downloads, offline view | shell |
 | `Push/` | `PushRegistrar` (APNs token → `POST /api/push/native-device` with `platform: "ios"`), `NotificationRouter` (taps → deep links), `NotificationOfferView` | shell |
@@ -38,9 +42,13 @@ The reserved cases, wired today to placeholders that show the Portal page:
 | Enum | Cases | Deep links parsed today |
 |---|---|---|
 | `WorkRoute` | `group(rowId:stage:)`, `studentStage(StudentStage)` | `/groups` (Work root), `/groups/<rowId>[/<stage>]`, `/information`, `/brainstorming`, `/a-roll`, `/initial-cut`, `/final-cut` |
-| `CalendarRoute` | `day(date:)`, `theShow`, `announcements` | `/master-calendar[?date=]`, `/show-roles`, `/announcements` |
+| `CalendarRoute` | `day(date:)`, `theShow` | `/master-calendar[?date=]`, `/show-roles` |
 | `GradesRoute` | `grades`, `extensions`, `extensionRequest(id:)` | `/grades` (and `grades.` host), `/extensions[/<id>]`, `/extension-requests[/<id>]` (all on More) |
 | `MessagesRoute` | `conversation(id:)`, `equipment`, `livestreams`, `livestream(id:)` | `/equipment` (and `equipment.` host), `/livestreams[/<id>]` (on More) |
+| `AnnouncementsRoute` | `feed`, `announcement(id:)`, `submitted`, `pa` | `/announcements` (Calendar tab), `/announcements/submitted`, `/announcements/pa` (More) |
+| `PackageCyclesRoute` | `home` | `/package-progress`, `/package-cycles` (More) |
+| `PublishingRoute` | `home` | `/publishing-queue` (More) |
+| `GradeEditorRoute` | `home` | `/grade-editor` (and `grades.` host) (More) |
 | `MoreRoute` | `settings`, `portalPages` | `/settings` |
 
 `/` and `/dashboard` go to Home. Anything else becomes `.portal(PortalPage(url:))` on the current tab.
@@ -122,3 +130,7 @@ Follow the Portal's `DESIGN.md` §10/§13:
 ## DEBUG helpers
 
 `-InFocusStubSession <student|associate|producer|admin|sample>` shows the tabs without a Portal, with fictional people. `-InFocusOpen <portal path|more|portal-pages>` opens a screen at launch. For screenshots, build with `INFOCUS_PORTAL_HOST=portal.example.com` so no web view loads the real Portal (never QA the live Portal in a simulator), then use `xcrun simctl io <device> screenshot`.
+
+## Placeholder screens
+
+`PortalFallback(path:title:)` (Web/) shows a Portal page in the in-app web view. New areas start with it in their `…Destination` and swap in native views case by case. More → **Producer tools** (producers only; Grade Editor needs `canManageGrades`) links Package Cycles, Publishing Queue, Grade Editor, Submitted announcements and PA.

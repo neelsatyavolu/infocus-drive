@@ -70,7 +70,7 @@ struct CalendarTab: View {
             Divider().overlay(Brand.line)
             QuickLink(title: "Announcements",
                       detail: feed.unreadCount > 0 ? "\(feed.unreadCount) unread" : "Class announcements",
-                      systemImage: "megaphone", route: .calendar(.announcements), badge: feed.unreadCount)
+                      systemImage: "megaphone", route: .announcements(.feed), badge: feed.unreadCount)
         }
         .card(padding: 0)
     }

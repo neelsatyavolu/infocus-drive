@@ -1,16 +1,13 @@
 import Foundation
 
-/// Screens of the Calendar feature (Master Calendar, The Show, announcements).
+/// Screens of the Calendar feature (Master Calendar, The Show). Announcements
+/// live in `AnnouncementsRoute`.
 /// Owned by the Calendar agent.
 enum CalendarRoute: Hashable {
     /// One school day (`YYYY-MM-DD`): show, anchors, PA.
     case day(date: String)
     /// The Show (`/show-roles`).
     case theShow
-    /// The class announcements feed (`/announcements`).
-    case announcements
-    /// One announcement with its comments.
-    case announcement(id: String)
 
     static func deepLink(_ path: [String], _ query: [URLQueryItem]) -> DeepLinkMatch? {
         switch path {
@@ -19,8 +16,6 @@ enum CalendarRoute: Hashable {
             return DeepLinkMatch(tab: .calendar, route: date.map { .calendar(.day(date: $0)) })
         case ["show-roles"]:
             return DeepLinkMatch(tab: .calendar, route: .calendar(.theShow))
-        case ["announcements"]:
-            return DeepLinkMatch(tab: .calendar, route: .calendar(.announcements))
         default:
             return nil
         }

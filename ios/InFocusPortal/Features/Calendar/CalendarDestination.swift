@@ -10,10 +10,6 @@ struct CalendarDestination: View {
             DayDetailView(date: date)
         case .theShow:
             TheShowView()
-        case .announcements:
-            AnnouncementsView()
-        case .announcement(let id):
-            AnnouncementDetailView(id: id)
         }
     }
 }

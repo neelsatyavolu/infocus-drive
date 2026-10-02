@@ -21,6 +21,17 @@ struct MoreTab: View {
                         row(user.isProducer ? "Extension requests" : "Extensions", "calendar.badge.clock", .grades(.extensions))
                             .badge(badges.count(.more))
                     }
+                    if user.isProducer {
+                        Section("Producer tools") {
+                            row("Package Cycles", "person.3", .packageCycles(.home))
+                            row("Publishing Queue", "play.rectangle.on.rectangle", .publishing(.home))
+                            if user.canManageGrades {
+                                row("Grade Editor", "checklist", .gradeEditor(.home))
+                            }
+                            row("Submitted announcements", "tray.full", .announcements(.submitted))
+                            row("PA", "mic", .announcements(.pa))
+                        }
+                    }
                     Section("Production") {
                         row("Equipment", "camera", .messages(.equipment))
                         row("Livestreams", "dot.radiowaves.left.and.right", .messages(.livestreams))
