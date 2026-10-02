@@ -1,4 +1,5 @@
 import XCTest
+import UserNotifications
 @testable import InFocusDrive
 
 final class AppConfigTests: XCTestCase {
@@ -260,5 +261,14 @@ final class UpdaterInstallPolicyTests: XCTestCase {
     func testClickingUpdateDoesNotWaitForThePortalButStillWaitsForDrive() {
         XCTAssertTrue(Updater.mayInstall(transferring: false, unlocking: false, portalOpen: true, userRequested: true))
         XCTAssertFalse(Updater.mayInstall(transferring: true, unlocking: false, portalOpen: true, userRequested: true))
+    }
+}
+
+final class NotificationPromptTests: XCTestCase {
+    func testAsksOnFirstForegroundOpenOnly() {
+        XCTAssertTrue(PushRegistrar.shouldAskAtLaunch(.notDetermined, background: false))
+        XCTAssertFalse(PushRegistrar.shouldAskAtLaunch(.notDetermined, background: true))
+        XCTAssertFalse(PushRegistrar.shouldAskAtLaunch(.authorized, background: false))
+        XCTAssertFalse(PushRegistrar.shouldAskAtLaunch(.denied, background: false))
     }
 }

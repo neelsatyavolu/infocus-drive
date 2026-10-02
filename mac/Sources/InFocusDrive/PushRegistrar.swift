@@ -38,6 +38,14 @@ final class PushRegistrar: ObservableObject {
         let settings = await center.notificationSettings()
         NSLog("InFocus: push permission %@; registering with APNs", Self.permission(settings.authorizationStatus))
         NSApp.registerForRemoteNotifications()
+        // First open: ask right away (macOS shows its prompt once; never at a background login launch).
+        if Self.shouldAskAtLaunch(settings.authorizationStatus, background: CommandLine.arguments.contains("--background")) {
+            _ = await requestPermission()
+        }
+    }
+
+    nonisolated static func shouldAskAtLaunch(_ status: UNAuthorizationStatus, background: Bool) -> Bool {
+        status == .notDetermined && !background
     }
 
     func didRegister(_ token: Data) {

@@ -21,7 +21,8 @@ an Applications folder the app offers **Move to Applications**
 account), replaces any older InFocus / InFocus Drive copy there, moves the
 download to the Trash and relaunches. **Not Now** keeps running where it is
 (updates, the rename and start at login need Applications); **Don't ask again**
-stops the prompt. Then **Sign in with Google**, **Allow** notifications, and approve Drive.
+stops the prompt. The first open also shows macOS's notification prompt (once; never
+at a background login launch). Then **Sign in with Google** and approve Drive.
 
 On the Drive website open **Mac app & CLI** in the sidebar, or paste in Terminal:
 
