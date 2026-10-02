@@ -4,6 +4,8 @@ import SwiftUI
 struct InboxRow: View {
     let chat: ChatSummary
     var isOpening = false
+    /// A direct chat with someone this person blocked.
+    var blocked = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -26,9 +28,9 @@ struct InboxRow: View {
                     .foregroundStyle(Brand.muted)
                     .lineLimit(1)
                 HStack(alignment: .top) {
-                    Text(chat.preview ?? "No messages yet")
+                    Text(blocked ? "Blocked" : chat.preview ?? "No messages yet")
                         .font(.small)
-                        .foregroundStyle(chat.preview == nil ? Brand.muted : Brand.secondary)
+                        .foregroundStyle(blocked || chat.preview == nil ? Brand.muted : Brand.secondary)
                         .lineLimit(2)
                     Spacer(minLength: 8)
                     if isOpening {
@@ -51,7 +53,11 @@ struct InboxRow: View {
     private var accessibilityText: String {
         var parts = [chat.title, chat.subtitle]
         if chat.unreadCount > 0 { parts.append("\(chat.unreadCount) unread") }
-        if let preview = chat.preview { parts.append(preview) }
+        if blocked {
+            parts.append("Blocked")
+        } else if let preview = chat.preview {
+            parts.append(preview)
+        }
         if let updatedAt = chat.updatedAt { parts.append(FeatureDates.inbox(updatedAt)) }
         return parts.joined(separator: ", ")
     }

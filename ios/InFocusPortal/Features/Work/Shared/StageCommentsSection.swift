@@ -14,6 +14,8 @@ struct StageCommentsSection: View {
     @State private var draft = ""
     @State private var posting = false
     @State private var postError: String?
+    @State private var reportTarget: ReportTarget?
+    @Environment(SessionStore.self) private var session
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -31,12 +33,28 @@ struct StageCommentsSection: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .card()
                 } else {
-                    ForEach(comments) { comment in CommentRow(comment: comment) }
+                    ForEach(comments) { comment in
+                        CommentRow(comment: comment)
+                            .contextMenu {
+                                if !isMine(comment) {
+                                    Button("Report comment", systemImage: "flag") {
+                                        reportTarget = ReportTarget(report: .comment(comment.id), authorName: comment.authorName,
+                                                                    excerpt: comment.body)
+                                    }
+                                }
+                            }
+                    }
                 }
             }
             if canPost { composer }
         }
         .task(id: "\(rowId)/\(stage)") { await load() }
+        .sheet(item: $reportTarget) { ReportSheet(target: $0) }
+    }
+
+    private func isMine(_ comment: StageComment) -> Bool {
+        guard let mine = session.user?.email.lowercased(), let author = comment.author.email?.lowercased() else { return false }
+        return mine == author
     }
 
     private var composer: some View {

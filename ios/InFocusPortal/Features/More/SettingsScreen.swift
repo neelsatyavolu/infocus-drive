@@ -36,6 +36,13 @@ struct SettingsScreen: View {
             } footer: {
                 Text("You get a notification for every email the Portal sends you. Which emails you get is set in Portal settings.")
             }
+            Section {
+                NavigationLink("Blocked people") { BlockedPeopleScreen() }
+            } header: {
+                Text("Messages")
+            } footer: {
+                Text("Report a message from its menu (press and hold). Reports go to the InFocus adviser and executive producers.")
+            }
             Section("Appearance") {
                 Picker("Appearance", selection: $preferences.appearance) {
                     ForEach(Appearance.allCases) { Text($0.label).tag($0) }

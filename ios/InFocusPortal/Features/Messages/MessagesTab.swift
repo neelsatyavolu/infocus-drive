@@ -66,6 +66,9 @@ struct MessagesTab: View {
 private struct InboxList: View {
     @Bindable var model: InboxModel
     let open: (ChatSummary) -> Void
+    @State private var blocks = BlockList.shared
+
+    static let moderationNote = "Messages are visible to InFocus producers and the adviser. Report anything inappropriate."
 
     var body: some View {
         LoadableView(model.state, retry: { Task { await model.load() } }) { inbox in
@@ -74,18 +77,29 @@ private struct InboxList: View {
                     EmptyStateView(title: "No chats yet",
                                    message: "Each package you're on gets a group chat with its producer. They show up here.")
                         .padding(.top, 48)
+                    Text(Self.moderationNote)
+                        .font(.small)
+                        .foregroundStyle(Brand.muted)
+                        .padding(Brand.gutter)
                 }
             } else {
                 List {
                     ForEach(model.chats) { chat in
                         Button { open(chat) } label: {
-                            InboxRow(chat: chat, isOpening: model.opening == chat.id)
+                            InboxRow(chat: chat, isOpening: model.opening == chat.id,
+                                     blocked: chat.peer.map { blocks.isBlocked($0.id) } ?? false)
                         }
                         .buttonStyle(.plain)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 4, leading: Brand.gutter, bottom: 4, trailing: Brand.gutter))
                     }
+                    Text(Self.moderationNote)
+                        .font(.small)
+                        .foregroundStyle(Brand.muted)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 12, leading: Brand.gutter, bottom: 12, trailing: Brand.gutter))
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)

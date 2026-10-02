@@ -53,6 +53,7 @@ final class AppModel: ObservableObject {
         let defaults = UserDefaults.standard
         if let kind = defaults.string(forKey: "InFocusStubSession") {
             session.useStub(.stub(kind))
+            BlockList.shared.use(account: session.user?.email)
             router.sampleOnly = session.user?.sampleOnly ?? false
             phase = .signedIn
             switch defaults.string(forKey: "InFocusOpen") {
@@ -86,6 +87,7 @@ final class AppModel: ObservableObject {
         await session.load(using: client)
         let sampleOnly = session.user?.sampleOnly ?? false
         SampleMode.set(sampleOnly)
+        BlockList.shared.use(account: session.user?.email)
         router.sampleOnly = sampleOnly
         if let page = takePendingPage() { router.open(page) }
         if !sampleOnly { await badges.refresh(using: client) }
@@ -146,6 +148,7 @@ final class AppModel: ObservableObject {
 
     private func resetSignedInState() {
         SampleMode.set(false)
+        BlockList.shared.use(account: nil)
         session.clear()
         router.reset()
         badges.clear()
