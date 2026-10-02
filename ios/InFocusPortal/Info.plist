@@ -39,6 +39,7 @@
 	<key>UIAppFonts</key>
 	<array>
 		<string>Lexend.ttf</string>
+		<string>GeistMono.ttf</string>
 	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>

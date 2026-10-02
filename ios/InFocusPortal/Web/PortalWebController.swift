@@ -43,16 +43,21 @@ final class PortalWebController: NSObject, ObservableObject {
     @Published private(set) var progress: Double = 0
     @Published private(set) var isLoading = false
     @Published private(set) var failure: PortalLoadFailure?
+    /// The page's `<title>`, for a native navigation title.
+    @Published private(set) var title: String?
+    @Published private(set) var canGoBack = false
 
     private var observations: [NSKeyValueObservation] = []
     private let downloads = PortalDownloads()
 
     /// Mobile Safari's, plus the token the Portal looks for (`/InFocusiOSApp/i`).
-    static var userAgentSuffix: String {
+    nonisolated static var userAgentSuffix: String {
         "Version/18.0 Mobile/15E148 Safari/604.1 InFocusiOSApp/\(AppConfig.appVersion)"
     }
 
-    init(portal: URL) {
+    /// A page pushed inside a NavigationStack (`embedded`) leaves the edge
+    /// swipe to the native back gesture instead of the web history.
+    init(portal: URL, embedded: Bool = false) {
         self.portal = portal
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default() // cookies survive restarts
@@ -65,7 +70,7 @@ final class PortalWebController: NSObject, ObservableObject {
         super.init()
         webView.navigationDelegate = self
         webView.uiDelegate = self
-        webView.allowsBackForwardNavigationGestures = true
+        webView.allowsBackForwardNavigationGestures = !embedded
         webView.allowsLinkPreview = false
         webView.isOpaque = false
         webView.backgroundColor = Brand.uiBackground
@@ -82,7 +87,20 @@ final class PortalWebController: NSObject, ObservableObject {
             webView.observe(\.isLoading, options: .new) { [weak self] web, _ in
                 MainActor.assumeIsolated { self?.isLoading = web.isLoading }
             },
+            webView.observe(\.title, options: .new) { [weak self] web, _ in
+                MainActor.assumeIsolated { self?.title = Self.pageTitle(web.title) }
+            },
+            webView.observe(\.canGoBack, options: .new) { [weak self] web, _ in
+                MainActor.assumeIsolated { self?.canGoBack = web.canGoBack }
+            },
         ]
+    }
+
+    /// "Class Board · InFocus Portal" → "Class Board"; the bare site name → nil.
+    nonisolated static func pageTitle(_ raw: String?) -> String? {
+        let title = raw?.components(separatedBy: " · ").first?
+            .components(separatedBy: " | ").first?.trimmingCharacters(in: .whitespaces)
+        return title?.isEmpty == false && title != "InFocus Portal" ? title : nil
     }
 
     func load(_ url: URL) {

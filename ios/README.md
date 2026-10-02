@@ -1,10 +1,10 @@
 # InFocus Portal for iPhone and iPad
 
-A native shell around the program's Portal web app (the same Portal the Mac app opens), with:
+A native SwiftUI app for the program's Portal: a role-aware tab bar (Home · Packages or Groups · Calendar · Messages · More), native screens built on a shared Portal client, and every remaining Portal page available inside the app, signed in. How it's organized and how to add a screen: [ARCHITECTURE.md](ARCHITECTURE.md). Also:
 
 - **Browser sign-in hand-off.** Google refuses to run inside an app's web view, so sign-in goes through `ASWebAuthenticationSession` → the Portal's `/app-sign-in` page → `infocus://signed-in?code=…` → `POST /api/auth/app/token` (PKCE, same protocol as the Mac app). Signing in with an emailed code runs on the Portal's own page.
 - **Notifications.** The app registers its APNs token with `POST /api/push/native-device` (`platform: "ios"`) under the signed-in account, every launch and whenever the session changes. Tapping a notification opens its Portal page, even from a cold launch. The Portal's Sign out button runs natively, so the device is unregistered before the session ends. One native pre-prompt is shown after the first sign-in.
-- **A real app around the web view.** Pull to refresh, swipe back, a green progress line, downloads to the share sheet, uploads from the camera or library, Safari sheets for other sites, mailto/tel to the system, and a native offline screen instead of a blank page.
+- **Portal pages without a native screen** open in a signed-in web view inside the tab: pull to refresh, a green progress line, downloads to the share sheet, uploads from the camera or library, Safari sheets for other sites, mailto/tel to the system, and a native offline screen instead of a blank page.
 - **The Portal Settings bridge** (`window.webkit.messageHandlers.infocus`): `notificationStatus`, `requestNotifications`, `openNotificationSettings`, the same replies as the Mac app. The user agent ends in `InFocusiOSApp/<version>` so the Portal can tell it apart.
 
 The source has no hostnames: `Config/Portal.xcconfig` reads them from `Config/Portal.local.xcconfig` (gitignored), and the release script passes them on the command line.
@@ -14,13 +14,16 @@ The source has no hostnames: `Config/Portal.xcconfig` reads them from `Config/Po
 ```
 project.yml                XcodeGen spec (the .xcodeproj is generated and gitignored)
 Config/Portal.xcconfig     Build-time hosts and team (real values in Portal.local.xcconfig)
-InFocusPortal/App          Entry point, app delegate (push), AppModel (welcome ⇄ Portal), AppConfig
-InFocusPortal/SignIn       PKCE + callback + session token, Portal API client and cookies, browser sign-in
-InFocusPortal/Push         APNs registration with the Portal, notification taps
-InFocusPortal/Web          Web view controller, navigation policy, JS bridge, downloads, sheets
-InFocusPortal/Screens      Welcome, Portal, offline and notification screens
-InFocusPortal/Brand        Design-system colors, Lexend, button styles (DESIGN.md §10)
-InFocusPortalTests         Unit tests (config, navigation, PKCE, callback, cookies, push, failures)
+InFocusPortal/App          Entry point, app delegate (push), AppModel (welcome ⇄ tabs), RootView, AppConfig
+InFocusPortal/Design       Colors, Lexend + Geist Mono, buttons, cards, nameplate, loading/empty/error states
+InFocusPortal/Networking   PortalClient (signed-in JSON API), errors, dates, Loadable, streamed uploads
+InFocusPortal/Session      Signed-in person and role flags (SessionStore), appearance preference
+InFocusPortal/Navigation   Tabs, typed routes, deep links, router, badges
+InFocusPortal/Features     One folder per area: Work (Home, Packages/Groups), Calendar, Grades, Messages, More
+InFocusPortal/Web          Signed-in Portal pages (fallback), navigation policy, JS bridge, downloads
+InFocusPortal/SignIn       PKCE hand-off, Portal cookies, welcome and email sign-in screens
+InFocusPortal/Push         APNs registration with the Portal, notification taps, the notifications offer
+InFocusPortalTests         Unit tests (client, deep links, roles, catalog, PKCE, cookies, push, failures)
 scripts/make-assets.swift  App icon, launch mark and wordmark from the InFocus logo package
 scripts/release-ios.sh     Archive, sign and upload to TestFlight
 scripts/asc-profile.mjs    App Store provisioning profile via the App Store Connect API

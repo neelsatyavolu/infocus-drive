@@ -33,7 +33,7 @@ targets:
         InFocusDriveURL: https://$(INFOCUS_DRIVE_HOST)
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true
-        UIAppFonts: [Lexend.ttf]
+        UIAppFonts: [Lexend.ttf, GeistMono.ttf]
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
