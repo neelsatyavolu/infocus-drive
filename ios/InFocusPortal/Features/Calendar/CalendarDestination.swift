@@ -1,17 +1,19 @@
 import SwiftUI
 
-/// Screens for `CalendarRoute`. Placeholders show the Portal page until the native screen lands.
+/// Screens for `CalendarRoute`.
 struct CalendarDestination: View {
     let route: CalendarRoute
 
     var body: some View {
         switch route {
-        case .day:
-            PortalPageScreen(path: "master-calendar", title: "Calendar")
+        case .day(let date):
+            DayDetailView(date: date)
         case .theShow:
-            PortalPageScreen(path: "show-roles", title: "The Show")
+            TheShowView()
         case .announcements:
-            PortalPageScreen(path: "announcements", title: "Announcements")
+            AnnouncementsView()
+        case .announcement(let id):
+            AnnouncementDetailView(id: id)
         }
     }
 }

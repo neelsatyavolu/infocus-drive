@@ -9,11 +9,13 @@ enum CalendarRoute: Hashable {
     case theShow
     /// The class announcements feed (`/announcements`).
     case announcements
+    /// One announcement with its comments.
+    case announcement(id: String)
 
     static func deepLink(_ path: [String], _ query: [URLQueryItem]) -> DeepLinkMatch? {
         switch path {
         case ["master-calendar"]:
-            let date = query.first { $0.name == "date" }?.value
+            let date = query.first { $0.name == "date" }?.value.flatMap { $0.wholeMatch(of: #/\d{4}-\d{2}-\d{2}/#) != nil ? $0 : nil }
             return DeepLinkMatch(tab: .calendar, route: date.map { .calendar(.day(date: $0)) })
         case ["show-roles"]:
             return DeepLinkMatch(tab: .calendar, route: .calendar(.theShow))
