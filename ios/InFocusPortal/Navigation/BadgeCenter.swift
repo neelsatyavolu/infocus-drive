@@ -17,13 +17,16 @@ final class BadgeCenter {
     }
 
     struct Awaiting: Decodable { let count: Int }
+    struct Unread: Decodable { let unreadCount: Int }
 
     /// After sign-in and each time the app comes back: extension requests
-    /// waiting on this person (More holds Extensions).
+    /// waiting on this person (More holds Extensions) and unread chats, so
+    /// the Messages badge is right before that tab is ever opened.
     func refresh(using client: PortalClient) async {
-        if let awaiting = try? await client.get("api/extensions/requests/awaiting", as: Awaiting.self) {
-            set(awaiting.count, for: .more)
-        }
+        async let awaiting = try? client.get("api/extensions/requests/awaiting", as: Awaiting.self)
+        async let unread = try? client.get("api/hub-chat/unread", as: Unread.self)
+        if let awaiting = await awaiting { set(awaiting.count, for: .more) }
+        if let unread = await unread { set(unread.unreadCount, for: .messages) }
     }
 
     func clear() {
