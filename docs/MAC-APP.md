@@ -97,7 +97,8 @@ bar takes the page's background, so it follows the Portal's dark or light theme.
 - **Shortcuts:** Cmd+N new window, Cmd+T new tab, Cmd+W close, Cmd+R reload,
   Cmd+[ / Cmd+] back/forward, Shift+Cmd+H Portal home, Cmd+F / Cmd+G find,
   Cmd+= / Cmd+- / Cmd+0 zoom, Cmd+, Portal Settings, Shift+Cmd+D the Drive window.
-  Closing the last Portal window only hides it, so reopening is instant.
+  Closing a Portal window really closes it (page and any video stop); Drive keeps
+  running in the menu bar. A new Portal window opens on the dashboard.
 - **Links:** Portal pages (the Portal host and its subdomains) stay in the app;
   everything else (YouTube, Google Docs, the Drive website, mail links) opens in
   your browser. Downloads go to `~/Downloads`; file pickers, `alert`/`confirm`/

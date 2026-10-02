@@ -46,14 +46,6 @@ final class Windows: NSObject, NSWindowDelegate {
         present(controller.window, drive: drive)
     }
 
-    /// The last Portal window hides instead of closing, so it reopens instantly.
-    func portalShouldClose(_ controller: PortalWindowController) -> Bool {
-        guard portals.count == 1, portals.first === controller else { return true }
-        controller.window?.orderOut(nil)
-        backgroundIfIdle()
-        return false
-    }
-
     func portalClosed(_ controller: PortalWindowController) {
         portals.removeAll { $0 === controller }
         backgroundIfIdle()

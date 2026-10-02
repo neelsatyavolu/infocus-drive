@@ -5,8 +5,8 @@ import WebKit
 /// A Portal window: the Portal page under a slim native title bar (Back,
 /// Forward, Reload, the page title, Find and a Drive chip). The title bar
 /// takes the page's own background, so it matches the Portal's dark or light
-/// theme. Windows tab natively (Cmd+T); closing the last one only hides it,
-/// keeping the page loaded for an instant reopen.
+/// theme. Windows tab natively (Cmd+T). Closing a window really closes it (its
+/// page and any playing video stop); Drive keeps running in the menu bar.
 @MainActor
 final class PortalWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
     let web: PortalWebController
@@ -51,7 +51,7 @@ final class PortalWindowController: NSWindowController, NSWindowDelegate, NSTool
         if !window.setFrameUsingName("PortalWindow") { window.center() }
         window.setFrameAutosaveName("PortalWindow")
         observePage()
-        web.load(url ?? portal)
+        web.load(url ?? portal.appendingPathComponent("dashboard"))
     }
 
     @available(*, unavailable)
@@ -124,11 +124,11 @@ final class PortalWindowController: NSWindowController, NSWindowDelegate, NSTool
 
     // MARK: Window
 
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        Windows.shared.portalShouldClose(self)
-    }
-
     func windowWillClose(_ notification: Notification) {
+        // Stop audio/video right away, even if something still holds the web view.
+        web.webView.pauseAllMediaPlayback(completionHandler: nil)
+        web.webView.stopLoading()
+        web.webView.load(URLRequest(url: URL(string: "about:blank")!))
         Windows.shared.portalClosed(self)
     }
 
