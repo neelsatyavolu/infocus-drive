@@ -30,7 +30,7 @@ struct GradesScreen: View {
                 EmptyStateView(title: "No gradebook for your role",
                                message: "Executive producers, the adviser and the super admin grade students in the Grade Editor.",
                                actionTitle: "Open Grade Editor") {
-                    router.openPortal("grade-editor", title: "Grade Editor")
+                    router.push(.gradeEditor(.home))
                 }
             } else {
                 content
