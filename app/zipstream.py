@@ -34,9 +34,19 @@ def _dos_time(ts: float | None = None) -> tuple[int, int]:
     return dos_time, dos_date
 
 
+def _is_app_program(path: Path) -> bool:
+    """A Mac app's program file: Something.app/Contents/MacOS/<name> (no suffix to go by)."""
+    contents = path.parent.parent
+    return path.parent.name == "MacOS" and contents.name == "Contents" and contents.parent.suffix.lower() == ".app"
+
+
 def _unix_mode(path: Path, st_mode: int) -> int:
-    """rwxr-xr-x for scripts and files already executable on disk, rw-r--r-- for everything else."""
-    executable = path.suffix.lower() in _EXECUTABLE_SUFFIXES or bool(st_mode & 0o111)
+    """rwxr-xr-x for scripts, app programs and files already executable on disk; rw-r--r-- otherwise."""
+    executable = (
+        path.suffix.lower() in _EXECUTABLE_SUFFIXES
+        or _is_app_program(path)
+        or bool(st_mode & 0o111)
+    )
     return stat.S_IFREG | (0o755 if executable else 0o644)
 
 

@@ -247,3 +247,23 @@ def test_scripts_keep_their_execute_bit(share_tree):
     assert modes["Camp/Install Graphics.command"] == 0o100755
     assert modes["Camp/a.txt"] == 0o100644
     assert zip_store_content_length(entries) == len(blob)
+
+
+def test_app_bundle_executables_stay_runnable(share_tree):
+    """A Mac .app's program file (Contents/MacOS/*) has no suffix but must unzip executable."""
+    macos = share_tree / "Camp" / "Install Graphics.app" / "Contents" / "MacOS"
+    macos.mkdir(parents=True)
+    (macos / "applet").write_bytes(b"\xcf\xfa\xed\xfe binary")
+    (macos.parent / "Info.plist").write_bytes(b"<plist/>")
+    entries = fsops.collect_zip_entries(
+        ["Camp"],
+        uid=0,
+        gid=0,
+        max_files=100,
+        max_total=8 * 1024**3,
+    )
+    blob = b"".join(stream_zip_store(entries))
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        modes = {i.filename: i.external_attr >> 16 for i in zf.infolist()}
+    assert modes["Camp/Install Graphics.app/Contents/MacOS/applet"] == 0o100755
+    assert modes["Camp/Install Graphics.app/Contents/Info.plist"] == 0o100644
