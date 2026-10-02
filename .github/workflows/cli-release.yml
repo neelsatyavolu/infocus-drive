@@ -135,8 +135,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A pre-release, not Latest: installed Mac apps only accept a
+          # notarized update, so mac/sign-release.sh makes it Latest once the
+          # app is notarized (until then everyone stays on the last signed one).
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
+            --prerelease --latest=false \
             --title "InFocus CLI & Mac app ${GITHUB_REF_NAME#cli-v}" \
             --notes "CLI (macOS): curl -fsSL https://<your drive>/cli/install.sh | sh
           CLI (Windows PowerShell): irm https://<your drive>/cli/install.ps1 | iex

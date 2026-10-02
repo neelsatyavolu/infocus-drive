@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Developer ID-sign, notarize and staple InFocus Drive for Mac, then replace
 # InFocus-Drive-mac.zip (and its line in SHA256SUMS) on a GitHub release that CI
-# already published. Run it on the maintainer's Mac after the release workflow:
+# already published as a pre-release, and make that release Latest. Run it on
+# the maintainer's Mac after the release workflow:
 #   mac/sign-release.sh cli-v0.4.2
 #   mac/sign-release.sh --local 0.4.2   # sign + notarize + staple only, no upload
 #
@@ -85,4 +86,7 @@ grep -v " InFocus-Drive-mac.zip\$" "$WORK/SHA256SUMS" > "$WORK/SHA256SUMS.new" |
 mv "$WORK/SHA256SUMS.new" "$WORK/SHA256SUMS"
 gh release upload "$TAG" --repo "$REPO" --clobber "$ZIP" "$WORK/SHA256SUMS"
 rm -rf "$WORK"
-echo "Signed, notarized and published InFocus-Drive-mac.zip on $TAG"
+# CI publishes releases as pre-releases; now that the app is notarized, ship it
+# (installed apps and the install scripts follow releases/latest).
+gh release edit "$TAG" --repo "$REPO" --prerelease=false --latest >/dev/null
+echo "Signed, notarized and published InFocus-Drive-mac.zip on $TAG (now Latest)"
