@@ -112,6 +112,9 @@ func (f *FS) create(ctx context.Context, name string) (webdav.File, error) {
 		return nil, err // unsure whether it exists: never risk replacing it
 	}
 	isNew := err != nil
+	if err == nil && existing.local != nil && existing.local.pending {
+		f.stopWaiting(t.key()) // its content is arriving (an upload can outlast the grace period)
+	}
 	tmp, err := f.local.tempFile()
 	if err != nil {
 		return nil, err

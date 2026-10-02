@@ -629,6 +629,17 @@ func (f *FS) finishLater(t target) {
 	})
 }
 
+// stopWaiting cancels key's grace-period timer: its content is being written.
+// If that write fails, the placeholder goes with it (see writeFile.Close).
+func (f *FS) stopWaiting(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if w, ok := f.waiting[key]; ok {
+		w.timer.Stop()
+		delete(f.waiting, key)
+	}
+}
+
 // finishLaterName is finishLater for a WebDAV name (an UNLOCK).
 func (f *FS) finishLaterName(name string) {
 	if t, err := f.resolve(context.Background(), name); err == nil {

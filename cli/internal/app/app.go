@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -45,6 +46,7 @@ type Env struct {
 	ConfigDir   string
 	Tokens      config.TokenStore
 	HTTP        *http.Client
+	Bulk        *http.Client // large transfers (optional; default HTTP)
 	OpenBrowser func(string) error
 	RunEditor   func(path string) error
 	DeviceName  func() string
@@ -293,7 +295,7 @@ func (r *runner) signedIn() (*api.Client, error) {
 		share = r.cfg.Share
 	}
 	r.client = &api.Client{
-		Base: server, Token: token, Share: share, HTTP: r.env.HTTP,
+		Base: server, Token: token, Share: share, HTTP: r.env.HTTP, Bulk: r.env.Bulk,
 		UserAgent: "infocus-cli/" + Version,
 	}
 	return r.client, nil
@@ -340,6 +342,7 @@ func DefaultEnv() (Env, error) {
 		ConfigDir:   dir,
 		Tokens:      config.Keychain{},
 		HTTP:        &http.Client{Transport: traceUpstream(fastTransport())},
+		Bulk:        &http.Client{Transport: traceUpstream(bulkTransport())},
 		OpenBrowser: openBrowser,
 		ReadSecret:  readSecret,
 		RunEditor:   runEditor,
@@ -360,6 +363,24 @@ func fastTransport() *http.Transport {
 	t.ReadBufferSize = 256 << 10
 	t.WriteBufferSize = 256 << 10
 	t.HTTP2 = &http.HTTP2Config{SendPingTimeout: 15 * time.Second, PingTimeout: 10 * time.Second}
+	return t
+}
+
+// bulkTransport carries large transfers (upload bodies, downloads) on their
+// own HTTP/1.1 connections, closed after 30 s idle. Each transfer then runs on
+// fresh TCP connections with their own congestion state: sharing the one
+// long-lived HTTP/2 connection, an app that had been up an hour (through a
+// network change) uploaded at ~10 MB/s where fresh connections did ~45, since
+// TCP that has seen losses ramps up slowly after every pause.
+func bulkTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.ForceAttemptHTTP2 = false
+	t.TLSClientConfig = &tls.Config{NextProtos: []string{"http/1.1"}}
+	t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	t.MaxIdleConnsPerHost = 16
+	t.IdleConnTimeout = 30 * time.Second
+	t.ReadBufferSize = 256 << 10
+	t.WriteBufferSize = 256 << 10
 	return t
 }
 

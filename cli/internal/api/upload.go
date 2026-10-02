@@ -107,7 +107,7 @@ func (c *Client) uploadSimple(ctx context.Context, dir, name string, body io.Rea
 		}
 		pw.CloseWithError(err)
 	}()
-	req, err := c.newRequest(ctx, http.MethodPost, "/api/upload", nil, pr)
+	req, err := c.newBulkRequest(ctx, http.MethodPost, "/api/upload", nil, pr)
 	if err != nil {
 		pr.Close()
 		return Entry{}, err
@@ -291,7 +291,7 @@ func (c *Client) sendChunkWithRetry(ctx context.Context, session ChunkSession, f
 
 func (c *Client) sendChunk(ctx context.Context, uploadID string, index int, body io.Reader, length int64) error {
 	q := url.Values{"upload_id": {uploadID}, "index": {strconv.Itoa(index)}}
-	req, err := c.newRequest(ctx, http.MethodPut, "/api/upload/chunk", q, body)
+	req, err := c.newBulkRequest(ctx, http.MethodPut, "/api/upload/chunk", q, body)
 	if err != nil {
 		return err
 	}

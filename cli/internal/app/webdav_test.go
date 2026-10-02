@@ -1067,3 +1067,25 @@ func TestWebdavFailedEmptyCreateIsReported(t *testing.T) {
 		return false
 	})
 }
+
+// A new file's content taking longer to upload than the grace period must not
+// also create the empty file meanwhile.
+func TestWebdavSlowUploadCreatesNoEmptyFileMidway(t *testing.T) {
+	h := newDavHarness(t)
+	h.fs.PendingGrace = 50 * time.Millisecond
+	file := h.url("InFocus Drive", "slow.mov")
+	h.do(t, "PUT", file, "")
+	h.set(func(d *fakeDrive) { d.upDelay = 300 * time.Millisecond })
+	_, uploads0, _ := h.counts()
+	movie := strings.Repeat("m", api.ChunkThreshold+1) // chunked, so slow
+	if code, _ := h.do(t, "PUT", file, movie); code/100 != 2 {
+		t.Fatalf("PUT: %d", code)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, uploads, _ := h.counts(); uploads-uploads0 != 1 {
+		t.Fatalf("%d uploads for one file, want 1 (no empty file while the content uploaded)", uploads-uploads0)
+	}
+	if got, _ := h.driveHas("slow.mov"); got != movie {
+		t.Fatalf("slow.mov has %d bytes", len(got))
+	}
+}

@@ -29,12 +29,30 @@ func (e *Error) Error() string {
 
 // Client talks to one Drive server as one signed-in user.
 type Client struct {
-	Base      *url.URL
-	Token     string
-	Share     string
-	HTTP      *http.Client
+	Base  *url.URL
+	Token string
+	Share string
+	HTTP  *http.Client
+	// Bulk carries large transfers (downloads, upload bodies) when set; see
+	// newBulkRequest. Default: HTTP.
+	Bulk      *http.Client
 	UserAgent string
 	LAN       *LANRoute // optional: use the Drive's LAN address when set
+}
+
+type bulkKey struct{}
+
+// newBulkRequest is newRequest for a large transfer, which goes over Bulk.
+func (c *Client) newBulkRequest(ctx context.Context, method, endpoint string, query url.Values, body io.Reader) (*http.Request, error) {
+	return c.newRequest(context.WithValue(ctx, bulkKey{}, true), method, endpoint, query, body)
+}
+
+// clientFor picks the connections req goes over.
+func (c *Client) clientFor(req *http.Request) *http.Client {
+	if c.Bulk != nil && req.Context().Value(bulkKey{}) != nil {
+		return c.Bulk
+	}
+	return c.httpClient()
 }
 
 // Entry is one file or folder, as returned by /api/files and friends.
@@ -157,7 +175,7 @@ func (c *Client) newRequest(ctx context.Context, method, endpoint string, query 
 
 // do sends req and turns non-2xx responses into *Error.
 func (c *Client) do(req *http.Request) (*http.Response, error) {
-	res, err := c.httpClient().Do(req)
+	res, err := c.clientFor(req).Do(req)
 	// The caller gave up: says nothing about the LAN (a timeout does).
 	cancelled := err != nil && errors.Is(req.Context().Err(), context.Canceled)
 	if c.LAN.carried(req) && !cancelled && (err != nil || res.StatusCode == http.StatusUnauthorized) {
@@ -290,7 +308,7 @@ func (c *Client) DownloadVersionFrom(ctx context.Context, p string, offset int64
 }
 
 func (c *Client) streamFrom(ctx context.Context, endpoint string, query url.Values, offset int64) (io.ReadCloser, string, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, endpoint, query, nil)
+	req, err := c.newBulkRequest(ctx, http.MethodGet, endpoint, query, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -345,7 +363,7 @@ func (c *Client) SpeedTestRange(ctx context.Context, size, offset, length int64)
 
 // SpeedTestUpload sends one piece (at most 32 MiB) that the Drive discards.
 func (c *Client) SpeedTestUpload(ctx context.Context, body io.Reader, length int64) error {
-	req, err := c.newRequest(ctx, http.MethodPost, "/api/speedtest/upload", nil, body)
+	req, err := c.newBulkRequest(ctx, http.MethodPost, "/api/speedtest/upload", nil, body)
 	if err != nil {
 		return err
 	}
@@ -355,7 +373,7 @@ func (c *Client) SpeedTestUpload(ctx context.Context, body io.Reader, length int
 }
 
 func (c *Client) chunk(ctx context.Context, endpoint string, query url.Values, offset, length int64) ([]byte, string, error) {
-	req, err := c.newRequest(ctx, http.MethodGet, endpoint, query, nil)
+	req, err := c.newBulkRequest(ctx, http.MethodGet, endpoint, query, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -381,7 +399,7 @@ func (c *Client) DownloadZip(ctx context.Context, paths ...string) (io.ReadClose
 	for _, p := range paths {
 		q.Add("path", CleanPath(p))
 	}
-	req, err := c.newRequest(ctx, http.MethodGet, "/api/download/zip", q, nil)
+	req, err := c.newBulkRequest(ctx, http.MethodGet, "/api/download/zip", q, nil)
 	if err != nil {
 		return nil, err
 	}

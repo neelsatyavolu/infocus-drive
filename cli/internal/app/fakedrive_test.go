@@ -56,6 +56,7 @@ type fakeDrive struct {
 	truncate   map[string]int // path → download is cut off after N bytes
 	rangeBytes int64          // bytes asked for by ranged downloads
 	meDelay    time.Duration  // /api/me answers this late (UGOS can be slow)
+	upDelay    time.Duration  // each chunk of a chunked upload takes this long
 
 	// The personal folder ~student1: UGOS encryption.
 	personalLocked bool
@@ -113,11 +114,14 @@ func join(dir, name string) string {
 }
 
 func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/api/me" {
+	if r.URL.Path == "/api/me" || r.URL.Path == "/api/upload/chunk" {
 		d.mu.Lock()
 		delay := d.meDelay
+		if r.URL.Path != "/api/me" {
+			delay = d.upDelay
+		}
 		d.mu.Unlock()
-		time.Sleep(delay) // without the lock: only /api/me is slow
+		time.Sleep(delay) // without the lock: only this request is slow
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
