@@ -195,3 +195,33 @@ final class DownloadTests: XCTestCase {
         XCTAssertEqual(PortalDownloads.uniqueDestination(for: "", in: folder) { _ in false }.path, "/tmp/dl/Download")
     }
 }
+
+final class MoveToApplicationsTests: XCTestCase {
+    let home = URL(fileURLWithPath: "/Users/student1")
+
+    func testInstalledOnlyInsideAnApplicationsFolder() {
+        XCTAssertTrue(MoveToApplications.isInstalled(URL(fileURLWithPath: "/Applications/InFocus.app"), home: home))
+        XCTAssertTrue(MoveToApplications.isInstalled(URL(fileURLWithPath: "/Applications/Utilities/InFocus.app"), home: home))
+        XCTAssertTrue(MoveToApplications.isInstalled(URL(fileURLWithPath: "/Users/student1/Applications/InFocus.app"), home: home))
+        XCTAssertFalse(MoveToApplications.isInstalled(URL(fileURLWithPath: "/Users/student1/Downloads/InFocus Drive.app"), home: home))
+        XCTAssertFalse(MoveToApplications.isInstalled(
+            URL(fileURLWithPath: "/private/var/folders/ab/T/AppTranslocation/1234/d/InFocus Drive.app"), home: home))
+        XCTAssertFalse(MoveToApplications.isInstalled(URL(fileURLWithPath: "/ApplicationsBackup/InFocus.app"), home: home))
+    }
+
+    func testOffersOnlyForAForegroundAppBundleOutsideApplications() {
+        let download = URL(fileURLWithPath: "/Users/student1/Downloads/InFocus Drive.app")
+        XCTAssertTrue(MoveToApplications.shouldOffer(bundle: download, home: home, background: false, declined: false))
+        XCTAssertFalse(MoveToApplications.shouldOffer(bundle: download, home: home, background: true, declined: false))
+        XCTAssertFalse(MoveToApplications.shouldOffer(bundle: download, home: home, background: false, declined: true))
+        XCTAssertFalse(MoveToApplications.shouldOffer(bundle: URL(fileURLWithPath: "/Applications/InFocus.app"),
+                                                      home: home, background: false, declined: false))
+        XCTAssertFalse(MoveToApplications.shouldOffer(bundle: URL(fileURLWithPath: "/tmp/.build/debug"),
+                                                      home: home, background: false, declined: false))
+    }
+
+    func testNonAdminsGetTheirOwnApplicationsFolder() {
+        XCTAssertEqual(MoveToApplications.destinationFolder(home: home, systemWritable: true).path, "/Applications")
+        XCTAssertEqual(MoveToApplications.destinationFolder(home: home, systemWritable: false).path, "/Users/student1/Applications")
+    }
+}

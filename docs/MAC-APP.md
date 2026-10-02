@@ -12,6 +12,17 @@ involved, and it needs no NAS port, NAS WebDAV or extra Cloudflare hostname.
 
 ## Install
 
+The easy way: in the Portal, **Settings → InFocus for Mac → Download for Mac**
+(the latest release's `InFocus-Drive-mac.zip`). Open the download; macOS asks
+once whether to open an app from the internet. On that first open from outside
+an Applications folder the app offers **Move to Applications**
+(`MoveToApplications.swift`): it copies itself to `/Applications/InFocus.app`
+(or `~/Applications` when `/Applications` isn't writable, e.g. a non-admin
+account), replaces any older InFocus / InFocus Drive copy there, moves the
+download to the Trash and relaunches. **Not Now** keeps running where it is
+(updates, the rename and start at login need Applications); **Don't ask again**
+stops the prompt. Then **Sign in with Google**, **Allow** notifications, and approve Drive.
+
 On the Drive website open **Mac app & CLI** in the sidebar, or paste in Terminal:
 
 ```sh

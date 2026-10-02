@@ -48,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in self?.showMainWindow() }
         }
+        // A fresh download offers to move itself first (relaunches from Applications).
+        MoveToApplications.offerIfNeeded()
         LoginItem.migrate()
         LoginItem.reRegisterAfterRename()
         _ = drive // start connecting now, whether or not any UI is visible
