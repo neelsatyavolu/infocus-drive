@@ -267,3 +267,21 @@ def test_app_bundle_executables_stay_runnable(share_tree):
         modes = {i.filename: i.external_attr >> 16 for i in zf.infolist()}
     assert modes["Camp/Install Graphics.app/Contents/MacOS/applet"] == 0o100755
     assert modes["Camp/Install Graphics.app/Contents/Info.plist"] == 0o100644
+
+
+def test_on_disk_execute_bits_are_ignored(share_tree):
+    """The NAS share reports every file as 0777, so only the name decides: photos must not unzip executable."""
+    photo = share_tree / "Camp" / "Standby.png"
+    photo.write_bytes(b"\x89PNG")
+    photo.chmod(0o777)
+    entries = fsops.collect_zip_entries(
+        ["Camp"],
+        uid=0,
+        gid=0,
+        max_files=100,
+        max_total=8 * 1024**3,
+    )
+    blob = b"".join(stream_zip_store(entries))
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        modes = {i.filename: i.external_attr >> 16 for i in zf.infolist()}
+    assert modes["Camp/Standby.png"] == 0o100644

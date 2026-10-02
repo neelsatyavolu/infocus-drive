@@ -40,13 +40,9 @@ def _is_app_program(path: Path) -> bool:
     return path.parent.name == "MacOS" and contents.name == "Contents" and contents.parent.suffix.lower() == ".app"
 
 
-def _unix_mode(path: Path, st_mode: int) -> int:
-    """rwxr-xr-x for scripts, app programs and files already executable on disk; rw-r--r-- otherwise."""
-    executable = (
-        path.suffix.lower() in _EXECUTABLE_SUFFIXES
-        or _is_app_program(path)
-        or bool(st_mode & 0o111)
-    )
+def _unix_mode(path: Path) -> int:
+    """rwxr-xr-x for scripts and app programs; rw-r--r-- otherwise. On-disk bits are ignored: the NAS reports 0777."""
+    executable = path.suffix.lower() in _EXECUTABLE_SUFFIXES or _is_app_program(path)
     return stat.S_IFREG | (0o755 if executable else 0o644)
 
 
@@ -207,7 +203,7 @@ def stream_zip_store(entries: list[tuple[str, Path]]) -> Iterator[bytes]:
             0,
             0,
             0,
-            _unix_mode(path, st.st_mode) << 16,
+            _unix_mode(path) << 16,
             cd_plan["cd_offset"],
         )
         central += name_b
