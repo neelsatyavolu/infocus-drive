@@ -1,12 +1,11 @@
-#if DEBUG
 import Foundation
 
-/// Fictional announcements for DEBUG stub sessions (screenshots, previews). No real people.
+/// Fictional announcements for the App Review sample app (`SampleMode`), screenshots and previews. No real people.
 extension AnnouncementsAPI {
     static let stub = AnnouncementsAPI(
         slackFeed: { AnnouncementsStubData.feed },
         submitted: { AnnouncementsStubData.board },
-        deleteSubmitted: { _ in },
+        deleteSubmitted: { _ in SampleMode.notSaved() },
         invite: { _, sendEmail, _ in
             SubmittedInvite(shareUrl: "https://portal.example.com/announcements/shared?token=example", emailed: sendEmail ? 2 : nil)
         },
@@ -87,4 +86,3 @@ enum AnnouncementsStubData {
                        submittedAt: "2026-09-28T17:30:00.000Z", mediaLink: media, moreInfo: "")
     }
 }
-#endif

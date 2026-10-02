@@ -10,6 +10,10 @@ struct SettingsScreen: View {
     @State private var notifications: PushRegistrar.Status?
     @State private var testResult: String?
     @State private var confirmingSignOut = false
+    @State private var confirmingDelete = false
+
+    /// Deletion requests go to InFocus (the adviser manages accounts).
+    static let deletionRequestURL = URL(string: "https://infocusnews.tv/contact-us/")!
 
     var body: some View {
         @Bindable var preferences = preferences
@@ -19,7 +23,9 @@ struct SettingsScreen: View {
                     LabeledContent("Name", value: user.name)
                     LabeledContent("Email", value: user.email)
                     LabeledContent("Role", value: user.roleLabel)
-                    Button("Profile and email settings") { router.openPortal("settings", title: "Portal settings") }
+                    if !user.sampleOnly {
+                        Button("Profile and email settings") { router.openPortal("settings", title: "Portal settings") }
+                    }
                 }
             }
             Section {
@@ -41,11 +47,18 @@ struct SettingsScreen: View {
                 LabeledContent("Version", value: "\(AppConfig.appVersion) (\(Self.build))")
                 if let portal = AppConfig.shared.portalURL {
                     Link("Privacy policy", destination: portal.appendingPathComponent("privacy"))
+                    Link("Support", destination: portal.appendingPathComponent("support"))
                 }
             }
             Section {
                 Button("Sign out", role: .destructive) { confirmingSignOut = true }
                     .frame(maxWidth: .infinity)
+            }
+            Section {
+                Button("Delete account", role: .destructive) { confirmingDelete = true }
+                    .frame(maxWidth: .infinity)
+            } footer: {
+                Text("InFocus Portal accounts are created and managed by the InFocus class. The adviser deletes an account and its data when you ask.")
             }
         }
         .font(.bodyText)
@@ -62,6 +75,11 @@ struct SettingsScreen: View {
             Button("Sign out", role: .destructive) { model.signOut() }
         } message: {
             Text("This iPhone stops getting Portal notifications until you sign in again.")
+        }
+        .confirmationDialog("Delete your account?", isPresented: $confirmingDelete, titleVisibility: .visible) {
+            Button("Request deletion", role: .destructive) { Presenter.showSafari(Self.deletionRequestURL) }
+        } message: {
+            Text("The InFocus adviser deletes your Portal account and its data (uploads, comments, grades and messages). Send the request from the InFocus contact page.")
         }
     }
 

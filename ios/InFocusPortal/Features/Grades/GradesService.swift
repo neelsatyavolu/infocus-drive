@@ -1,34 +1,28 @@
 import Foundation
 
-/// Every Portal call the Grades area makes. In a DEBUG stub session
-/// (`-InFocusStubSession`) it answers from fictional fixtures instead, so the
+/// Every Portal call the Grades area makes. In the sample app
+/// (`SampleMode`) it answers from fictional fixtures instead, so the
 /// screens can be shown without a Portal.
 struct GradesService {
     let client: PortalClient
 
     func grades() async throws -> GradesMe {
-        #if DEBUG
         if Self.stubbed { return try GradesFixtures.decode(GradesMe.self, GradesFixtures.gradesJSON) }
-        #endif
         return try await client.get("api/grades/me")
     }
 
     func extensionRequests() async throws -> ExtensionRequestsPayload {
-        #if DEBUG
         if Self.stubbed {
-            let producer = ["associate", "producer", "executive", "admin"].contains(UserDefaults.standard.string(forKey: "InFocusStubSession") ?? "")
+            let producer = ["associate", "producer", "executive", "admin"].contains(UserDefaults.standard.string(forKey: "InFocusStubSession") ?? "associate")
             return try GradesFixtures.decode(ExtensionRequestsPayload.self,
                                              producer ? GradesFixtures.producerExtensionsJSON : GradesFixtures.extensionsJSON)
         }
-        #endif
         return try await client.get("api/extensions/requests")
     }
 
     /// The cycle the student is working on now (preselects the request form).
     func currentCycle() async -> Int? {
-        #if DEBUG
         if Self.stubbed { return 2 }
-        #endif
         struct Gates: Decodable { let cycleNumber: Int? }
         return try? await client.get("api/package-cycle/stage", as: Gates.self).cycleNumber
     }
@@ -52,11 +46,7 @@ struct GradesService {
     }
 
     static var stubbed: Bool {
-        #if DEBUG
-        UserDefaults.standard.string(forKey: "InFocusStubSession") != nil
-        #else
-        false
-        #endif
+        SampleMode.isOn
     }
 }
 

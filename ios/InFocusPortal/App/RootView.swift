@@ -24,7 +24,15 @@ struct RootView: View {
                             message: "Set INFOCUS_PORTAL_HOST in Config/Portal.local.xcconfig and build again.")
             }
         }
+        .overlay(alignment: .bottom) {
+            if let notice = model.sampleNotice {
+                SampleNoticeView(text: notice)
+                    .padding(.bottom, 96)
+                    .transition(.opacity)
+            }
+        }
         .animation(.easeOut(duration: 0.25), value: model.phase)
+        .animation(.easeOut(duration: 0.2), value: model.sampleNotice)
         .environment(model.session)
         .environment(model.router)
         .environment(model.badges)

@@ -35,8 +35,8 @@ struct PortalUser: Equatable, Sendable {
     var role: PlatformRole?
     /// On a Package Cycle roster this cycle (students; associates can be too).
     var onStudentPackage: Bool
-    /// The Apple App Review account: only its sample workspace (Home) and Settings.
-    /// The Portal answers 403 for everything else.
+    /// The Apple App Review account: the whole app runs on fictional data
+    /// (`SampleMode`); the Portal answers 403 for class data on that account.
     var sampleOnly = false
 
     /// The on-screen name: nickname, else the first name.
@@ -63,7 +63,8 @@ struct PortalUser: Equatable, Sendable {
     var doesStudentWork: Bool { !isProducer || (isAssociate && onStudentPackage) }
     /// The student gradebook; EPs, the adviser and the super admin don't have one.
     var seesStudentGrades: Bool { !has(.executiveProducer) }
-    var canManageGrades: Bool { has(.executiveProducer) }
+    /// The sample app shows the Grade Editor too, so reviewers see every screen.
+    var canManageGrades: Bool { has(.executiveProducer) || sampleOnly }
     var canManageAccounts: Bool { has(.executiveProducer) }
 
     var roleLabel: String { sampleOnly ? "Sample account" : role?.label ?? "Student" }
@@ -81,9 +82,18 @@ extension PortalUser {
         case "admin":
             PortalUser(email: "superadmin@example.edu", name: "Admin Example", role: .superAdmin, onStudentPackage: false)
         case "sample":
-            PortalUser(email: "review@example.edu", name: "App Review", role: nil, onStudentPackage: false, sampleOnly: true)
+            .sample(email: "review@example.edu")
         default:
             PortalUser(email: "abby@example.edu", name: "Abby Example", role: nil, onStudentPackage: true)
         }
+    }
+}
+
+extension PortalUser {
+    /// The App Review sample app's person: an associate producer who is also on a
+    /// package, so Packages, Groups and every producer tool appear. Fictional.
+    static func sample(email: String) -> PortalUser {
+        PortalUser(email: email, name: "Otto Example", nickname: "Otto", role: .associateProducer,
+                   onStudentPackage: true, sampleOnly: true)
     }
 }

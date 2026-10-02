@@ -24,10 +24,8 @@ final class SessionStore {
         if state.value == nil { state = .loading }
         do {
             let person = try await client.get("api/profile", as: Profile.self)
-            if person.sampleOnly == true {
-                state = .loaded(PortalUser(email: person.email ?? "", name: person.name ?? "Sample account",
-                                           nickname: person.nickname, role: nil, onStudentPackage: false,
-                                           sampleOnly: true))
+            if person.sampleOnly == true { // the App Review account: the sample app
+                state = .loaded(.sample(email: person.email ?? ""))
                 return
             }
             let platform = try await client.get("api/platform/me", as: PlatformMe.self)

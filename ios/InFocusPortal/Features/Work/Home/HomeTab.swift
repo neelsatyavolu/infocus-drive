@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Home: a greeting, what's due next, the member's package this cycle, the
-/// grade snapshot (students), quick actions and recent activity. The App
-/// Review sample account sees its sample workspace's projects instead.
+/// grade snapshot (students), quick actions and recent activity.
 struct HomeTab: View {
     @Environment(SessionStore.self) private var session
     @Environment(Router.self) private var router
@@ -14,11 +13,7 @@ struct HomeTab: View {
             VStack(alignment: .leading, spacing: 24) {
                 greeting
                 LoadableView(state, retry: { Task { await load() } }) { home in
-                    if session.user?.sampleOnly == true {
-                        SampleProjectsSection(workspaces: home.workspaces)
-                    } else {
-                        content(home)
-                    }
+                    content(home)
                 }
             }
             .padding(Brand.gutter)
@@ -32,7 +27,7 @@ struct HomeTab: View {
     private var greeting: some View {
         VStack(alignment: .leading, spacing: 4) {
             Eyebrow(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-            Text(session.user?.sampleOnly == true ? "Welcome" : "Hi, \(session.user?.displayName ?? "there")")
+            Text("Hi, \(session.user?.displayName ?? "there")")
                 .headline(.h1)
         }
         .accessibilityElement(children: .combine)

@@ -12,6 +12,8 @@ enum PortalError: LocalizedError, Equatable {
     case server(status: Int, message: String)
     /// The Portal answered with JSON this app version doesn't understand.
     case decoding(String)
+    /// The App Review sample app never writes to the Portal (`SampleMode`).
+    case sampleApp
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +24,7 @@ enum PortalError: LocalizedError, Equatable {
         case .server(let status, let message):
             status >= 500 ? "The Portal isn't responding. Try again in a minute." : message
         case .decoding: "This app needs an update to show this. Update InFocus Portal from TestFlight."
+        case .sampleApp: SampleMode.notice
         }
     }
 

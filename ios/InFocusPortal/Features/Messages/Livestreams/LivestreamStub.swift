@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// Fictional livestream schedule for `-InFocusStubSession` screenshots.
@@ -40,8 +39,7 @@ extension LivestreamService {
             events: events)
         return LivestreamService(
             schedule: { await FeatureStub.delay(); return schedule },
-            requestSignup: { _, _ in await FeatureStub.delay() },
-            review: { _, _ in await FeatureStub.delay() })
+            requestSignup: { _, _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            review: { _, _ in await FeatureStub.delay(); SampleMode.notSaved() })
     }()
 }
-#endif

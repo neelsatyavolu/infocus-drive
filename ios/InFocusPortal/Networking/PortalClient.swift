@@ -108,9 +108,14 @@ struct PortalClient: Sendable {
         return request
     }
 
-    /// Sends one request and returns the body of a 2xx answer.
+    /// Sends one request and returns the body of a 2xx answer. The App Review
+    /// sample app only reaches the few Portal paths its account may use.
     func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
-        try await perform(await request(method, path, query: query, body: body))
+        if SampleMode.isOn && !SampleMode.allows(path) {
+            SampleMode.recordBlocked(path)
+            throw PortalError.sampleApp
+        }
+        return try await perform(await request(method, path, query: query, body: body))
     }
 
     func perform(_ request: URLRequest) async throws -> Data {

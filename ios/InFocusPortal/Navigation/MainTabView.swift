@@ -19,6 +19,9 @@ struct MainTabView: View {
             }
         }
         .tint(Brand.green)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if session.user?.sampleOnly == true { SampleStrip() }
+        }
     }
 
     @ViewBuilder

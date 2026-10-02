@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Livestreams endpoints, or stub data for DEBUG screenshots (`FeatureStub`).
+/// The Livestreams endpoints, or fictional data in the sample app (`SampleMode`).
 struct LivestreamService: Sendable {
     var schedule: @Sendable () async throws -> LivestreamSchedule
     var requestSignup: @Sendable (_ eventId: String, _ note: String) async throws -> Void
@@ -21,9 +21,7 @@ struct LivestreamService: Sendable {
     }
 
     static func resolve(_ client: PortalClient) -> LivestreamService {
-        #if DEBUG
         if FeatureStub.isOn { return .stub }
-        #endif
         return .live(client)
     }
 

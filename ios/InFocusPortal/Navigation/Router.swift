@@ -12,20 +12,17 @@ final class Router {
     private(set) var paths: [AppTab: [Route]] = [:]
     /// Where `openPortal` resolves relative paths.
     var portal: URL?
-    /// The App Review sample account: only Home, Settings and Portal pages (the
-    /// Portal sends anything else back to its dashboard).
+    /// The App Review sample app (`SampleMode`): every native screen, but no Portal
+    /// web pages (the account can't see the class's pages on the website).
     var sampleOnly = false
+    /// Called when the sample app refuses a web page (AppModel shows a notice).
+    var onRefused: (() -> Void)?
 
-    func allows(_ tab: AppTab) -> Bool {
-        !sampleOnly || tab == .home || tab == .more
-    }
+    func allows(_ tab: AppTab) -> Bool { true }
 
     func allows(_ route: Route) -> Bool {
-        guard sampleOnly else { return true }
-        switch route {
-        case .more(.settings), .portal: return true
-        default: return false
-        }
+        guard sampleOnly, case .portal = route else { return true }
+        return false
     }
 
     func path(_ tab: AppTab) -> Binding<[Route]> {
@@ -39,7 +36,10 @@ final class Router {
     }
 
     func push(_ route: Route, on tab: AppTab? = nil) {
-        guard allows(route) else { return }
+        guard allows(route) else {
+            onRefused?()
+            return
+        }
         let tab = tab ?? selectedTab
         paths[tab, default: []].append(route)
     }
@@ -57,9 +57,10 @@ final class Router {
         guard let portal else { return }
         let match = DeepLink.resolve(url, portal: portal)
         let tab = match.tab ?? selectedTab
-        guard allows(tab), match.route.map(allows) ?? true else { // not for this account: Home
+        guard allows(tab), match.route.map(allows) ?? true else { // a web page in the sample app: Home
             selectedTab = .home
             paths[.home] = []
+            onRefused?()
             return
         }
         selectedTab = tab

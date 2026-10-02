@@ -2,7 +2,7 @@ import SwiftUI
 
 /// More: grades and extensions, equipment and livestreams, every other Portal
 /// page, and Settings. Rows adapt to the person's role; the App Review sample
-/// account gets Settings only.
+/// app has no Portal web pages.
 struct MoreTab: View {
     @Environment(SessionStore.self) private var session
     @Environment(BadgeCenter.self) private var badges
@@ -13,7 +13,7 @@ struct MoreTab: View {
                 Section {
                     NavigationLink(value: Route.more(.settings)) { ProfileRow(user: user) }
                 }
-                if !user.sampleOnly {
+                Group {
                     Section("Your work") {
                         if user.seesStudentGrades {
                             row("Grades", "chart.bar", .grades(.grades))
@@ -41,8 +41,10 @@ struct MoreTab: View {
                         row("Equipment", "camera", .messages(.equipment))
                         row("Livestreams", "dot.radiowaves.left.and.right", .messages(.livestreams))
                     }
-                    Section("Portal") {
-                        row("All Portal pages", "square.grid.2x2", .more(.portalPages))
+                    if !user.sampleOnly { // the sample app has no Portal web pages
+                        Section("Portal") {
+                            row("All Portal pages", "square.grid.2x2", .more(.portalPages))
+                        }
                     }
                 }
             }

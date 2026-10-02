@@ -1,7 +1,7 @@
 import Foundation
 
-/// The Announcements feature's Portal calls. DEBUG builds launched with `-InFocusStubSession`
-/// read fictional fixtures instead (screenshots never touch the live Portal).
+/// The Announcements feature's Portal calls. The App Review sample app (`SampleMode`)
+/// reads fictional fixtures instead (and so do DEBUG screenshots).
 struct AnnouncementsAPI: Sendable {
     var slackFeed: @Sendable () async throws -> SlackFeed
     var submitted: @Sendable () async throws -> SubmittedBoard
@@ -34,11 +34,9 @@ struct AnnouncementsAPI: Sendable {
         )
     }
 
-    /// Live, or the DEBUG fixtures when the shell runs on a stub session.
+    /// Live, or the fictional fixtures in the sample app (`SampleMode`).
     static func current(_ client: PortalClient) -> AnnouncementsAPI {
-        #if DEBUG
-        if UserDefaults.standard.string(forKey: "InFocusStubSession") != nil { return .stub }
-        #endif
+        if SampleMode.isOn { return .stub }
         return .live(client)
     }
 }

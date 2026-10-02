@@ -2,8 +2,8 @@ import Foundation
 import SwiftUI
 
 /// Every Portal call the Work area makes, in one place. Screens build it from
-/// the environment's client (`workAPI(client)`); DEBUG screenshots swap in
-/// fixtures (`-InFocusWorkStub`), so no screen ever needs a live Portal to render.
+/// the environment's client (`workAPI(client)`); the sample app swaps in
+/// fixtures (`SampleMode`), so no screen ever needs a live Portal to render.
 struct WorkAPI: Sendable {
     var home: @Sendable () async throws -> HomePayload
     var gates: @Sendable () async throws -> StudentGates
@@ -86,11 +86,9 @@ extension WorkAPI {
         )
     }
 
-    /// The live API, or fixtures for DEBUG screenshots (`-InFocusWorkStub`).
+    /// The live API, or fictional fixtures in the sample app (`SampleMode`; DEBUG also `-InFocusWorkStub`).
     static func resolve(_ client: PortalClient) -> WorkAPI {
-        #if DEBUG
-        if UserDefaults.standard.bool(forKey: "InFocusWorkStub") { return .stub }
-        #endif
+        if SampleMode.isOn || UserDefaults.standard.bool(forKey: "InFocusWorkStub") { return .stub }
         return .live(client)
     }
 }
@@ -124,6 +122,6 @@ private struct StageUploadBody: Encodable {
 }
 
 extension View {
-    /// The Work API for this screen: live, or DEBUG fixtures.
+    /// The Work API for this screen: live, or the sample app's fixtures.
     func workAPI(_ client: PortalClient) -> WorkAPI { .resolve(client) }
 }

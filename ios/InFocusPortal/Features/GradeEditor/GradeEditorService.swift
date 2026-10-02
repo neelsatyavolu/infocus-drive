@@ -1,8 +1,8 @@
 import Foundation
 
 /// Every Portal call the Grade Editor makes: the same endpoints and bodies as the
-/// web Grade Editor and Participation pages. In a DEBUG stub session
-/// (`-InFocusStubSession`) it answers from fictional fixtures instead.
+/// web Grade Editor and Participation pages. In the sample app
+/// (`SampleMode`) it answers from fictional fixtures instead.
 struct GradeEditorService {
     let client: PortalClient
 
@@ -11,46 +11,34 @@ struct GradeEditorService {
     // MARK: Reads
 
     func cycle(_ cycleNumber: Int?) async throws -> CycleGrades {
-        #if DEBUG
         if Self.stubbed { return try GradeEditorFixtures.cycle(cycleNumber ?? 2) }
-        #endif
         let query = cycleNumber.map { [URLQueryItem(name: "cycle", value: String($0))] } ?? []
         return try await client.get(Self.admin, query: query)
     }
 
     func totals() async throws -> GradeTotals {
-        #if DEBUG
         if Self.stubbed { return try GradeEditorFixtures.decode(GradeTotals.self, GradeEditorFixtures.totalsJSON) }
-        #endif
         return try await client.get(Self.admin, query: [URLQueryItem(name: "view", value: "totals")])
     }
 
     func missing() async throws -> MissingGrades {
-        #if DEBUG
         if Self.stubbed { return try GradeEditorFixtures.decode(MissingGrades.self, GradeEditorFixtures.missingJSON) }
-        #endif
         return try await client.get(Self.admin, query: [URLQueryItem(name: "view", value: "missing")])
     }
 
     func gradebook(userId: String) async throws -> StudentGradebook {
-        #if DEBUG
         if Self.stubbed { return try GradeEditorFixtures.gradebook(userId) }
-        #endif
         return try await client.get(Self.admin, query: [URLQueryItem(name: "view", value: "student"),
                                                          URLQueryItem(name: "userId", value: userId)])
     }
 
     func participation(weekStart: String) async throws -> ParticipationWeek {
-        #if DEBUG
         if Self.stubbed { return try GradeEditorFixtures.participation(weekStart) }
-        #endif
         return try await client.get("api/participation", query: [URLQueryItem(name: "weekStart", value: weekStart)])
     }
 
     func participationRequests() async throws -> ParticipationRequests {
-        #if DEBUG
         if Self.stubbed { return try GradeEditorFixtures.decode(ParticipationRequests.self, GradeEditorFixtures.requestsJSON) }
-        #endif
         return try await client.get("api/participation/requests")
     }
 
@@ -94,11 +82,7 @@ struct GradeEditorService {
     }
 
     static var stubbed: Bool {
-        #if DEBUG
-        UserDefaults.standard.string(forKey: "InFocusStubSession") != nil
-        #else
-        false
-        #endif
+        SampleMode.isOn
     }
 }
 

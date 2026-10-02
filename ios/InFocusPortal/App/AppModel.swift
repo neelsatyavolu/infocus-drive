@@ -13,6 +13,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var signingIn = false
     @Published var signInError: String?
     @Published var offeringNotifications = false
+    /// A short note at the bottom of the screen ("Sample app: changes aren't saved.").
+    @Published private(set) var sampleNotice: String?
+    private var sampleNoticeTask: Task<Void, Never>?
 
     let config: AppConfig
     let client: PortalClient
@@ -35,6 +38,9 @@ final class AppModel: ObservableObject {
         router.portal = config.portalURL
         signInWeb = config.portalURL.map { PortalWebController(portal: $0) }
         signInWeb?.delegate = self
+        router.onRefused = { [weak self] in
+            self?.showSampleNotice("That page is on the Portal website, not in the sample app.")
+        }
     }
 
     func launch() async {
@@ -79,6 +85,7 @@ final class AppModel: ObservableObject {
         phase = .signedIn
         await session.load(using: client)
         let sampleOnly = session.user?.sampleOnly ?? false
+        SampleMode.set(sampleOnly)
         router.sampleOnly = sampleOnly
         if let page = takePendingPage() { router.open(page) }
         if !sampleOnly { await badges.refresh(using: client) }
@@ -138,6 +145,7 @@ final class AppModel: ObservableObject {
     }
 
     private func resetSignedInState() {
+        SampleMode.set(false)
         session.clear()
         router.reset()
         badges.clear()
@@ -164,6 +172,19 @@ final class AppModel: ObservableObject {
         offeringNotifications = false
         guard turnOn else { return }
         Task { _ = await PushRegistrar.shared.requestPermission() }
+    }
+
+    // MARK: Sample app
+
+    /// Shows `message` briefly at the bottom of the screen (the App Review sample app).
+    func showSampleNotice(_ message: String = SampleMode.notice) {
+        sampleNoticeTask?.cancel()
+        sampleNotice = message
+        sampleNoticeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            guard !Task.isCancelled else { return }
+            self?.sampleNotice = nil
+        }
     }
 
     /// Opening the app clears the icon's badge and refreshes the tab badges.

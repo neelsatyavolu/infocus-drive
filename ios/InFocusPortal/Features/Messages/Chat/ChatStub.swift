@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// Fictional chats for `-InFocusStubSession` screenshots. Never real people.
@@ -46,4 +45,3 @@ extension ChatService {
         )
     }()
 }
-#endif

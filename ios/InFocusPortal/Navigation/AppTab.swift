@@ -6,9 +6,9 @@ enum AppTab: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
-    /// The App Review sample account gets Home and More only.
+    /// Every tab, for every account (the App Review sample app included).
     static func visible(for user: PortalUser?) -> [AppTab] {
-        user?.sampleOnly == true ? [.home, .more] : allCases
+        allCases
     }
 
     func title(for user: PortalUser?) -> String {

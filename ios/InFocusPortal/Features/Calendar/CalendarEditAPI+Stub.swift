@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// Producer calls for `-InFocusStubSession` screenshots: edits live in memory and show up
@@ -47,4 +46,3 @@ final class CalendarStubEdits: @unchecked Sendable {
         return next
     }
 }
-#endif

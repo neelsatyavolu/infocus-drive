@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// Fictional gear for `-InFocusStubSession` screenshots.
@@ -46,11 +45,10 @@ extension EquipmentService {
             access: { EquipmentAccess(signedIn: true, canManage: true) },
             mine: { await FeatureStub.delay(); return mine },
             available: { await FeatureStub.delay(); return available },
-            request: { _ in await FeatureStub.delay() },
+            request: { _ in await FeatureStub.delay(); SampleMode.notSaved() },
             managedRequests: { await FeatureStub.delay(); return requests },
             decide: { _, _ in await FeatureStub.delay() },
             out: { await FeatureStub.delay(); return out },
             outAction: { _, _ in await FeatureStub.delay() })
     }()
 }
-#endif

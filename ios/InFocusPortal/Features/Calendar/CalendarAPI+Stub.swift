@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// Fictional Calendar data for `-InFocusStubSession` screenshots and previews (no real people).
@@ -12,7 +11,7 @@ extension CalendarAPI {
             ClassAnnouncement.Comment(id: UUID().uuidString, body: body, createdAt: Date(),
                                       author: .init(id: "me", name: "Abby"))
         },
-        post: { _ in }
+        post: { _ in SampleMode.notSaved() }
     )
 }
 
@@ -115,4 +114,3 @@ enum CalendarStubData {
         ]
     }
 }
-#endif

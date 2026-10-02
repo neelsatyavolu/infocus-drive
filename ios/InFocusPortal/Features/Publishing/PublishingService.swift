@@ -1,7 +1,7 @@
 import Foundation
 
-/// Every Portal call the Publishing Queue makes. In a DEBUG stub session
-/// (`-InFocusStubSession`) it answers from fictional fixtures instead.
+/// Every Portal call the Publishing Queue makes. In the sample app
+/// (`SampleMode`) it answers from fictional fixtures instead.
 struct PublishingService {
     let client: PortalClient
 
@@ -10,9 +10,7 @@ struct PublishingService {
 
     /// The queue; `candidates` adds final cuts that could be added (producers).
     func queue(candidates: Bool = false) async throws -> QueuePayload {
-        #if DEBUG
         if Self.stubbed { return try PublishingFixtures.queue(candidates: candidates) }
-        #endif
         let query = candidates ? [URLQueryItem(name: "candidates", value: "1")] : []
         return try await client.get(Self.queuePath, query: query)
     }
@@ -24,16 +22,12 @@ struct PublishingService {
     }
 
     func showPublication(date: String) async throws -> ShowPublicationState {
-        #if DEBUG
         if Self.stubbed { return try PublishingFixtures.showPublication(date: date) }
-        #endif
         return try await client.get("api/show-roles/publication", query: [URLQueryItem(name: "date", value: date)])
     }
 
     func managers() async throws -> PublishingManagers {
-        #if DEBUG
         if Self.stubbed { return try PublishingFixtures.managers() }
-        #endif
         return try await client.get(Self.managersPath)
     }
 
@@ -62,10 +56,6 @@ struct PublishingService {
     }
 
     static var stubbed: Bool {
-        #if DEBUG
-        UserDefaults.standard.string(forKey: "InFocusStubSession") != nil
-        #else
-        false
-        #endif
+        SampleMode.isOn
     }
 }

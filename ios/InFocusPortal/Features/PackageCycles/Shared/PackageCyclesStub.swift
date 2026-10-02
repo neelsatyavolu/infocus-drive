@@ -1,4 +1,3 @@
-#if DEBUG
 import Foundation
 
 /// Fictional rosters, cycles and winners for `-InFocusStubSession` screenshots. Edits stick
@@ -123,4 +122,3 @@ extension CycleDates {
                   aRollBRollDate: nil, initialCutDate: nil, finalCutDate: nil)
     }
 }
-#endif

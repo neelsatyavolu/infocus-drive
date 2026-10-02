@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Equipment endpoints, or stub data for DEBUG screenshots (`FeatureStub`).
+/// The Equipment endpoints, or fictional data in the sample app (`SampleMode`).
 struct EquipmentService: Sendable {
     var access: @Sendable () async throws -> EquipmentAccess
     var mine: @Sendable () async throws -> MyEquipment
@@ -32,9 +32,7 @@ struct EquipmentService: Sendable {
     }
 
     static func resolve(_ client: PortalClient) -> EquipmentService {
-        #if DEBUG
         if FeatureStub.isOn { return .stub }
-        #endif
         return .live(client)
     }
 }

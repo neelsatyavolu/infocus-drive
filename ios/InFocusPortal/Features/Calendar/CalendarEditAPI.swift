@@ -1,7 +1,7 @@
 import Foundation
 
 /// Producers' Master Calendar and The Show calls (the Portal checks the role on every one).
-/// DEBUG stub sessions use `CalendarEditAPI.stub`.
+/// The sample app (`SampleMode`) uses `CalendarEditAPI.stub`.
 struct CalendarEditAPI: Sendable {
     /// `POST api/master-calendar`: the cell's whole HTML. Returns what was stored ("" = cell removed).
     var saveCell: @Sendable (_ date: String, _ content: String) async throws -> String
@@ -67,11 +67,9 @@ struct CalendarEditAPI: Sendable {
 
     private static func dateQuery(_ key: String) -> [URLQueryItem] { [URLQueryItem(name: "date", value: key)] }
 
-    /// Live, or the DEBUG fixtures when the shell runs on a stub session.
+    /// Live, or the fictional fixtures in the sample app (`SampleMode`).
     static func current(_ client: PortalClient) -> CalendarEditAPI {
-        #if DEBUG
-        if UserDefaults.standard.string(forKey: "InFocusStubSession") != nil { return .stub }
-        #endif
+        if SampleMode.isOn { return .stub }
         return .live(client)
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Messages endpoints, or stub data for DEBUG screenshots (`FeatureStub`).
+/// The Messages endpoints, or fictional data in the sample app (`SampleMode`).
 struct ChatService: Sendable {
     var inbox: @Sendable () async throws -> ChatInbox
     var thread: @Sendable (_ chatId: String) async throws -> ChatThread
@@ -20,9 +20,7 @@ struct ChatService: Sendable {
     }
 
     static func resolve(_ client: PortalClient) -> ChatService {
-        #if DEBUG
         if FeatureStub.isOn { return .stub }
-        #endif
         return .live(client)
     }
 }

@@ -1,7 +1,6 @@
 import Foundation
 
-#if DEBUG
-/// Fictional Portal answers for DEBUG stub sessions and previews: never real people.
+/// Fictional Portal answers for the App Review sample app (`SampleMode`) and previews: never real people.
 enum GradesFixtures {
     static func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try PortalJSON.decoder().decode(PortalJSON.DataEnvelope<T>.self, from: Data(json.utf8)).data
@@ -118,4 +117,3 @@ enum GradesFixtures {
     }}
     """#
 }
-#endif

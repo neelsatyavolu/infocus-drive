@@ -1,6 +1,6 @@
 import Foundation
 
-/// Fictional Grade Editor data for DEBUG stub sessions and tests. Placeholder
+/// Fictional Grade Editor data for the App Review sample app (`SampleMode`) and tests. Placeholder
 /// names only (never real students).
 enum GradeEditorFixtures {
     static func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {

@@ -1,15 +1,10 @@
 import Foundation
 
-/// Messages, Equipment and Livestreams read stub data instead of the Portal while the
-/// DEBUG launch argument `-InFocusStubSession` is set (simulator screenshots). Release
-/// builds always talk to the Portal.
+/// Messages, Equipment and Livestreams read fictional data instead of the Portal in the
+/// App Review sample app (`SampleMode`).
 enum FeatureStub {
     static var isOn: Bool {
-        #if DEBUG
-        UserDefaults.standard.string(forKey: "InFocusStubSession") != nil
-        #else
-        false
-        #endif
+        SampleMode.isOn
     }
 
     /// A short pause so stub screens show their loading state the way the Portal would.

@@ -121,45 +121,124 @@ final class PortalPagesCatalogTests: XCTestCase {
 final class SampleAccountTests: XCTestCase {
     private let portal = URL(string: "https://portal.example.edu")!
 
-    func testOnlyHomeAndMore() {
-        XCTAssertEqual(AppTab.visible(for: .stub("sample")), [.home, .more])
-        XCTAssertEqual(AppTab.visible(for: .stub("student")), AppTab.allCases)
-        XCTAssertEqual(PortalUser.stub("sample").roleLabel, "Sample account")
+    override func tearDown() {
+        SampleMode.set(false)
+        SampleMode.resetBlocked()
+        StubProtocol.handler = nil
+        super.tearDown()
+    }
+
+    private func recordingClient(_ paths: @escaping @Sendable (String) -> Void) -> PortalClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubProtocol.self]
+        StubProtocol.handler = { request in
+            paths(request.url?.path ?? "")
+            return (200, Data(#"{"data":{}}"#.utf8))
+        }
+        return PortalClient(portal: portal, session: URLSession(configuration: config), cookies: { [] })
+    }
+
+    func testTheSampleAppShowsEveryTabAndTool() {
+        let sample = PortalUser.sample(email: "review@example.edu")
+        XCTAssertEqual(AppTab.visible(for: sample), AppTab.allCases)
+        XCTAssertTrue(sample.isProducer)
+        XCTAssertTrue(sample.doesStudentWork)
+        XCTAssertTrue(sample.seesStudentGrades)
+        XCTAssertTrue(sample.canManageGrades)
+        XCTAssertEqual(sample.roleLabel, "Sample account")
+        XCTAssertFalse(PortalUser.stub("student").canManageGrades)
     }
 
     @MainActor
-    func testRouterKeepsTheSampleAccountOnHomeAndSettings() {
+    func testRouterRefusesPortalWebPagesInTheSampleApp() {
         let router = Router()
         router.portal = portal
         router.sampleOnly = true
+        var refused = 0
+        router.onRefused = { refused += 1 }
         router.open(URL(string: "https://portal.example.edu/groups/row1")!)
+        XCTAssertEqual(router.selectedTab, .work)
+        router.openPortal("teleprompter")
+        XCTAssertEqual(refused, 1)
+        router.open(URL(string: "https://portal.example.edu/teleprompter")!)
         XCTAssertEqual(router.selectedTab, .home)
-        XCTAssertEqual(router.path(.work).wrappedValue, [])
-        router.push(.grades(.grades))
-        XCTAssertEqual(router.path(.home).wrappedValue, [])
-        router.open(URL(string: "https://portal.example.edu/settings")!)
-        XCTAssertEqual(router.selectedTab, .more)
-        XCTAssertEqual(router.path(.more).wrappedValue, [.more(.settings)])
+        XCTAssertEqual(refused, 2)
         router.reset()
         XCTAssertFalse(router.sampleOnly)
     }
 
     @MainActor
     func testSessionLoadsTheSampleAccountFromProfileAlone() async {
+        var paths: [String] = []
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubProtocol.self]
         let client = PortalClient(portal: portal, session: URLSession(configuration: config), cookies: { [] })
-        var paths: [String] = []
         StubProtocol.handler = { request in
             paths.append(request.url?.path ?? "")
             return (200, Data(#"{"data":{"email":"review@example.edu","name":"App Review","nickname":null,"sampleOnly":true}}"#.utf8))
         }
-        defer { StubProtocol.handler = nil }
         let session = SessionStore()
         await session.load(using: client)
         XCTAssertEqual(session.user?.sampleOnly, true)
-        XCTAssertEqual(paths, ["/api/profile"]) // never the 403 areas
+        XCTAssertEqual(session.user?.role, .associateProducer)
+        XCTAssertEqual(paths, ["/api/profile"]) // never the class data
     }
+
+    func testTheSampleClientOnlyReachesItsOwnPaths() async throws {
+        SampleMode.set(true)
+        let seen = PathLog()
+        let client = recordingClient { seen.add($0) }
+        do {
+            let _: PortalJSON.Empty = try await client.get("api/groups")
+            XCTFail("class data must not be fetched")
+        } catch let error as PortalError {
+            XCTAssertEqual(error, .sampleApp)
+        }
+        do {
+            try await client.post("api/package-progress/row1/approval", body: ["decision": "approve"])
+            XCTFail("writes must not reach the Portal")
+        } catch let error as PortalError {
+            XCTAssertEqual(error, .sampleApp)
+        }
+        let _: PortalJSON.Empty = try await client.get("api/profile")
+        try await client.post("api/push/native-device/test", body: ["x": "y"])
+        XCTAssertEqual(seen.paths, ["/api/profile", "/api/push/native-device/test"])
+        XCTAssertEqual(SampleMode.blocked, ["api/groups", "api/package-progress/row1/approval"])
+    }
+
+    func testEveryFeatureReadsFixturesInTheSampleApp() async throws {
+        SampleMode.set(true)
+        let seen = PathLog()
+        let client = recordingClient { seen.add($0) }
+        _ = try await WorkAPI.resolve(client).home()
+        _ = try await CalendarAPI.current(client).month("2026-10")
+        _ = try await AnnouncementsAPI.current(client).submitted()
+        _ = try await AnnouncementsAPI.current(client).pa()
+        _ = try await ChatService.resolve(client).inbox()
+        _ = try await EquipmentService.resolve(client).mine()
+        _ = try await LivestreamService.resolve(client).schedule()
+        _ = try await GradesService(client: client).grades()
+        _ = try await GradeEditorService(client: client).cycle(2)
+        _ = try await PublishingService(client: client).queue()
+        _ = try await PackageCyclesService(client: client).roster(cycle: 2)
+        XCTAssertEqual(seen.paths, [], "the sample app must never fetch class data")
+        XCTAssertEqual(SampleMode.blocked, [])
+    }
+
+    func testRealAccountsNeverUseTheSampleApp() {
+        SampleMode.set(false)
+        XCTAssertFalse(SampleMode.isOn)
+        XCTAssertTrue(SampleMode.allows("api/push/native-device"))
+        XCTAssertFalse(SampleMode.allows("api/hub-chat"))
+    }
+}
+
+/// Paths a stubbed URLSession saw (thread-safe).
+final class PathLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var list: [String] = []
+    func add(_ path: String) { lock.withLock { list.append(path) } }
+    var paths: [String] { lock.withLock { list } }
 }
 
 final class EmbeddedCookieTests: XCTestCase {

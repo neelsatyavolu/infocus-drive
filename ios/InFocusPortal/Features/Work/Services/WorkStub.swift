@@ -1,7 +1,6 @@
-#if DEBUG
 import Foundation
 
-/// Fictional data for DEBUG screenshots (`-InFocusWorkStub YES`): no Portal, no real people.
+/// Fictional data for the App Review sample app (`SampleMode`) and screenshots: no Portal, no real people.
 extension WorkAPI {
     static let stub = WorkAPI(
         home: { WorkStub.home },
@@ -10,12 +9,12 @@ extension WorkAPI {
         groups: { _ in WorkStub.groups },
         brainstorm: { _ in WorkStub.brainstorm },
         comments: { _, _ in StageComments(comments: WorkStub.comments, unread: 0) },
-        postComment: { _, _, _ in },
-        decide: { _ in },
-        saveDocLink: { _, _ in },
-        uploadProof: { _, _, _ in },
-        startUpload: { _ in throw PortalError.server(status: 400, message: "Uploads are off in screenshots.") },
-        finishUpload: { _, _ in },
+        postComment: { _, _, _ in SampleMode.notSaved() },
+        decide: { _ in SampleMode.notSaved() },
+        saveDocLink: { _, _ in SampleMode.notSaved() },
+        uploadProof: { _, _, _ in SampleMode.notSaved() },
+        startUpload: { _ in throw PortalError.sampleApp },
+        finishUpload: { _, _ in SampleMode.notSaved() },
         data: { _ in Data() }
     )
 }
@@ -115,4 +114,3 @@ enum WorkStub {
                           proofs: [ProofView(id: "pr1", slot: 1, fileName: "email.jpg", imageUrl: "/api/brainstorming/proofs/pr1/image")]),
     ])
 }
-#endif

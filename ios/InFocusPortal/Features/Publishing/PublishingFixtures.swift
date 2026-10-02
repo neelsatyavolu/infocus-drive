@@ -1,7 +1,6 @@
-#if DEBUG
 import Foundation
 
-/// Fictional queue data for DEBUG stub sessions (screenshots, previews).
+/// Fictional queue data for the App Review sample app (`SampleMode`), screenshots and previews.
 enum PublishingFixtures {
     static func decode<T: Decodable>(_ type: T.Type, _ json: String) throws -> T {
         try PortalJSON.decoder().decode(PortalJSON.DataEnvelope<T>.self, from: Data(json.utf8)).data
@@ -66,4 +65,3 @@ enum PublishingFixtures {
       {"id":"row-sustain","cycleNumber":2,"groupTopic":"Sustainability at school","custom":false,"members":["Otto"]}]
     """#
 }
-#endif
