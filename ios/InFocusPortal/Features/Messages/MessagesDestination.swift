@@ -6,12 +6,14 @@ struct MessagesDestination: View {
 
     var body: some View {
         switch route {
-        case .conversation:
-            MessagesTab()
+        case .conversation(let id):
+            ChatScreen(chatId: id)
         case .equipment:
             EquipmentScreen()
-        case .livestreams, .livestream:
+        case .livestreams:
             LivestreamsScreen()
+        case .livestream(let id):
+            LivestreamDetailScreen(eventId: id)
         }
     }
 }
