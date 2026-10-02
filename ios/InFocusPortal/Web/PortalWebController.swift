@@ -105,7 +105,27 @@ final class PortalWebController: NSObject, ObservableObject {
 
     func load(_ url: URL) {
         failure = nil
-        webView.load(URLRequest(url: url))
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        Task {
+            // The app brings its own navigation: the Portal leaves out its sidebar and header.
+            if let cookie = Self.embeddedCookie(portal: portal) { await store.setCookie(cookie) }
+            webView.load(URLRequest(url: url))
+        }
+    }
+
+    /// `infocus_embedded=1` (the Portal's EMBEDDED_APP_COOKIE, src/lib/embedded-app.ts).
+    nonisolated static func embeddedCookie(portal: URL, now: Date = Date()) -> HTTPCookie? {
+        guard let host = portal.host else { return nil }
+        var properties: [HTTPCookiePropertyKey: Any] = [
+            .name: "infocus_embedded",
+            .value: "1",
+            .domain: host,
+            .path: "/",
+            .expires: now.addingTimeInterval(365 * 24 * 60 * 60),
+            .sameSitePolicy: HTTPCookieStringPolicy.sameSiteLax.rawValue,
+        ]
+        if portal.scheme == "https" { properties[.secure] = "TRUE" }
+        return HTTPCookie(properties: properties)
     }
 
     /// Retry from the offline screen: the page that failed, or the dashboard.

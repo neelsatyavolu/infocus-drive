@@ -161,3 +161,13 @@ final class SampleAccountTests: XCTestCase {
         XCTAssertEqual(paths, ["/api/profile"]) // never the 403 areas
     }
 }
+
+final class EmbeddedCookieTests: XCTestCase {
+    func testPortalPagesKnowTheyAreInTheApp() throws {
+        let cookie = try XCTUnwrap(PortalWebController.embeddedCookie(portal: URL(string: "https://portal.example.edu")!))
+        XCTAssertEqual(cookie.name, "infocus_embedded")
+        XCTAssertEqual(cookie.value, "1")
+        XCTAssertEqual(cookie.domain, "portal.example.edu")
+        XCTAssertTrue(cookie.isSecure)
+    }
+}
