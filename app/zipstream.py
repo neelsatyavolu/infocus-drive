@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 import struct
 import time
 import zlib
@@ -20,6 +21,10 @@ _ZIP_VERSION = 20
 _GP_DATA_DESCRIPTOR = 0x08
 _ZIP64_EXTRA_ID = 1
 _ZIP64_EOCD_REMAINING = 44  # bytes after signature+size fields
+# "Version made by" host byte: Unix, so unzip / Archive Utility honour the mode bits below.
+_HOST_UNIX = 3 << 8
+# Scripts that must stay runnable after unzipping (e.g. the Mac installers' .command files).
+_EXECUTABLE_SUFFIXES = {".command", ".sh", ".tool"}
 
 
 def _dos_time(ts: float | None = None) -> tuple[int, int]:
@@ -27,6 +32,12 @@ def _dos_time(ts: float | None = None) -> tuple[int, int]:
     dos_time = (t.tm_hour << 11) | (t.tm_min << 5) | (t.tm_sec // 2)
     dos_date = ((t.tm_year - 1980) << 9) | (t.tm_mon << 5) | t.tm_mday
     return dos_time, dos_date
+
+
+def _unix_mode(path: Path, st_mode: int) -> int:
+    """rwxr-xr-x for scripts and files already executable on disk, rw-r--r-- for everything else."""
+    executable = path.suffix.lower() in _EXECUTABLE_SUFFIXES or bool(st_mode & 0o111)
+    return stat.S_IFREG | (0o755 if executable else 0o644)
 
 
 def _u32(n: int) -> int:
@@ -172,7 +183,7 @@ def stream_zip_store(entries: list[tuple[str, Path]]) -> Iterator[bytes]:
         central = struct.pack(
             "<IHHHHHHIIIHHHHHII",
             0x02014B50,
-            cd_plan["cd_version"],
+            _HOST_UNIX | int(cd_plan["cd_version"]),
             cd_plan["cd_version"],
             _GP_DATA_DESCRIPTOR,
             0,
@@ -186,7 +197,7 @@ def stream_zip_store(entries: list[tuple[str, Path]]) -> Iterator[bytes]:
             0,
             0,
             0,
-            0,
+            _unix_mode(path, st.st_mode) << 16,
             cd_plan["cd_offset"],
         )
         central += name_b

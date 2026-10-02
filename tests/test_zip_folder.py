@@ -227,3 +227,23 @@ def _tiny_zip(payload: bytes) -> bytes:
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("n.txt", payload)
     return buf.getvalue()
+
+
+def test_scripts_keep_their_execute_bit(share_tree):
+    """Mac installers (.command) must unzip as runnable; ordinary files stay plain rw-r--r--."""
+    (share_tree / "Camp" / "Install Graphics.command").write_bytes(b"#!/bin/sh\necho hi\n")
+    entries = fsops.collect_zip_entries(
+        ["Camp"],
+        uid=0,
+        gid=0,
+        max_files=100,
+        max_total=8 * 1024**3,
+    )
+    blob = b"".join(stream_zip_store(entries))
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        modes = {i.filename: i.external_attr >> 16 for i in zf.infolist()}
+        systems = {i.create_system for i in zf.infolist()}
+    assert systems == {3}  # Unix, so extractors honour the mode bits
+    assert modes["Camp/Install Graphics.command"] == 0o100755
+    assert modes["Camp/a.txt"] == 0o100644
+    assert zip_store_content_length(entries) == len(blob)
