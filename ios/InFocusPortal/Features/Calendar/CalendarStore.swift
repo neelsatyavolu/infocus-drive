@@ -52,6 +52,23 @@ final class CalendarStore {
 
     func canEdit(_ monthKey: String) -> Bool { months[monthKey]?.value?.canEdit ?? false }
 
+    func month(_ monthKey: String) -> CalendarMonth? { months[monthKey]?.value }
+
+    /// A producer's save: show the cell the Portal stored right away (a reload follows).
+    func apply(content: String, for date: String) {
+        let key = CalendarDates.monthKey(of: date)
+        guard let month = months[key]?.value else { return }
+        months[key] = .loaded(month.replacing(date, content: content))
+    }
+
+    func apply(manager: ShowManagerResult, for date: String) {
+        let key = CalendarDates.monthKey(of: date)
+        guard var month = months[key]?.value else { return }
+        if let content = manager.content { month = month.replacing(date, content: content) }
+        month.showManagers[date] = .init(name: manager.name, source: manager.source)
+        months[key] = .loaded(month)
+    }
+
     /// The month's school days with their cell content parsed, the resolved show manager
     /// (the Portal's rotation unless the cell names one) and the packages queued to air.
     nonisolated static func days(from month: CalendarMonth) -> [CalendarDay] {

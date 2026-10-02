@@ -1,12 +1,11 @@
 import SwiftUI
 
 /// The Show: the next show days with their cast (anchors, show manager, director) and
-/// what airs. Read from the Master Calendar, which everyone can see. Producers run
-/// cast and crew in the Portal's The Show page.
+/// what airs, read from the Master Calendar, which everyone can see. Producers also get
+/// `ShowProducerPanel` to set a show's anchors and manager.
 struct TheShowView: View {
     @Environment(\.portalClient) private var client
     @Environment(SessionStore.self) private var session
-    @Environment(Router.self) private var router
     private let store = CalendarStore.shared
     private let today = CalendarDates.todayKey()
 
@@ -14,15 +13,11 @@ struct TheShowView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Nameplate(eyebrow: "InFocus News", title: "The Show", subtitle: "Who's on the next shows")
-                content
                 if session.user?.isProducer == true {
-                    Button {
-                        router.openPortal("show-roles", title: "The Show")
-                    } label: {
-                        Label("Manage cast in The Show", systemImage: "person.2.badge.gearshape")
-                    }
-                    .buttonStyle(.brandSecondary)
+                    ShowProducerPanel()
+                    SectionHeader(title: "Coming up")
                 }
+                content
             }
             .padding(Brand.gutter)
         }

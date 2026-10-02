@@ -33,6 +33,7 @@ struct CalendarTab: View {
         }
         .brandBackground()
         .navigationTitle("Calendar")
+        .monthTools(monthKey)
         .refreshable { await load(force: true) }
         .task {
             await load(force: false)
