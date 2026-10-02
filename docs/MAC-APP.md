@@ -1,4 +1,9 @@
-# InFocus Drive for Mac (Finder volume)
+# InFocus for Mac (Portal window, Mac notifications, Drive in Finder)
+
+One app (it used to be called InFocus Drive): the InFocus Portal in native Mac
+windows, a Mac notification for every Portal email, and the Drive in Finder.
+The Portal half is described in [Portal window and notifications](#portal-window-and-notifications);
+the rest of this page is the Drive half.
 
 A menu-bar app that puts your Drive shares in Finder as a normal volume
 (`/Volumes/InFocus Drive`, listed under **Locations**) and keeps it mounted.
@@ -62,6 +67,53 @@ never in argv, and aren't stored.
 The volume's top level has one folder per share you can open. Everything below
 is your Drive, with the same permissions as the web app (read-only shares stay
 read-only; deletes go to the share's Recycle bin).
+
+## Portal window and notifications
+
+Opening the app shows the **Portal window**: the Portal's own pages (same design
+and features as the website) in WebKit, under a slim title bar with Back, Forward,
+Reload, Find on page and a **Drive** chip (click it for the Drive window). The title
+bar takes the page's background, so it follows the Portal's dark or light theme.
+
+- **Shortcuts:** Cmd+N new window, Cmd+T new tab, Cmd+W close, Cmd+R reload,
+  Cmd+[ / Cmd+] back/forward, Shift+Cmd+H Portal home, Cmd+F / Cmd+G find,
+  Cmd+= / Cmd+- / Cmd+0 zoom, Cmd+, Portal Settings, Shift+Cmd+D the Drive window.
+  Closing the last Portal window only hides it, so reopening is instant.
+- **Links:** Portal pages (the Portal host and its subdomains) stay in the app;
+  everything else (YouTube, Google Docs, the Drive website, mail links) opens in
+  your browser. Downloads go to `~/Downloads`; file pickers, `alert`/`confirm`/
+  `prompt` and full-screen video work as in Safari.
+- **Sign-in:** Google refuses to run inside an app's web view, so **Continue with
+  Google** on the Portal's sign-in page opens a secure browser sheet instead
+  (`ASWebAuthenticationSession`): the Portal's `/app-sign-in` page asks **Allow**,
+  hands a 60-second code to `infocus://signed-in`, and the app trades the code plus
+  a PKCE verifier only it knows for the usual 30-day Portal session
+  (`POST /api/auth/app/token`). If Drive isn't signed in yet, its own approval
+  follows straight after. Email-code sign-in inside the window works as on the web.
+- **Notifications:** after the first sign-in the app asks macOS for permission,
+  gets this Mac's Apple push token and registers it with the Portal under the
+  signed-in account (`POST /api/push/native-device`; re-sent whenever the Portal
+  session changes). The Portal then sends a notification for every email it sends
+  that person; clicking one opens its Portal page (only Portal pages; anything else
+  opens the Portal home). Turn them off in System Settings → Notifications → InFocus.
+  Portal **Settings → Mac app notifications** shows the status, turns them on and
+  sends a test (through `window.webkit.messageHandlers.infocus`, answered only for
+  Portal pages).
+- **Sign out** (menu bar **Account**, or File → Sign Out) removes this Mac from the
+  account's notifications, clears the Portal's cookies and site data in the app, and
+  signs Drive out.
+- The app adds `InFocusMacApp/<version>` to its user agent so the Portal can tell.
+
+Addresses aren't in the source: `PORTAL_URL` and `DRIVE_URL` are written into
+`Info.plist` at build time (see [Build](#build)). Without a Portal address the app
+is the Drive app as before; with a Drive address, people skip typing it in.
+
+**Rename.** Releases still contain `InFocus Drive.app` (the updater in older copies
+looks for that name). On its first launch from `/Applications` or `~/Applications`,
+the app renames itself to `InFocus.app`, re-registers **Start at login** and
+relaunches before mounting anything; if the rename fails it keeps working under
+the old name. The installer installs `InFocus.app` directly and removes an old
+`InFocus Drive.app` next to it.
 
 ## How it works
 
@@ -160,8 +212,13 @@ Helper errors go to `~/Library/Logs/InFocus Drive/helper.log` (**Account → Sho
 Needs Xcode (Swift 5.9+) and Go.
 
 ```sh
-VERSION=0.1.0 mac/build.sh   # → mac/build/InFocus Drive.app (universal, ad-hoc signed)
+VERSION=0.1.0 PORTAL_URL=https://portal.example.com DRIVE_URL=https://drive.example.com \
+  mac/build.sh                # → mac/build/InFocus Drive.app (universal, ad-hoc signed)
+(cd mac && swift test)        # unit tests: link routing, sign-in, notifications, rename
 ```
+
+Both addresses are optional (https only; http just for `localhost`). In CI they come
+from the repository variables `PORTAL_URL` and `DRIVE_URL`.
 
 `build.sh` also writes `mac/build/InFocus-Drive-mac.zip`. Releases build it in CI
 and attach it to each `cli-v*` release (see [DEPLOY.md](DEPLOY.md#cli-releases)).
@@ -175,8 +232,22 @@ CI builds an ad-hoc-signed zip for each `cli-v*` release. The maintainer then ru
 on their Mac:
 
 ```sh
-mac/sign-release.sh cli-v0.5.0
+PORTAL_URL=https://portal.example.com DRIVE_URL=https://drive.example.com \
+MAC_PROVISIONING_PROFILE=~/path/to/InFocus.provisionprofile \
+  mac/sign-release.sh cli-v0.5.0
 ```
+
+It refuses to build without `PORTAL_URL` unless `ALLOW_NO_PORTAL=1`.
+**Mac notifications** need, once per Apple Developer team: Push Notifications enabled
+on the explicit App ID `com.github.neelsatyavolu.infocus-drive`, a **Developer ID**
+provisioning profile for it (kept with the other signing material, never in the
+repo), and an APNs auth key for the Portal server. With `MAC_PROVISIONING_PROFILE`
+set, the script checks the profile is for this team and bundle ID and includes push,
+embeds it as `Contents/embedded.provisionprofile` and signs the app with
+`com.apple.developer.aps-environment = production` (team from the signing identity,
+or `APPLE_TEAM_ID`). Without a profile it signs exactly as before: the app runs, it
+just never gets notifications (a push entitlement without a profile would stop it
+launching). `mac/build.sh` builds never carry the entitlement.
 
 It loads the Developer ID certificate and App Store Connect API key from 1Password
 through the shared loader (see `APPLE_SIGNING.md` next to the repos; override with

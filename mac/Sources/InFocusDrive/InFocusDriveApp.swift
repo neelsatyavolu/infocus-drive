@@ -1,6 +1,7 @@
 import SwiftUI
+import UserNotifications
 
-/// UserDefaults key: show the InFocus Drive icon in the menu bar.
+/// UserDefaults key: show the InFocus icon in the menu bar.
 let showInMenuBarKey = "showInMenuBar"
 
 @main
@@ -17,6 +18,7 @@ struct InFocusDriveApp: App {
         #endif
         // Before any scene (and so the controller) exists.
         AppDelegate.handOffToRunningCopy()
+        AppRename.runIfNeeded()
     }
 
     var body: some Scene {
@@ -35,6 +37,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     /// Another copy asks the running one to show its window through this.
     nonisolated static let showWindowNote = Notification.Name("com.github.neelsatyavolu.infocus-drive.show-window")
 
+    /// Before launch finishes, so a click on a notification that launched the app is delivered.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         DistributedNotificationCenter.default().addObserver(
             forName: Self.showWindowNote, object: nil, queue: .main
@@ -42,8 +49,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             Task { @MainActor in self?.showMainWindow() }
         }
         LoginItem.migrate()
+        LoginItem.reRegisterAfterRename()
         _ = drive // start connecting now, whether or not any UI is visible
         drive.updater.start(drive: drive)
+        NotificationRouter.shared.drive = drive
+        MenuActions.shared.drive = drive
+        Task { await PushRegistrar.shared.start() }
         // Start at login passes --background: stay quiet. Opening the app
         // yourself (Finder, Spotlight, Launchpad) shows the window.
         let background = CommandLine.arguments.contains("--background")
@@ -67,8 +78,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         return .terminateNow
     }
 
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        PushRegistrar.shared.didRegister(deviceToken)
+    }
+
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        PushRegistrar.shared.didFail(error)
+    }
+
+    /// The Portal window; builds without a Portal address show the Drive window.
     func showMainWindow() {
-        Windows.shared.showMain(drive)
+        if !Windows.shared.showPortal(drive) {
+            Windows.shared.showMain(drive)
+        }
     }
 
     /// One copy per account: a second launch asks the running one to show

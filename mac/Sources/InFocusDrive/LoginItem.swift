@@ -21,6 +21,15 @@ enum LoginItem {
         }
     }
 
+    /// After the bundle moved to InFocus.app (AppRename): point the agent at the new copy.
+    static func reRegisterAfterRename() {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: AppRename.reRegisterLoginKey) else { return }
+        defaults.removeObject(forKey: AppRename.reRegisterLoginKey)
+        try? agent.unregister()
+        try? set(true)
+    }
+
     /// Moves a 0.3–0.4 login item (plain "open the app") to the background agent.
     static func migrate() {
         guard SMAppService.mainApp.status == .enabled else { return }

@@ -14,7 +14,7 @@ struct HelpView: View {
                 header
                 setupCard
                 HelpSection(title: "Getting started") {
-                    NumberedStep(1, "Open **InFocus Drive** from Applications (or its drive icon in the menu bar).")
+                    NumberedStep(1, "Open **InFocus** from Applications (or its drive icon in the menu bar).")
                     NumberedStep(2, "Enter your Drive address and click **Continue**.")
                     NumberedStep(3, "Click **Sign in with Google** and approve in your browser. Use your school account.")
                     NumberedStep(4, "**InFocus Drive** appears in Finder under **Locations**. Turn on **Start at login** to keep it there.")
@@ -26,7 +26,7 @@ struct HelpView: View {
                     Bullet("arrow.up.doc", "Saving or copying a file uploads it when Finder finishes writing it. Watch **Uploads** in the menu for progress.")
                     Bullet("trash", "Deleting moves items to the share's **Recycle bin** on the Drive, so they can be recovered.")
                     Bullet("eject", "Ejecting the drive in Finder disconnects it until you click **Connect** again.")
-                    Bullet("menubar.rectangle", "The menu bar icon is optional (**Settings → Show in menu bar**). Without it, InFocus Drive keeps the drive mounted in the background; open the app from Applications or Spotlight to see this window.")
+                    Bullet("menubar.rectangle", "The menu bar icon is optional (**Settings → Show in menu bar**). Without it, InFocus keeps the drive mounted in the background; open the app from Applications or Spotlight to see this window.")
                 }
                 HelpSection(title: "Fix a problem") {
                     FAQItem("The drive isn't in Finder",
@@ -38,9 +38,9 @@ struct HelpView: View {
                     FAQItem("It says I'm signed out",
                             "Sign-ins end after 30 days without use, or when they're revoked on the Drive (sidebar → **Mac app & CLI**). Click **Sign in with Google** to sign in again. Your files aren't affected.")
                     FAQItem("Finder says the server connection was interrupted",
-                            "Wait a few seconds: the app restarts its helper and mounts the drive again. If it keeps happening, quit and reopen InFocus Drive, then use **Copy diagnostics** below.")
+                            "Wait a few seconds: the app restarts its helper and mounts the drive again. If it keeps happening, quit and reopen InFocus, then use **Copy diagnostics** below.")
                     FAQItem("macOS says the app can't be opened",
-                            "InFocus Drive is signed and notarized by Apple, so macOS only asks once whether to open an app downloaded from the internet. If it still refuses, delete the app and install it again with the command from the Drive's **Mac app & CLI** window.")
+                            "InFocus is signed and notarized by Apple, so macOS only asks once whether to open an app downloaded from the internet. If it still refuses, delete the app and install it again with the command from the Drive's **Mac app & CLI** window.")
                     FAQItem("Changes from the website don't show up",
                             "Finder updates folders every few seconds. Close and reopen the folder, or press ⌘R in some apps to reload.")
                 }

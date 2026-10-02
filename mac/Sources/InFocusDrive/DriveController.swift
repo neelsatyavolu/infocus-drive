@@ -44,7 +44,8 @@ final class DriveController: ObservableObject {
     }
 
     init() {
-        serverURL = UserDefaults.standard.string(forKey: "serverURL") ?? ""
+        // A saved address wins; otherwise the one this build was made for (if any).
+        serverURL = UserDefaults.standard.string(forKey: "serverURL") ?? AppConfig.shared.driveURL?.absoluteString ?? ""
         dav.onEvent = { [weak self] event in self?.helperEvent(event) }
         observeSystem()
         Task { await start() }
@@ -281,7 +282,9 @@ final class DriveController: ObservableObject {
         case nil: drive = "not checked"
         }
         let lines = [
-            "InFocus Drive for Mac \(Self.appVersion) on macOS \(os)",
+            "InFocus for Mac \(Self.appVersion) on macOS \(os)",
+            "Portal: " + (AppConfig.shared.portalHost ?? "not set in this build")
+                + " — Mac notifications " + (PushRegistrar.shared.registeredFor != nil ? "registered" : "not registered"),
             "Drive: \(serverHost) — \(drive)",
             "Account: \(who)",
             "Connection: " + connectionText,

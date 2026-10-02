@@ -10,5 +10,10 @@ let package = Package(
             path: "Sources/InFocusDrive",
             linkerSettings: [.linkedFramework("NetFS")]
         ),
+        .testTarget(
+            name: "InFocusDriveTests",
+            dependencies: ["InFocusDrive"],
+            path: "Tests/InFocusDriveTests"
+        ),
     ]
 )

@@ -88,7 +88,7 @@ struct SettingsSection: View {
             VStack(spacing: 0) {
                 SettingToggle(symbol: "menubar.rectangle", title: "Show in menu bar",
                               detail: showInMenuBar ? "Status and shares one click away"
-                                  : "Runs in the background. Open InFocus Drive to see this window.",
+                                  : "Runs in the background. Open InFocus to see this window.",
                               isOn: $showInMenuBar)
                 Rectangle().fill(Brand.border).frame(height: 1)
                 SettingToggle(symbol: "power", title: "Start at login",
@@ -109,7 +109,7 @@ struct SettingsSection: View {
                     }
                     Button("Change Drive address…") { drive.changeServer() }
                     Divider()
-                    Button("Quit InFocus Drive") { NSApp.terminate(nil) }
+                    Button("Quit InFocus") { NSApp.terminate(nil) }
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)

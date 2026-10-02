@@ -5,9 +5,9 @@
 	<key>CFBundleIdentifier</key>
 	<string>com.github.neelsatyavolu.infocus-drive</string>
 	<key>CFBundleName</key>
-	<string>InFocus Drive</string>
+	<string>InFocus</string>
 	<key>CFBundleDisplayName</key>
-	<string>InFocus Drive</string>
+	<string>InFocus</string>
 	<key>CFBundleExecutable</key>
 	<string>InFocusDrive</string>
 	<key>CFBundlePackageType</key>
@@ -22,6 +22,10 @@
 	<string>AppIcon</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>InFocusPortalURL</key>
+	<string>__PORTAL_URL__</string>
+	<key>InFocusDriveURL</key>
+	<string>__DRIVE_URL__</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License</string>
 </dict>

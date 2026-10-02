@@ -168,7 +168,11 @@ final class Updater: ObservableObject {
         guard digest == expected else { throw UpdateError("checksum mismatch") }
 
         try run("/usr/bin/ditto", ["-x", "-k", zip.path, work.path])
-        let app = work.appendingPathComponent("InFocus Drive.app")
+        // Releases ship "InFocus Drive.app" (what older copies look for); accept either name.
+        guard let app = [AppRename.newName, AppRename.oldName].map(work.appendingPathComponent)
+            .first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            throw UpdateError("the download doesn't contain the app")
+        }
         try verify(app, version: version, team: team)
         return app
     }
@@ -178,7 +182,7 @@ final class Updater: ObservableObject {
         guard let info = Bundle(url: app)?.infoDictionary,
               info["CFBundleIdentifier"] as? String == Bundle.main.bundleIdentifier,
               info["CFBundleShortVersionString"] as? String == version else {
-            throw UpdateError("the download isn't InFocus Drive \(version)")
+            throw UpdateError("the download isn't InFocus \(version)")
         }
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(app as CFURL, [], &code) == errSecSuccess, let code else {
@@ -192,7 +196,7 @@ final class Updater: ObservableObject {
         }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
         guard SecStaticCodeCheckValidity(code, flags, requirement) == errSecSuccess else {
-            throw UpdateError("the download isn't signed by the InFocus Drive developer")
+            throw UpdateError("the download isn't signed by the InFocus developer")
         }
         // Gatekeeper: Developer ID and notarized.
         try run("/usr/sbin/spctl", ["--assess", "--type", "execute", app.path])
@@ -201,20 +205,20 @@ final class Updater: ObservableObject {
     /// Swaps the running app's bundle for the new one (same volume, atomic).
     static func replaceApp(with new: URL) throws {
         let target = Bundle.main.bundleURL
-        let staging = target.deletingLastPathComponent().appendingPathComponent(".InFocus Drive.app.update")
+        let staging = target.deletingLastPathComponent().appendingPathComponent(".\(target.lastPathComponent).update")
         try? FileManager.default.removeItem(at: staging)
         try run("/usr/bin/ditto", [new.path, staging.path])
         _ = try FileManager.default.replaceItemAt(target, withItemAt: staging)
     }
 
     /// Starts the new copy once this one has quit (only one copy may run).
-    static func relaunch(showWindow: Bool) {
+    nonisolated static func relaunch(_ app: URL = Bundle.main.bundleURL, showWindow: Bool) {
         let pid = ProcessInfo.processInfo.processIdentifier
         let open = showWindow ? #"/usr/bin/open "$0""# : #"/usr/bin/open "$0" --args --background"#
         let script = "while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done; " + open
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", script, Bundle.main.bundleURL.path]
+        process.arguments = ["-c", script, app.path]
         try? process.run()
     }
 
@@ -300,7 +304,7 @@ struct UpdateButton: View {
             }
             .buttonStyle(.plain)
             .fixedSize()
-            .help("Update InFocus Drive to \(version) now. The drive remounts by itself after the restart.")
+            .help("Update InFocus to \(version) now. The drive remounts by itself after the restart.")
         }
     }
 

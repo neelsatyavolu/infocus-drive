@@ -9,7 +9,7 @@ enum CLIError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingBinary: return "The app is missing its infocus helper. Reinstall InFocus Drive."
+        case .missingBinary: return "The app is missing its infocus helper. Reinstall InFocus."
         case .signedOut: return "You're signed out. Sign in again."
         case .needsNASSignIn(let message), .failed(let message): return message
         }

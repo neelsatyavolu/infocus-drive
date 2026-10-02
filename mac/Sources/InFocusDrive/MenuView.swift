@@ -9,6 +9,12 @@ struct MenuView: View {
         VStack(spacing: 0) {
             MenuHeader(drive: drive)
             VStack(alignment: .leading, spacing: 16) {
+                if AppConfig.shared.portalURL != nil {
+                    Button { Windows.shared.showPortal(drive) } label: {
+                        Label("Open InFocus Portal", systemImage: "macwindow")
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                }
                 if drive.hasServer {
                     HeroCard(drive: drive)
                     if let message = drive.message { Banner(text: message) }
@@ -311,18 +317,23 @@ private struct MenuFooter: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Button { Windows.shared.showMain(drive) } label: { Image(systemName: "macwindow") }
+            Button { Windows.shared.showMain(drive) } label: { Image(systemName: "externaldrive") }
                 .buttonStyle(LinkButtonStyle())
-                .help("Open the InFocus Drive window")
+                .help("Open the Drive window")
             Button { Windows.shared.showHelp(drive) } label: { Image(systemName: "questionmark.circle") }
                 .buttonStyle(LinkButtonStyle())
                 .help("Help")
-            if drive.hasServer {
+            if drive.hasServer || AppConfig.shared.portalURL != nil {
                 Menu {
-                    if case .signedIn = drive.account {
+                    if AppConfig.shared.portalURL != nil {
+                        // Portal, this Mac's notifications and Drive together.
+                        Button("Sign out") { Task { await PortalSignIn.shared.signOut(drive: drive) } }
+                    } else if case .signedIn = drive.account {
                         Button("Sign out") { drive.signOut() }
                     }
-                    Button("Open Drive in browser") { drive.openDriveWebsite() }
+                    if drive.hasServer {
+                        Button("Open Drive in browser") { drive.openDriveWebsite() }
+                    }
                     Button("Copy diagnostics") { drive.copyDiagnostics() }
                     Button("Show helper log") { NSWorkspace.shared.open(HelperLog.url) }
                     Divider()
@@ -331,7 +342,9 @@ private struct MenuFooter: View {
                         Windows.shared.showMain(drive)
                         showInMenuBar = false
                     }
-                    Button("Change Drive address…") { drive.changeServer() }
+                    if drive.hasServer {
+                        Button("Change Drive address…") { drive.changeServer() }
+                    }
                 } label: {
                     Label("Account", systemImage: "person.crop.circle")
                         .font(.lexend(12, .medium))
