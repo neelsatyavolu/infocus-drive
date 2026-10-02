@@ -20,6 +20,12 @@ struct MoreTab: View {
                         }
                         row(user.isProducer ? "Extension requests" : "Extensions", "calendar.badge.clock", .grades(.extensions))
                             .badge(badges.count(.more))
+                        if !user.isProducer {
+                            // Cycle dates and Package of the Cycle winners are for everyone.
+                            row("Package cycles", "person.3", .packageCycles(.home))
+                        }
+                        // Anyone can read it; the week's announcers can edit it (the PA screen asks the Portal).
+                        row("PA script", "mic", .announcements(.pa))
                     }
                     if user.isProducer {
                         Section("Producer tools") {
@@ -29,7 +35,6 @@ struct MoreTab: View {
                                 row("Grade Editor", "checklist", .gradeEditor(.home))
                             }
                             row("Submitted announcements", "tray.full", .announcements(.submitted))
-                            row("PA", "mic", .announcements(.pa))
                         }
                     }
                     Section("Production") {
