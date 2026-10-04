@@ -68,6 +68,15 @@ final class PortalNavigationTests: XCTestCase {
         XCTAssertNil(returnTo("returnTo=%2F%5Cevil.test"))
         XCTAssertNil(returnTo("equipment=1"))
     }
+
+    func testMediaCaptureOnlyForThePortalOrigin() {
+        XCTAssertTrue(PortalNavigation.allowsMediaCapture(scheme: "https", host: "portal.example.com", portal: portal))
+        XCTAssertTrue(PortalNavigation.allowsMediaCapture(scheme: "HTTPS", host: "Portal.Example.com", portal: portal))
+        XCTAssertFalse(PortalNavigation.allowsMediaCapture(scheme: "http", host: "portal.example.com", portal: portal))
+        XCTAssertFalse(PortalNavigation.allowsMediaCapture(scheme: "https", host: "grades.portal.example.com", portal: portal))
+        XCTAssertFalse(PortalNavigation.allowsMediaCapture(scheme: "https", host: "evil.test", portal: portal))
+        XCTAssertFalse(PortalNavigation.allowsMediaCapture(scheme: "https", host: "", portal: portal))
+    }
 }
 
 final class NotificationRouterTests: XCTestCase {

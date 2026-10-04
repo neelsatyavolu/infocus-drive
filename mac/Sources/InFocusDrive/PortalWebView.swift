@@ -30,6 +30,14 @@ enum PortalNavigation: Equatable {
         }
     }
 
+    /// Camera and microphone (Portal meetings) only for the configured Portal
+    /// origin itself: same scheme and exact host, never another site or subdomain.
+    static func allowsMediaCapture(scheme: String, host: String, portal: URL) -> Bool {
+        guard let portalScheme = portal.scheme?.lowercased(), let portalHost = portal.host?.lowercased(),
+              !portalHost.isEmpty else { return false }
+        return scheme.lowercased() == portalScheme && host.lowercased() == portalHost
+    }
+
     /// The Portal page a sign-in link asked to return to (`returnTo=/path`),
     /// only if it's a plain path on the Portal.
     static func returnTo(from url: URL, portal: URL) -> URL? {
@@ -189,6 +197,15 @@ extension PortalWebController: WKUIDelegate {
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
         present(alert, in: webView) { completionHandler($0 == .alertFirstButtonReturn ? field.stringValue : nil) }
+    }
+
+    /// Meetings on the Portal: grant camera and microphone to the Portal origin
+    /// only (macOS still asks the person once per app); deny everything else.
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let allowed = PortalNavigation.allowsMediaCapture(scheme: origin.protocol, host: origin.host, portal: portal)
+        decisionHandler(allowed ? .grant : .deny)
     }
 
     private static func alert(_ message: String, buttons: [String]) -> NSAlert {

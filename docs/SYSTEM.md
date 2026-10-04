@@ -37,6 +37,7 @@ Cloudflare (CDN + Tunnel public hostname)
 |---------|-------|---------|------|
 | `infocus-drive` | build `Dockerfile` | **host** | FastAPI on 8787 |
 | `infocus-drive-gateway` | nginx:1.27-alpine | **host** | nginx on 8790 → app |
+| `infocus-scribe` | build `scribe/Dockerfile` (Playwright) | `scribe` bridge | Meeting notes; published on host `127.0.0.1:8792` only, non-root, Chromium sandbox ([MEETINGS-SCRIBE.md](./MEETINGS-SCRIBE.md)) |
 
 **Why host network:** Tunnel and UGOS expect fixed host ports; simplifies reaching local services.
 
@@ -311,7 +312,11 @@ Example: `Package Cycles/Package Cycle 1/Final Cut/20260114_A741379.MP4`
 
 Full ops + troubleshooting: `docs/NAS-STORAGE.md` in the infocus-packages repo.
 
-## 11. Open improvements (not done)
+## 11. Meetings Scribe
+
+The Portal's meetings send notes requests to `/api/service/meetings/scribe/{start,rekey,stop}`. These routes (`app/meetings_service.py`, service bearer) forward to the `infocus-scribe` container (isolated bridge network, published on `127.0.0.1:8792`). The Scribe reports notes status to `POST /api/internal/scribe/notes/{id}` (`SCRIBE_INTERNAL_TOKEN`, local callers only, blocked at nginx), and the Drive relays it to the Portal. Headless Chromium records each speaker in the meeting, faster-whisper transcribes in a child process, and an on-demand `ollama serve` inside the Scribe writes Redrule-format notes; nothing heavy runs while idle. The notes land in `Meetings/` on the Drive. `GET /api/service/meetings/{id}/transcript` serves `transcript.md`. Audio never leaves the NAS. Full detail: [MEETINGS-SCRIBE.md](./MEETINGS-SCRIBE.md).
+
+## 12. Open improvements (not done)
 
 - Custom video controls (still native browser controls)
 - Chunked resumable real-file upload — **shipped** (init/chunk/complete + localStorage resume)

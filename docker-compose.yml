@@ -96,6 +96,63 @@ services:
       retries: 3
       start_period: 10s
 
+  # Meeting notes (docs/MEETINGS-SCRIBE.md): headless Chromium listens to a
+  # Portal meeting, then faster-whisper + an on-demand Ollama write notes to the Drive.
+  # Isolated: own bridge network (no host loopback services), non-root user,
+  # Chromium sandbox on, only the Meetings folder mounted, no Portal token.
+  # Published on the host's 127.0.0.1:8792 for the Drive app only.
+  infocus-scribe:
+    build: ./scribe
+    image: infocus-scribe:local
+    container_name: infocus-scribe
+    restart: unless-stopped
+    networks:
+      - scribe
+    ports:
+      - "127.0.0.1:8792:8792"
+    # Notes status goes to the Drive app (host network, :8787) via the host gateway.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Chromium's sandbox needs user namespaces, which Docker's default seccomp
+    # profile blocks. Swap in Chrome's seccomp profile (seccomp=<path>/chrome.json)
+    # if you have one; never use privileged.
+    security_opt:
+      - seccomp=unconfined
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      SCRIBE_INTERNAL_TOKEN: ${SCRIBE_INTERNAL_TOKEN:?set it in .env (see .env.example)}
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-}
+      MEETING_ROOM_URL: ${MEETING_ROOM_URL:-}
+      SCRIBE_DRIVE_URL: http://host.docker.internal:8787
+      IFD_MEETINGS_ROOT: ${IFD_MEETINGS_ROOT:-Meetings}
+      SCRIBE_MEETINGS_DIR: /meetings
+      IFD_SCRIBE_TMP: /scribe-tmp
+      SCRIBE_WHISPER_MODEL: ${SCRIBE_WHISPER_MODEL:-small.en}
+      SCRIBE_WHISPER_THREADS: ${SCRIBE_WHISPER_THREADS:-2}
+      SCRIBE_OLLAMA_MODEL: ${SCRIBE_OLLAMA_MODEL:-qwen2.5:1.5b}
+      SCRIBE_TIMEZONE: ${SCRIBE_TIMEZONE:-America/Los_Angeles}
+    volumes:
+      # Only the notes folder. Create it first and let the image's pwuser
+      # (uid 1000) write to it; see docs/MEETINGS-SCRIBE.md.
+      - "/volume2/InFocus Drive/${IFD_MEETINGS_ROOT:-Meetings}:/meetings"
+      # Raw per-speaker audio until notes are written (deleted after, or after 7 days).
+      - scribe-tmp:/scribe-tmp
+      # faster-whisper + Ollama model caches (each downloaded on first use).
+      - scribe-models:/models
+    shm_size: "1gb"
+    # Keep the Drive responsive while a meeting is transcribed. Idle it is just
+    # FastAPI; Chromium, whisper and Ollama run only during a meeting or job.
+    cpus: "2.0"
+    mem_limit: 3g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8792/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   gateway:
     image: nginx:1.27-alpine
     container_name: infocus-drive-gateway
@@ -105,3 +162,11 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       - infocus-drive
+
+networks:
+  scribe:
+    driver: bridge
+
+volumes:
+  scribe-tmp:
+  scribe-models:

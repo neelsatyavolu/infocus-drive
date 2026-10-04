@@ -25,6 +25,11 @@ server {
         image/svg+xml
         application/xml;
 
+    # Scribe → Drive internal callbacks never come through the gateway.
+    location /api/internal/ {
+        return 404;
+    }
+
     # Full UGOS portal under /admin/ (strip prefix when talking to UGOS)
     location /admin/ {
         proxy_pass http://192.168.1.50:9999/;

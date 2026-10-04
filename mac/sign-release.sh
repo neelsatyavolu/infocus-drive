@@ -68,7 +68,7 @@ sign() {
 # Push needs the aps-environment entitlement, which macOS only accepts with a
 # matching provisioning profile inside the app; a restricted entitlement
 # without one would stop the app from launching, so it's all or nothing.
-ENTITLEMENTS_ARGS=()
+ENTITLEMENTS_ARGS=(--entitlements InFocusDrive.entitlements) # camera + microphone (meetings)
 if [ -n "${MAC_PROVISIONING_PROFILE:-}" ]; then
   BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Contents/Info.plist")"
   TEAM_ID="${APPLE_TEAM_ID:-$(printf '%s' "$IDENTITY" | sed -nE 's/.*\(([A-Z0-9]{10})\)$/\1/p')}"
@@ -92,6 +92,10 @@ if [ -n "${MAC_PROVISIONING_PROFILE:-}" ]; then
 	<string>$TEAM_ID</string>
 	<key>com.apple.developer.aps-environment</key>
 	<string>production</string>
+	<key>com.apple.security.device.camera</key>
+	<true/>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
 </dict>
 </plist>
 PLIST

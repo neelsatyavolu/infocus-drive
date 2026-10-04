@@ -54,7 +54,8 @@ mkdir -p "$APP/Contents/Library/LaunchAgents"
 cp Resources/com.github.neelsatyavolu.infocus-drive.login.plist "$APP/Contents/Library/LaunchAgents/"
 
 codesign --force --options runtime --sign - "$APP/Contents/MacOS/infocus"
-codesign --force --options runtime --sign - "$APP"
+# Hardened runtime needs these for the Portal web view's camera and microphone (meetings).
+codesign --force --options runtime --entitlements InFocusDrive.entitlements --sign - "$APP"
 codesign --verify --strict "$APP"
 ditto -c -k --keepParent "$APP" "$ZIP"
 echo "Built $APP and $ZIP ($VERSION, $CONFIGURATION)"

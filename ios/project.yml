@@ -44,8 +44,8 @@ targets:
           [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown,
            UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIApplicationSupportsIndirectInputEvents: true
-        NSCameraUsageDescription: Take a photo or record a video to upload to the InFocus Portal.
-        NSMicrophoneUsageDescription: Record sound with videos you upload to the InFocus Portal.
+        NSCameraUsageDescription: Take a photo or record a video to upload to the InFocus Portal, and show your camera in producer meetings.
+        NSMicrophoneUsageDescription: Record sound with videos you upload to the InFocus Portal, and talk in producer meetings.
         NSPhotoLibraryUsageDescription: Choose photos and videos to upload to the InFocus Portal.
         NSPhotoLibraryAddUsageDescription: Save photos and videos from the InFocus Portal to your library.
     entitlements:

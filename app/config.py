@@ -73,6 +73,16 @@ class Settings(BaseSettings):
     # Last-seen packages emails; used to delete NAS users who left the roster.
     packages_roster_snapshot_path: str = "/config/packages_roster.json"
 
+    # Meetings Scribe (docs/MEETINGS-SCRIBE.md): localhost notes service and
+    # where finished notes land, relative to drive_root.
+    scribe_url: str = "http://127.0.0.1:8792"
+    # Drive ↔ Scribe bearer (both directions). Its own random secret; required.
+    scribe_internal_token: str = ""
+    ifd_meetings_root: str = "Meetings"
+    # Pinned origins for scribe start requests, and the notes callback target.
+    portal_base_url: str = ""
+    meeting_room_url: str = ""
+
     # UGOS control-panel API (legacy; user create uses userd instead).
     ugos_api_url: str = "http://127.0.0.1:9999"
     ugos_admin_user: str = ""

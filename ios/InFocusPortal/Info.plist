@@ -29,9 +29,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a photo or record a video to upload to the InFocus Portal.</string>
+	<string>Take a photo or record a video to upload to the InFocus Portal, and show your camera in producer meetings.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record sound with videos you upload to the InFocus Portal.</string>
+	<string>Record sound with videos you upload to the InFocus Portal, and talk in producer meetings.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Save photos and videos from the InFocus Portal to your library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

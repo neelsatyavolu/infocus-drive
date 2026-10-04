@@ -76,6 +76,8 @@ app/fsops.py         Path-safe FS under drive root; as_user(uid,gid)
 app/users.py         Email → NAS user
 app/config.py        Settings from env
 app/file_links.py    Signed public file-share tokens
+app/meetings_service.py  Portal → Scribe service routes + meeting transcripts (docs/MEETINGS-SCRIBE.md)
+scribe/              infocus-scribe container: headless Chromium meeting listener → faster-whisper → Ollama notes
 app/cli_tokens.py    Terminal (`infocus` CLI) sign-ins: PKCE codes + hashed bearer tokens
 app/static/cli-authorize.*  CLI consent page (`/cli/authorize`)
 app/static/cli/install.sh   CLI installer served at `/cli/install.sh`

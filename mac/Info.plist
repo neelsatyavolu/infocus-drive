@@ -26,6 +26,10 @@
 	<string>__PORTAL_URL__</string>
 	<key>InFocusDriveURL</key>
 	<string>__DRIVE_URL__</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Show your camera in InFocus Portal meetings.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Talk in InFocus Portal meetings.</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License</string>
 </dict>
