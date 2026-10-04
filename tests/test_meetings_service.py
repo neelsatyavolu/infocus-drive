@@ -104,7 +104,7 @@ def test_scribe_server_error_becomes_502(client, forwarded, monkeypatch):
 
 
 def _notes(root: Path, folder: str, meeting_id: str, markdown: str) -> None:
-    path = root / "Meetings" / folder
+    path = root / ".ifd-meetings" / folder
     path.mkdir(parents=True)
     (path / "transcript.json").write_text(json.dumps({"meetingId": meeting_id}))
     (path / "transcript.md").write_text(markdown)
@@ -165,7 +165,7 @@ def relayed(monkeypatch, forwarded):
 
 
 def test_notes_relay_forwards_to_portal(client, relayed):
-    body = {"status": "READY", "summaryMarkdown": "## Summary", "drivePath": "Meetings/2026-10-04 2115 T (abc123)"}
+    body = {"status": "READY", "summaryMarkdown": "## Summary", "drivePath": ".ifd-meetings/2026-10-04 2115 T (abc123)"}
     res = client.post(NOTES, json=body, headers=SCRIBE_AUTH)
     assert res.status_code == 200
     assert relayed == [(MEETING, body)]
@@ -185,8 +185,8 @@ def test_notes_relay_auth(client, relayed, monkeypatch):
 @pytest.mark.parametrize("body", [
     {"status": "DONE"},
     {"status": "READY", "drivePath": "Package Cycles/x"},
-    {"status": "READY", "drivePath": "Meetings/../secret"},
-    {"status": "READY", "drivePath": "Meetings/a/b"},
+    {"status": "READY", "drivePath": ".ifd-meetings/../secret"},
+    {"status": "READY", "drivePath": ".ifd-meetings/a/b"},
     {"status": "READY", "extra": 1},
 ])
 def test_notes_relay_validates(client, relayed, body):

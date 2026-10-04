@@ -126,7 +126,7 @@ services:
       PORTAL_BASE_URL: ${PORTAL_BASE_URL:-}
       MEETING_ROOM_URL: ${MEETING_ROOM_URL:-}
       SCRIBE_DRIVE_URL: http://host.docker.internal:8787
-      IFD_MEETINGS_ROOT: ${IFD_MEETINGS_ROOT:-Meetings}
+      IFD_MEETINGS_ROOT: ${IFD_MEETINGS_ROOT:-.ifd-meetings}
       SCRIBE_MEETINGS_DIR: /meetings
       IFD_SCRIBE_TMP: /scribe-tmp
       SCRIBE_WHISPER_MODEL: ${SCRIBE_WHISPER_MODEL:-small.en}
@@ -136,7 +136,7 @@ services:
     volumes:
       # Only the notes folder. Create it first and let the image's pwuser
       # (uid 1000) write to it; see docs/MEETINGS-SCRIBE.md.
-      - "/volume2/InFocus Drive/${IFD_MEETINGS_ROOT:-Meetings}:/meetings"
+      - "/volume2/InFocus Drive/${IFD_MEETINGS_ROOT:-.ifd-meetings}:/meetings"
       # Raw per-speaker audio until notes are written (deleted after, or after 7 days).
       - scribe-tmp:/scribe-tmp
       # faster-whisper + Ollama model caches (each downloaded on first use).

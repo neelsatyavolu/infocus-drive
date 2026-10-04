@@ -143,7 +143,7 @@ async def scribe_stop(body: ScribeStop) -> JSONResponse:
 
 
 def meetings_root_rel() -> str:
-    rel = (get_settings().ifd_meetings_root or "Meetings").strip().strip("/")
+    rel = (get_settings().ifd_meetings_root or ".ifd-meetings").strip().strip("/")
     if not rel or ".." in rel.split("/"):
         raise HTTPException(status_code=503, detail="IFD_MEETINGS_ROOT is invalid")
     return rel

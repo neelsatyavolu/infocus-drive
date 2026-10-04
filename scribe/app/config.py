@@ -49,9 +49,9 @@ class ScribeConfig:
 
 
 def load_config() -> ScribeConfig:
-    meetings_root = _env("IFD_MEETINGS_ROOT", "Meetings").strip("/")
+    meetings_root = _env("IFD_MEETINGS_ROOT", ".ifd-meetings").strip("/")
     if not meetings_root or ".." in meetings_root.split("/"):
-        meetings_root = "Meetings"
+        meetings_root = ".ifd-meetings"
     return ScribeConfig(
         internal_token=_env("SCRIBE_INTERNAL_TOKEN"),
         drive_url=_env("SCRIBE_DRIVE_URL", "http://host.docker.internal:8787").rstrip("/"),

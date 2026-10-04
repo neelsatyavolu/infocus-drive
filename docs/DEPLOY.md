@@ -215,7 +215,7 @@ The packages app must use the **same** token as `DRIVE_SERVICE_TOKEN` and `MEDIA
 ## Meetings Scribe (first time)
 
 1. In the NAS `.env`, set `SCRIBE_INTERNAL_TOKEN` (a new random value), `PORTAL_BASE_URL` and `MEETING_ROOM_URL`. Compose refuses to start without `SCRIBE_INTERNAL_TOKEN`, so set it before the next deploy.
-2. Create `/volume2/InFocus Drive/Meetings` (or `IFD_MEETINGS_ROOT`) and make it writable by uid 1000.
+2. Create `/volume2/InFocus Drive/.ifd-meetings` (or `IFD_MEETINGS_ROOT`; the `.ifd-` prefix hides it from Drive listings) and make it writable by uid 1000.
 3. Add the `location /api/internal/` block from `nginx.conf.example` to `nginx.conf`.
 4. Run:
 

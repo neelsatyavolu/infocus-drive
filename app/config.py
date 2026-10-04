@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     scribe_url: str = "http://127.0.0.1:8792"
     # Drive ↔ Scribe bearer (both directions). Its own random secret; required.
     scribe_internal_token: str = ""
-    ifd_meetings_root: str = "Meetings"
+    ifd_meetings_root: str = ".ifd-meetings"
     # Pinned origins for scribe start requests, and the notes callback target.
     portal_base_url: str = ""
     meeting_room_url: str = ""

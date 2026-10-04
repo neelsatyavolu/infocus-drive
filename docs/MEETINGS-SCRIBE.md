@@ -169,8 +169,8 @@ Compose sets the in-container values `SCRIBE_DRIVE_URL`, `SCRIBE_MEETINGS_DIR`, 
 # 1. .env: add SCRIBE_INTERNAL_TOKEN (new random value), PORTAL_BASE_URL, MEETING_ROOM_URL
 # 2. Create the notes folder and let the Scribe's uid 1000 write to it
 #    (an ACL keeps the folder's existing owner and group permissions)
-sudo mkdir -p "/volume2/InFocus Drive/Meetings"
-sudo setfacl -m u:1000:rwx -m d:u:1000:rwx "/volume2/InFocus Drive/Meetings"
+sudo mkdir -p "/volume2/InFocus Drive/.ifd-meetings"
+sudo setfacl -m u:1000:rwx -m d:u:1000:rwx "/volume2/InFocus Drive/.ifd-meetings"
 # 3. nginx: copy the `location /api/internal/` block from nginx.conf.example into nginx.conf
 # 4. Build and start (recreate the gateway for the nginx change)
 sudo docker compose up -d --build infocus-scribe infocus-drive
