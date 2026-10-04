@@ -100,7 +100,6 @@ final class PortalPagesCatalogTests: XCTestCase {
         let sections = titles(.stub("producer"))
         XCTAssertNil(sections["The Cycle"])
         XCTAssertTrue(sections["Producers"]?.contains("Grade Editor") == true)
-        XCTAssertTrue(sections["Producers"]?.contains("Meetings") == true)
         XCTAssertEqual(sections["Admin"], ["Admin Dashboard", "Portal settings", "Passwords"])
         XCTAssertFalse(sections["Portal"]?.contains("Grades") == true)
     }

@@ -10,7 +10,7 @@ enum DeepLink {
     static let parsers: [Parser] = [
         WorkRoute.deepLink, AnnouncementsRoute.deepLink, CalendarRoute.deepLink,
         GradeEditorRoute.deepLink, GradesRoute.deepLink, MessagesRoute.deepLink,
-        PackageCyclesRoute.deepLink, PublishingRoute.deepLink, MoreRoute.deepLink,
+        PackageCyclesRoute.deepLink, PublishingRoute.deepLink, MeetingsRoute.deepLink, MoreRoute.deepLink,
     ]
 
     static func resolve(_ url: URL, portal: URL) -> DeepLinkMatch {

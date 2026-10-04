@@ -11,6 +11,7 @@ enum Route: Hashable {
     case packageCycles(PackageCyclesRoute)
     case publishing(PublishingRoute)
     case gradeEditor(GradeEditorRoute)
+    case meetings(MeetingsRoute)
     case more(MoreRoute)
     /// Any Portal page without a native screen, shown in the signed-in web view.
     case portal(PortalPage)

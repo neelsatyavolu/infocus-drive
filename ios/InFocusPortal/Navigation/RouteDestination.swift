@@ -15,6 +15,7 @@ struct RouteDestination: View {
         case .packageCycles(let route): PackageCyclesDestination(route: route)
         case .publishing(let route): PublishingDestination(route: route)
         case .gradeEditor(let route): GradeEditorDestination(route: route)
+        case .meetings(let route): MeetingsDestination(route: route)
         case .more(let route): MoreDestination(route: route)
         case .portal(let page): PortalPageScreen(page: page)
         }

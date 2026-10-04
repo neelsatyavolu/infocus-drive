@@ -29,6 +29,7 @@ struct MoreTab: View {
                     }
                     if user.isProducer {
                         Section("Producer tools") {
+                            row("Meetings", "video", .meetings(.home))
                             row("Package Cycles", "person.3", .packageCycles(.home))
                             row("Publishing Queue", "play.rectangle.on.rectangle", .publishing(.home))
                             if user.canManageGrades {

@@ -22,6 +22,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Features/PackageCycles/` | `PackageCyclesRoute`, `PackageCyclesDestination` | **Package Cycles agent** (roster: topic, members, producer; cycle dates) |
 | `Features/Publishing/` | `PublishingRoute`, `PublishingDestination` | **Publishing agent** (Publishing Queue, YouTube publication status) |
 | `Features/GradeEditor/` | `GradeEditorRoute`, `GradeEditorDestination` | **Grade Editor agent** (execs: gradebook editing) |
+| `Features/Meetings/` | `MeetingsScreen` (More → Producer tools → Meetings), `MeetingCallScreen` (full-screen call), `MeetingsService` (+ sample meetings), `MeetingsRoute` | **Meetings** (producer meetings: list, join, call) |
 | `Features/More/` | `MoreTab`, `SettingsScreen`, `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
 | `Web/` | `PortalWebController` (one WKWebView), `PortalWebView`, `PortalPageScreen` (fallback page), `PortalNavigation` (link policy), `PortalBridge` (JS bridge), downloads, offline view | shell |
 | `Push/` | `PushRegistrar` (APNs token → `POST /api/push/native-device` with `platform: "ios"`), `NotificationRouter` (taps → deep links), `NotificationOfferView` | shell |
@@ -49,6 +50,7 @@ The reserved cases, wired today to placeholders that show the Portal page:
 | `PackageCyclesRoute` | `home` | `/package-progress`, `/package-cycles` (More) |
 | `PublishingRoute` | `home` | `/publishing-queue` (More) |
 | `GradeEditorRoute` | `home` | `/grade-editor` (and `grades.` host) (More) |
+| `MeetingsRoute` | `home`, `call(id:)` | `/meetings` (More), `/meet/<id>` (the call: `Router.joinMeeting` presents it full screen over the tabs instead of pushing; meeting pushes carry this path). `/meetings/<id>` (notes) stays a web page |
 | `MoreRoute` | `settings`, `portalPages` | `/settings` |
 
 `/` and `/dashboard` go to Home. Anything else becomes `.portal(PortalPage(url:))` on the current tab.

@@ -29,6 +29,9 @@ struct MainTabView: View {
             }
         }
         .tint(Brand.green)
+        .fullScreenCover(item: Binding(get: { router.activeCall }, set: { router.activeCall = $0 })) { call in
+            MeetingCallScreen(meetingId: call.id) { router.activeCall = nil }
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 

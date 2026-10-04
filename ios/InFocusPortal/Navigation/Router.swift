@@ -17,6 +17,18 @@ final class Router {
     var sampleOnly = false
     /// Called when the sample app refuses a web page (AppModel shows a notice).
     var onRefused: (() -> Void)?
+    /// The meeting call shown full screen over the tabs (`MeetingCallScreen`).
+    var activeCall: MeetingCall?
+
+    /// Join a meeting: the call covers the whole app. The sample app has no calls
+    /// (the call is a Portal web page).
+    func joinMeeting(_ id: String) {
+        guard !sampleOnly else {
+            onRefused?()
+            return
+        }
+        activeCall = MeetingCall(id: id)
+    }
 
     func allows(_ tab: AppTab) -> Bool { true }
 
@@ -36,6 +48,7 @@ final class Router {
     }
 
     func push(_ route: Route, on tab: AppTab? = nil) {
+        if case .meetings(.call(let id)) = route { return joinMeeting(id) }
         guard allows(route) else {
             onRefused?()
             return
@@ -56,6 +69,7 @@ final class Router {
     func open(_ url: URL) {
         guard let portal else { return }
         let match = DeepLink.resolve(url, portal: portal)
+        if case .meetings(.call(let id))? = match.route { return joinMeeting(id) } // `/meet/<id>`: straight into the call
         let tab = match.tab ?? selectedTab
         guard allows(tab), match.route.map(allows) ?? true else { // a web page in the sample app: Home
             selectedTab = .home
@@ -68,6 +82,7 @@ final class Router {
     }
 
     func reset() {
+        activeCall = nil
         paths = [:]
         selectedTab = .home
         sampleOnly = false
