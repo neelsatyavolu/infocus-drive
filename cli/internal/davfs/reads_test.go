@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ type revDrive struct {
 	data2      []byte
 	rangeBytes int64
 	ranges     []string
+	mtime      int64
 	inflight   int // ranged downloads being served right now
 	maxFlight  int
 }
@@ -40,7 +42,7 @@ func newRevDrive(t *testing.T, name string, data []byte) (*revDrive, *FS, *httpt
 				"shares": []map[string]any{{"id": "S", "name": "S", "can_read": true, "can_write": true}}})
 		case "/api/files":
 			d.mu.Lock()
-			items := []api.Entry{{Name: d.name, Path: d.name, Size: int64(len(d.data))}}
+			items := []api.Entry{{Name: d.name, Path: d.name, Size: int64(len(d.data)), MtimeNS: d.mtime}}
 			d.mu.Unlock()
 			json.NewEncoder(w).Encode(map[string]any{"path": q.Get("path"), "items": items})
 		case "/api/download":
@@ -222,7 +224,9 @@ func TestUnknownTypeFetchesOnlyTheRange(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.rangeBytes != 65536 || len(d.ranges) != 1 {
+	// One request for the 1 MiB block holding the range (small reads are
+	// cached by block), nothing for HEAD, no read-ahead.
+	if d.rangeBytes != blockSize || len(d.ranges) != 1 {
 		t.Fatalf("Drive asked for %d bytes in %v", d.rangeBytes, d.ranges)
 	}
 }
@@ -230,8 +234,8 @@ func TestUnknownTypeFetchesOnlyTheRange(t *testing.T) {
 // Finder making a thumbnail opens a big video and reads a little of it. The
 // read must not start fetching megabytes ahead it will never use.
 func TestPeekingAtABigFileFetchesLittle(t *testing.T) {
-	d, _, dav := newRevDrive(t, "clip.mov", make([]byte, 64<<20))
-	req, _ := http.NewRequest("GET", dav.URL+"/V/S/clip.mov", nil)
+	d, _, dav := newRevDrive(t, "clip.bin", make([]byte, 64<<20)) // not a video: no index prefetch
+	req, _ := http.NewRequest("GET", dav.URL+"/V/S/clip.bin", nil)
 	req.SetBasicAuth(User, "pw")
 	res, err := dav.Client().Do(req)
 	if err != nil {
@@ -271,5 +275,86 @@ func TestParallelReadsShareACap(t *testing.T) {
 	// totalReadStreams large chunks, plus each read's small first chunk.
 	if d.maxFlight > totalReadStreams+5 {
 		t.Fatalf("%d downloads at once for 5 reads", d.maxFlight)
+	}
+}
+
+// quickLookReads is what Quick Look asks for to make one video thumbnail: a
+// chain of small reads through the index at the end of the file, then a frame.
+func quickLookReads(size int64) [][2]int64 {
+	tail := size - 400<<10
+	return [][2]int64{{tail, tail + 4095}, {tail + 99500, tail + 103595}, {tail + 105867, tail + 105898},
+		{tail, tail + 4095}, {tail + 828, tail + 59947}, {tail + 59948, tail + 64043}, {tail + 64004, tail + 93679},
+		{tail + 93680, tail + 97775}, {tail + 97696, tail + 103499}, {20893428, 21225101}}
+}
+
+func (d *revDrive) requests() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.ranges)
+}
+
+// A thumbnail's chain of small reads costs one Drive round trip per block,
+// not one per read; making it again costs none.
+func TestThumbnailReadsShareBlocks(t *testing.T) {
+	data := make([]byte, 64<<20)
+	for i := range data {
+		data[i] = byte(i / 7)
+	}
+	d, _, dav := newRevDrive(t, "clip.mov", data)
+	read := func() {
+		for _, r := range quickLookReads(int64(len(data))) {
+			code, body := davDo(t, dav, "GET", "clip.mov", "Range", fmt.Sprintf("bytes=%d-%d", r[0], r[1]))
+			if code != http.StatusPartialContent || !bytes.Equal(body, data[r[0]:r[1]+1]) {
+				t.Fatalf("GET %v: %d, %d bytes, equal=%v", r, code, len(body), bytes.Equal(body, data[r[0]:r[1]+1]))
+			}
+		}
+	}
+	read()
+	if n := d.requests(); n > 3 {
+		t.Fatalf("10 thumbnail reads made %d Drive requests: %v", n, d.ranges)
+	}
+	before := d.requests()
+	read()
+	if n := d.requests() - before; n != 0 {
+		t.Fatalf("making the thumbnail again made %d Drive requests", n)
+	}
+}
+
+// A changed file (new size or time in the listing) is never served from the
+// blocks cached for the old one.
+func TestChangedFileIsNotServedFromCache(t *testing.T) {
+	d, fs, dav := newRevDrive(t, "clip.mov", bytes.Repeat([]byte("A"), 8<<20))
+	fs.listTTL = 0
+	if _, body := davDo(t, dav, "GET", "clip.mov", "Range", "bytes=100-199"); string(body) != strings.Repeat("A", 100) {
+		t.Fatalf("first read: %q", body)
+	}
+	d.mu.Lock()
+	d.data, d.etag, d.mtime = bytes.Repeat([]byte("B"), 8<<20), `"v2"`, 2
+	d.mu.Unlock()
+	if _, body := davDo(t, dav, "GET", "clip.mov", "Range", "bytes=100-199"); string(body) != strings.Repeat("B", 100) {
+		t.Fatalf("read after the file changed: %q", body[:10])
+	}
+}
+
+// Opening a video starts fetching its end, where Quick Look looks first.
+func TestOpeningAVideoPrefetchesItsIndex(t *testing.T) {
+	data := make([]byte, 64<<20)
+	d, _, dav := newRevDrive(t, "clip.mov", data)
+	req, _ := http.NewRequest("GET", dav.URL+"/V/S/clip.mov", nil)
+	req.SetBasicAuth(User, "pw")
+	res, err := dav.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	io.ReadFull(res.Body, make([]byte, 64<<10))
+	res.Body.Close()
+	time.Sleep(200 * time.Millisecond)
+	before := d.requests()
+	tail := int64(len(data)) - 300<<10
+	if code, _ := davDo(t, dav, "GET", "clip.mov", "Range", fmt.Sprintf("bytes=%d-%d", tail, tail+4095)); code != http.StatusPartialContent {
+		t.Fatalf("tail read: %d", code)
+	}
+	if n := d.requests() - before; n != 0 {
+		t.Fatalf("the index wasn't prefetched: %d more Drive requests", n)
 	}
 }

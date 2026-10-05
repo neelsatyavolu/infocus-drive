@@ -65,6 +65,7 @@ type FS struct {
 	locks      *pendingLocks
 	waiting    map[string]*waiter // new empty files waiting out PendingGrace
 	readSlots  chan struct{}      // downloads all reads share (totalReadStreams)
+	blocks     *blockCache        // small reads (see blocks.go)
 
 	sharesTTL, listTTL, listStale time.Duration // the constants; tests shorten them
 }
@@ -97,6 +98,7 @@ func New(client *api.Client, tempDir string) *FS {
 		flights:      map[string]*flight{},
 		waiting:      map[string]*waiter{},
 		readSlots:    make(chan struct{}, totalReadStreams),
+		blocks:       newBlockCache(),
 		PendingGrace: pendingGrace,
 		sharesTTL:    sharesTTL,
 		listTTL:      listTTL,

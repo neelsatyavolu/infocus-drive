@@ -296,6 +296,7 @@ func TestWebdavReadOnlyShare(t *testing.T) {
 func TestWebdavCommand(t *testing.T) {
 	drive, driveSrv := newFakeDrive(t)
 	drive.put("hello.txt", "hi")
+	drive.put("later.txt", "not read yet") // small reads are cached: this one isn't
 	dir := t.TempDir()
 	if err := config.Save(dir, config.Config{Server: driveSrv.URL}); err != nil {
 		t.Fatal(err)
@@ -355,8 +356,12 @@ func TestWebdavCommand(t *testing.T) {
 		!strings.HasSuffix(ready["url"], "/InFocus%20Drive/") {
 		t.Fatalf("ready event = %v", ready)
 	}
-	get := func() int {
-		req, _ := http.NewRequest("GET", ready["url"]+"InFocus%20Drive/hello.txt", nil)
+	get := func(name ...string) int {
+		file := "hello.txt"
+		if len(name) > 0 {
+			file = name[0]
+		}
+		req, _ := http.NewRequest("GET", ready["url"]+"InFocus%20Drive/"+file, nil)
 		req.SetBasicAuth(davfs.User, davPassword)
 		res, err := client.Do(req)
 		if err != nil {
@@ -404,7 +409,7 @@ func TestWebdavCommand(t *testing.T) {
 	drive.revoked = true
 	drive.mu.Unlock()
 	time.Sleep(10 * time.Millisecond)
-	get()
+	get("later.txt")
 	for {
 		if ev := next(); ev["event"] == "signed_out" {
 			break
@@ -818,6 +823,7 @@ func TestWebdavSpeedTestFolder(t *testing.T) {
 func TestWebdavSwitchesToLANAndBack(t *testing.T) {
 	drive, driveSrv := newFakeDrive(t)
 	drive.put("hello.txt", "hi")
+	drive.put("later.txt", "not read yet") // small reads are cached: this one isn't
 	lan := drive.withLAN(t)
 	dir := t.TempDir()
 	if err := config.Save(dir, config.Config{Server: driveSrv.URL}); err != nil {
@@ -864,8 +870,12 @@ func TestWebdavSwitchesToLANAndBack(t *testing.T) {
 		t.Fatalf("latency event without ms: %v", ev)
 	}
 	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
-	get := func() string {
-		req, _ := http.NewRequest("GET", ready["url"].(string)+"InFocus%20Drive/hello.txt", nil)
+	get := func(name ...string) string {
+		file := "hello.txt"
+		if len(name) > 0 {
+			file = name[0]
+		}
+		req, _ := http.NewRequest("GET", ready["url"].(string)+"InFocus%20Drive/"+file, nil)
 		req.SetBasicAuth(davfs.User, davPassword)
 		res, err := client.Do(req)
 		if err != nil {
@@ -889,7 +899,7 @@ func TestWebdavSwitchesToLANAndBack(t *testing.T) {
 	}
 	lan.CloseClientConnections()
 	lan.Close() // walked out of the building
-	if got := get(); got != "hi" {
+	if got := get("later.txt"); got != "not read yet" {
 		t.Fatalf("read after leaving the LAN = %q (want a seamless fallback)", got)
 	}
 	waitFor("route", "via", "internet")
@@ -1010,8 +1020,14 @@ func TestWebdavRangedReadFetchesOnlyThatRange(t *testing.T) {
 		h.drive.mu.Lock()
 		fetched := h.drive.rangeBytes
 		h.drive.mu.Unlock()
-		if fetched != int64(len(want)) {
-			t.Fatalf("GET %v fetched %d bytes from the Drive, want %d", rng, fetched, len(want))
+		// Small reads fetch the 1 MiB blocks around them (then cached); never
+		// a read-ahead past those blocks.
+		limit := int64(len(want))
+		if limit <= 2<<20 {
+			limit = (int64(rng[1])/(1<<20) - int64(rng[0])/(1<<20) + 1) << 20
+		}
+		if fetched > limit {
+			t.Fatalf("GET %v fetched %d bytes from the Drive, want at most %d", rng, fetched, limit)
 		}
 	}
 }

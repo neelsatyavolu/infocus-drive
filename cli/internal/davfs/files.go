@@ -199,7 +199,8 @@ func (d *dirFile) Seek(int64, int) (int64, error) { return 0, errNotSupported }
 func (f *FS) remote(ctx context.Context, share api.Share, rel string, info fileInfo) *remoteFile {
 	t := target{share: share, rel: rel}
 	return &remoteFile{ctx: ctx, fs: f, src: driveFile{f.clientFor(share), rel}, rel: rel, info: info,
-		onChanged: func() { f.cacheDropParent(t) }}
+		onChanged: func() { f.cacheDropParent(t) },
+		cacheKey:  fmt.Sprintf("%s\x00%s\x00%d\x00%d", share.ID, rel, info.size, info.mtime.UnixNano())}
 }
 
 // remoteFile reads a Drive file lazily with ranged downloads, so seeking
@@ -223,6 +224,8 @@ type remoteFile struct {
 	// onChanged runs when the Drive's file isn't the one the listing
 	// described (optional): that listing is out of date.
 	onChanged func()
+	// cacheKey names this version of the file in fs.blocks ("" = don't cache).
+	cacheKey string
 }
 
 // adopt checks a download's version: the same as the bytes already read, and
@@ -303,10 +306,20 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 		}
 		end := r.readEnd()
 		if end-r.off > smallRead {
+			if r.off == 0 && end == r.info.size && r.cacheKey != "" && isVideo(r.rel) && r.info.size > 4*blockSize {
+				r.fs.blocks.prefetch(r.ctx, r.src, r.cacheKey, r.info.size) // Quick Look reads the index next
+			}
 			r.ahead = startReadAhead(r.ctx, r.src, r.off, end, r.version, r.info.size, r.fs.readSlots)
 			continue
 		}
-		data, version, err := r.src.Range(api.Warm(r.ctx), r.off, end-r.off) // small: latency-bound
+		var data []byte
+		var version string
+		var err error
+		if r.cacheKey != "" && end-r.off <= 2*blockSize {
+			data, version, err = r.fs.blocks.read(r.ctx, r.src, r.cacheKey, r.info.size, r.off, end)
+		} else {
+			data, version, err = r.src.Range(api.Warm(r.ctx), r.off, end-r.off) // small: latency-bound
+		}
 		if rangeUnsupported(err) {
 			r.noRange = true
 			continue
