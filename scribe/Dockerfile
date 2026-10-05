@@ -24,6 +24,17 @@ COPY requirements.txt /srv/requirements.txt
 RUN pip install --no-cache-dir --break-system-packages -r /srv/requirements.txt
 
 COPY app/ /srv/app/
+
+# The notes folder on the Drive (.ifd-meetings, mode 700) belongs to the NAS service owner, uid 1000.
+# The Playwright noble image ships `ubuntu` as 1000 and pwuser as 1001, and on the NAS 1001 is a real
+# person's account, so pwuser is renumbered to SCRIBE_UID instead of granting that uid access.
+ARG SCRIBE_UID=1000
+RUN if getent passwd ubuntu >/dev/null; then userdel -r ubuntu 2>/dev/null || userdel ubuntu; fi \
+    && if getent group ubuntu >/dev/null; then groupdel ubuntu; fi \
+    && groupmod -g "${SCRIBE_UID}" pwuser \
+    && usermod -u "${SCRIBE_UID}" -g "${SCRIBE_UID}" pwuser \
+    && chown -R pwuser:pwuser /home/pwuser
+
 # Named volumes mounted here inherit this ownership on first use.
 RUN mkdir -p /scribe-tmp /models/ollama /meetings && chown -R pwuser:pwuser /scribe-tmp /models /meetings
 

@@ -25,7 +25,7 @@ There is no separate Ollama container. Its models are in the `scribe-models` vol
 
 ## Isolation (Chromium handles untrusted web content)
 
-- **Non-root.** The Scribe runs as the Playwright image's `pwuser` (uid 1000), with `cap_drop: ALL` and `no-new-privileges`.
+- **Non-root.** The Scribe runs as the Playwright image's `pwuser`, renumbered to uid 1000 in `scribe/Dockerfile` (`SCRIBE_UID`), with `cap_drop: ALL` and `no-new-privileges`. The image ships `pwuser` as 1001, which on the NAS is a real person's account, and the notes folder belongs to uid 1000. If you ever change `SCRIBE_UID`, also `chown` the `scribe-tmp`/`scribe-models` volumes and the notes folder to match.
 - **Chromium sandbox on.** Chromium launches with `chromium_sandbox=True`. Its namespace sandbox needs unprivileged user namespaces, which Docker's default seccomp profile blocks.
   - Compose therefore sets `security_opt: seccomp=unconfined`. The container is still unprivileged; seccomp is the only thing relaxed.
   - If you keep Chrome's published seccomp profile (`chrome.json`) on the NAS, use `seccomp=/path/to/chrome.json` instead. It is tighter.
@@ -131,7 +131,7 @@ The page must provide `window.__scribe.setKey(key, epoch)` for rekeys.
 - Audio never leaves the NAS. Transcription and summaries run locally, and no cloud speech or LLM service is used.
 - Raw audio is deleted as soon as notes are written or processing fails. Any leftovers older than 7 days are removed hourly.
 - The notes folder is on the InFocus Drive share, so **anyone with access to that share can read it**, not only producers. To keep notes private, set `IFD_MEETINGS_ROOT` to a folder whose NAS permissions are limited to producers and admins, while still letting uid 1000 write to it.
-- Files are owned by uid 1000 (the container's `pwuser`). On the NAS that uid may belong to a real account, so check `getent passwd 1000`.
+- Files are owned by uid 1000 (the container's renumbered `pwuser`; the NAS service owner). Check `getent passwd 1000` on a new NAS and pick a non-person uid for `SCRIBE_UID` if needed.
 
 ## Environment (NAS `.env`)
 
