@@ -1,4 +1,4 @@
-"""Write finished notes to `<meetings dir>/<YYYY-MM-DD HHmm> <title> (<id6>)/`.
+"""Write finished notes to `<meetings dir>/<YYYY-MM-DD HHmm> <title> (<id6>) rec <HHmm>[ part N]/`.
 
 Only the notes folder (IFD_MEETINGS_ROOT) is mounted into the Scribe; it runs
 as a non-root user, so files are owned by that uid (see docs/MEETINGS-SCRIBE.md).
@@ -38,9 +38,14 @@ def local_time(starts_at: datetime, timezone: str) -> datetime:
     return starts_at.astimezone(zone)
 
 
-def folder_name(starts_at: datetime, title: str, meeting_id: str, timezone: str) -> str:
+def folder_name(starts_at: datetime, title: str, meeting_id: str, timezone: str,
+                recording_started_ms: int, part: int = 1) -> str:
+    """`2026-10-04 2115 Producer meeting (abc123) rec 2117` (`… part 2` for a later recording of the
+    same meeting), so a second notes session never overwrites the first."""
     when = local_time(starts_at, timezone)
-    return f"{when:%Y-%m-%d %H%M} {sanitize_title(title)} ({meeting_id[-6:]})"
+    rec = local_time(datetime.fromtimestamp(recording_started_ms / 1000, tz=ZoneInfo("UTC")), timezone)
+    name = f"{when:%Y-%m-%d %H%M} {sanitize_title(title)} ({meeting_id[-6:]}) rec {rec:%H%M}"
+    return f"{name} part {part}" if part > 1 else name
 
 
 def _write_atomic(path: Path, content: str) -> None:

@@ -91,7 +91,24 @@ def test_rekey_and_stop_forward(client, forwarded):
                        json={"meetingId": MEETING, "key": KEY, "epoch": 3}, headers=AUTH).status_code == 200
     assert client.post("/api/service/meetings/scribe/stop", json={"meetingId": MEETING}, headers=AUTH).status_code == 200
     assert [p for p, _ in forwarded] == ["/sessions/rekey", "/sessions/stop"]
+    assert forwarded[0][1] == {"meetingId": MEETING, "key": KEY, "epoch": 3}
     assert forwarded[1][1] == {"meetingId": MEETING}
+
+
+def test_rekey_forwards_a_new_room_ticket(client, forwarded):
+    body = {"meetingId": MEETING, "key": KEY, "epoch": 4, "roomToken": "new.ticket.sig",
+            "roomUrl": "https://rooms.example.com", "ticketExpiresAt": "2026-10-05T08:15:00.000Z"}
+    assert client.post("/api/service/meetings/scribe/rekey", json=body, headers=AUTH).status_code == 200
+    assert forwarded[-1] == ("/sessions/rekey", {"meetingId": MEETING, "key": KEY, "epoch": 4,
+                                                 "roomToken": "new.ticket.sig"})
+
+
+@pytest.mark.parametrize("patch", [{"roomToken": "has space"}, {"roomUrl": "https://evil.example.net"},
+                                   {"ticketExpiresAt": "soon"}])
+def test_rekey_rejects_a_bad_ticket(client, forwarded, patch):
+    body = {"meetingId": MEETING, "key": KEY, "epoch": 4, **patch}
+    assert client.post("/api/service/meetings/scribe/rekey", json=body, headers=AUTH).status_code == 422
+    assert forwarded == []
 
 
 def test_scribe_server_error_becomes_502(client, forwarded, monkeypatch):
@@ -103,10 +120,13 @@ def test_scribe_server_error_becomes_502(client, forwarded, monkeypatch):
     assert res.status_code == 502
 
 
-def _notes(root: Path, folder: str, meeting_id: str, markdown: str) -> None:
+def _notes(root: Path, folder: str, meeting_id: str, markdown: str, recording_started_ms: int | None = None) -> None:
     path = root / ".ifd-meetings" / folder
     path.mkdir(parents=True)
-    (path / "transcript.json").write_text(json.dumps({"meetingId": meeting_id}))
+    meta = {"meetingId": meeting_id}
+    if recording_started_ms is not None:
+        meta["recordingStartedMs"] = recording_started_ms
+    (path / "transcript.json").write_text(json.dumps(meta))
     (path / "transcript.md").write_text(markdown)
 
 
@@ -117,6 +137,14 @@ def test_transcript_found_by_id(client, forwarded, tmp_path):
     assert res.status_code == 200
     assert res.headers["content-type"].startswith("text/markdown")
     assert res.text == "# Producer meeting\n"
+
+
+def test_transcript_of_a_meeting_recorded_in_parts_is_all_parts_in_order(client, forwarded, tmp_path):
+    _notes(tmp_path, "2026-10-04 2115 Producer meeting (abc123) rec 2246 part 2", MEETING, "# Part 2\n", 2_000)
+    _notes(tmp_path, "2026-10-04 2115 Producer meeting (abc123) rec 2116", MEETING, "# Part 1\n", 1_000)
+    _notes(tmp_path, "2026-10-04 2115 Producer meeting (abc123) rec 2300", "other00000000abc123", "# Other\n", 3_000)
+    res = client.get(f"/api/service/meetings/{MEETING}/transcript", headers=AUTH)
+    assert res.text == "# Part 1\n\n---\n\n# Part 2\n"
 
 
 def test_transcript_missing_or_bad_id(client, forwarded):
@@ -169,6 +197,16 @@ def test_notes_relay_forwards_to_portal(client, relayed):
     res = client.post(NOTES, json=body, headers=SCRIBE_AUTH)
     assert res.status_code == 200
     assert relayed == [(MEETING, body)]
+
+
+def test_notes_relay_forwards_a_failure_reason_and_part_paths(client, relayed):
+    failed = {"status": "FAILED", "reason": "notes folder not writable"}
+    assert client.post(NOTES, json=failed, headers=SCRIBE_AUTH).status_code == 200
+    part = {"status": "READY", "drivePath": ".ifd-meetings/2026-10-04 2115 T (abc123) rec 2246 part 2"}
+    assert client.post(NOTES, json=part, headers=SCRIBE_AUTH).status_code == 200
+    assert relayed == [(MEETING, failed), (MEETING, part)]
+    too_long = {"status": "FAILED", "reason": "x" * 201}
+    assert client.post(NOTES, json=too_long, headers=SCRIBE_AUTH).status_code == 422
 
 
 def test_notes_relay_auth(client, relayed, monkeypatch):

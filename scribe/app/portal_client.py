@@ -22,24 +22,26 @@ TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 
 
 def notes_payload(status: NotesStatus, summary_markdown: str | None = None,
-                  drive_path: str | None = None) -> dict[str, str]:
+                  drive_path: str | None = None, reason: str | None = None) -> dict[str, str]:
     body: dict[str, str] = {"status": status}
     if summary_markdown is not None:
         body["summaryMarkdown"] = summary_markdown
     if drive_path is not None:
         body["drivePath"] = drive_path
+    if reason is not None:
+        body["reason"] = reason[:200]
     return body
 
 
 def post_notes(cfg: ScribeConfig, meeting_id: str, status: NotesStatus, *,
                summary_markdown: str | None = None, drive_path: str | None = None,
-               client: httpx.Client | None = None) -> bool:
+               reason: str | None = None, client: httpx.Client | None = None) -> bool:
     """Best effort with retries; never raises. Returns True when it was accepted."""
     if not cfg.drive_url or not cfg.internal_token:
         log.warning("SCRIBE_DRIVE_URL or SCRIBE_INTERNAL_TOKEN missing; notes status not sent")
         return False
     url = f"{cfg.drive_url}/api/internal/scribe/notes/{meeting_id}"
-    body = notes_payload(status, summary_markdown, drive_path)
+    body = notes_payload(status, summary_markdown, drive_path, reason)
     headers = {"Authorization": f"Bearer {cfg.internal_token}"}
     http = client or httpx.Client(timeout=TIMEOUT)
     try:

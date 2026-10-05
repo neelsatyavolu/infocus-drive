@@ -47,16 +47,43 @@ There is no separate Ollama container. Its models are in the `scribe-models` vol
 ## Flow
 
 1. The Portal calls `POST /api/service/meetings/scribe/start` when a meeting with notes on goes live.
-2. The Scribe opens `${PORTAL_BASE_URL}/meet-scribe#mid=…&room=…&token=…&key=…&epoch=…` in headless Chromium. The room token and meeting key are only in the URL fragment, which browsers never send to a server. They are never logged.
-3. It posts `RECORDING`. The page sends each remote speaker's audio as 10-second WebM/Opus chunks, which are written to the `scribe-tmp` volume.
-4. The recording ends on `stop`, when the page signals `ended` or `removed`, when the page closes or crashes, or after 4 hours. The Scribe then posts `PROCESSING` and queues the recording. Meetings are processed one at a time.
-5. Processing joins each speaker's chunks, then ffmpeg converts them to 16 kHz mono. faster-whisper transcribes with the VAD filter, and the speakers are merged by time into lines like `[hh:mm:ss] Name: text`. Ollama then writes the notes (see "Notes format").
-6. Notes are written to `<IFD_MEETINGS_ROOT>/<YYYY-MM-DD HHmm> <title> (<last 6 of id>)/` as `transcript.md`, `transcript.json` and `summary.md`. The folder time is in `SCRIBE_TIMEZONE`.
-7. The raw audio is deleted, and the Scribe posts `READY` with `{summaryMarkdown, drivePath}`.
-   - On any failure it posts `FAILED` and **also deletes the raw audio**, since nothing retries.
-   - If Chromium never joined the meeting, the status is `FAILED`.
+   - **Preflight:** the Scribe first checks that the notes folder (`/meetings`) and the recordings volume (`/scribe-tmp`) are writable, with a real write test. If either isn't, it posts `FAILED` with reason "notes folder not writable" and answers 503, instead of recording for an hour and failing at the end. The same check runs at startup (logged loudly) and on every `/health` call, which returns 503 so Docker marks the container unhealthy.
+   - Each start creates a job folder in `/scribe-tmp` with a `job.json` marker: the meeting id, title, startsAt, recording start, part number, state, attempts, and later the speakers map.
+2. The Scribe opens `${PORTAL_BASE_URL}/meet-scribe#mid=…&room=…&token=…&key=…&epoch=…` in headless Chromium and waits until the page exposes `window.__scribe`. The room token and meeting key are only in the URL fragment, which browsers never send to a server. They are never logged.
+3. It posts `RECORDING`. The page sends each remote speaker's audio as 10-second WebM/Opus chunks, which are written to the job folder.
+   - **Rekeys and new tickets** (`/scribe/rekey`) are stored on the session. If Chromium is still loading, they are applied as soon as the page is ready (the answer is `"pending"`, not a 404). New tickets go to `window.__scribe.setTicket(token)` when the page has it; either way the latest key and ticket are used for any relaunch.
+   - **Chromium crashes** (page crash or browser disconnect) are relaunched up to 2 times within the same part, with the current key and ticket.
+4. The recording ends on `stop`, when the page signals `ended` or `removed`, after relaunches run out, or after 4 hours.
+   - Before closing, the Scribe calls `window.__scribe.leave()` (5-second limit), so each speaker's last chunk is flushed.
+   - The marker becomes `queued` with the speakers map, the Scribe posts `PROCESSING`, and the job is queued. Meetings are processed one at a time.
+5. Processing joins each speaker's chunks and ffmpeg cuts them into **20-minute 16 kHz mono pieces**. A spawned child process transcribes the pieces one after another with faster-whisper (VAD filter), each with its time offset. The speakers are then merged by time into lines like `[hh:mm:ss] Name: text`. Ollama writes the notes (see "Notes format").
+   - The parent watches the child. Each piece has a timeout of 3× its length + 10 minutes (+15 minutes for the first piece, which loads or downloads the model). The child is killed above `SCRIBE_WHISPER_MAX_MB` resident memory.
+   - A piece that errors, times out, runs out of memory or crashes the child becomes a **gap**. The next piece gets a fresh child, and the notes are still written. `transcript.md` starts with a "missing" list (speaker and time range, with the reason), `transcript.json` has `gaps` and `complete: false`, and the summary ends with a note.
+6. Notes are written to `<IFD_MEETINGS_ROOT>/<YYYY-MM-DD HHmm> <title> (<last 6 of id>) rec <HHmm>[ part N]/` as `transcript.md`, `transcript.json` and `summary.md`. Times are in `SCRIBE_TIMEZONE`.
+   - `rec` is the recording's start time.
+   - `part N` (N ≥ 2) marks a later recording of the same meeting: after the 4-hour cap, after a Scribe restart, or a reopened meeting or notes turned off and on. A later part never overwrites part 1.
+   - The Portal gets each part's own `drivePath`, and the transcript endpoint returns all parts in order.
+7. The Scribe posts `READY` with `{summaryMarkdown, drivePath}`.
 
 If the summary fails entirely (Ollama can't start, the pull fails, or the model errors), the notes are still `READY`, with "Summary unavailable" in place of the summary. The transcript is the part that matters most.
+
+### What happens to the raw audio
+
+Raw audio is never deleted because something after the recording failed.
+
+| Outcome | Job state | Raw audio |
+|---|---|---|
+| Complete notes, Portal acknowledged `READY` | (folder deleted) | deleted |
+| Notes with gaps, `READY` acknowledged | `partial` | kept for a manual retry until the 7-day cleanup |
+| Notes written, `READY` not acknowledged | `written` | kept. The hourly pass re-sends `READY` from `summary.md` (no re-transcription) |
+| Transcription crash, write error, anything else | `failed` (reason in `last_error`) | kept. `FAILED` with a reason is posted. Retried at the next start and hourly, up to 3 attempts |
+| Notes folder not writable when processing starts | `failed` | kept. Not counted as an attempt, so it is retried hourly until fixed |
+| Chromium never joined and nothing was recorded | (folder deleted) | none. `FAILED` "could not join the meeting" |
+
+- **Restart safety:** at startup every job folder with a marker that isn't finished is queued again: `recording` (interrupted by a deploy or reboot), `queued`, `processing`, `written`, and `failed` with attempts left.
+- **Graceful shutdown:** compose gives the container `stop_grace_period: 60s`. Live pages are asked to leave and their jobs are marked `queued` before it exits.
+- **The rest of a live meeting:** a Scribe restart ends the current part. The Portal must call `start` again for the rest of the meeting, which records it as a new part.
+- **Manual retry of a `partial` job:** set `"state": "queued"` in its `job.json` and restart the container. It rewrites the same notes folder.
 
 ## Notes format (same as Redrule)
 
@@ -85,7 +112,13 @@ The prompt, JSON shape, parser and markdown are ported from Redrule's `MinutesCo
 - [ ] <task without an owner>
 ```
 
-Raw audio older than 7 days is removed every hour by the worker. This catches leftovers from a container stop during a meeting. Live recordings are never removed.
+Every hour the worker deletes recordings older than 7 days (by the marker's recording start), retries `failed` jobs, and re-sends `READY` calls that didn't get through. Live and queued recordings are never removed.
+
+### Long meetings
+
+- **Whisper memory:** whisper decodes a whole file, copies its speech for VAD and computes features for all of it, roughly 0.8 GB per stream-hour plus 1.2 GB per speech-hour. A 2–4 hour stream therefore used to be OOM-killed under the 3 GB limit. The 20-minute pieces keep the child at about 1 GB whatever the meeting length.
+- **Disk:** the WAV pieces of one speaker (about 115 MB per hour) sit in `scribe-tmp` while that speaker is transcribed.
+- **Summary:** each transcript chunk (about 12,000 characters) becomes a digest of at most about 300 tokens (`num_predict`). If all the digests together exceed about 16,000 characters (for example 20 digests from a 4-hour meeting), they are digested again, up to 4 rounds, before the final call, so the final prompt fits `num_ctx` 8192.
 
 ## Drive API
 
@@ -93,8 +126,8 @@ Portal → Drive (Bearer `PACKAGES_SERVICE_TOKEN`):
 
 | Method | Path | Body / result |
 |---|---|---|
-| POST | `/api/service/meetings/scribe/start` | `{meetingId, title, startsAt, roomUrl, roomToken, key, epoch, portalBaseUrl}` → `{ok, state: "starting" \| "already-recording"}` |
-| POST | `/api/service/meetings/scribe/rekey` | `{meetingId, key, epoch}` → `{ok}`, or 404 when not recording |
+| POST | `/api/service/meetings/scribe/start` | `{meetingId, title, startsAt, roomUrl, roomToken, key, epoch, portalBaseUrl}` → `{ok, state: "starting" \| "already-recording", part}`. A healthy recording answers `already-recording`. After the 4-hour cap, a Chromium failure, a restart or a stop, the same meeting starts a **new part**. 503 "notes folder not writable" when the preflight fails |
+| POST | `/api/service/meetings/scribe/rekey` | `{meetingId, key, epoch, roomToken?, roomUrl?, ticketExpiresAt?}` → `{ok, state: "applied" \| "pending"}`, or 404 when not recording. `roomToken` (optional, additive) is the re-ticket, sent about every 2 hours and on every rekey. `roomUrl` must match `MEETING_ROOM_URL`. Only `roomToken` is passed on to the Scribe |
 | POST | `/api/service/meetings/scribe/stop` | `{meetingId}` → `{ok, state: "stopping" \| "not-recording"}` |
 | GET | `/api/service/meetings/{meetingId}/transcript` | `text/markdown` transcript, or 404 |
 
@@ -102,7 +135,7 @@ Scribe → Drive (Bearer `SCRIBE_INTERNAL_TOKEN`, local callers only):
 
 | Method | Path | Body / result |
 |---|---|---|
-| POST | `/api/internal/scribe/notes/{meetingId}` | `{status: RECORDING\|PROCESSING\|READY\|FAILED, summaryMarkdown?, drivePath?}`, relayed to Portal `POST /api/service/meetings/{id}/notes`. Returns `{ok}`; 502 if the Portal is unreachable (the Scribe retries) |
+| POST | `/api/internal/scribe/notes/{meetingId}` | `{status: RECORDING\|PROCESSING\|READY\|FAILED, summaryMarkdown?, drivePath?, reason?}` (`reason` ≤ 200 characters, for example "notes folder not writable"; the Portal may ignore it), relayed to Portal `POST /api/service/meetings/{id}/notes`. Returns `{ok}`; 502 if the Portal is unreachable (the Scribe retries) |
 
 Validation:
 - `meetingId` must match `^[a-z0-9]{10,40}$`.
@@ -124,12 +157,17 @@ The Scribe exposes two functions to the page:
   - Chunks that arrive before a speaker's chunk 0 are dropped.
 - `window.scribeEvent(kind)`: `"ended"` or `"removed"` stops the recording.
 
-The page must provide `window.__scribe.setKey(key, epoch)` for rekeys.
+The page provides `window.__scribe = { setKey(key, epoch), setTicket?(token), leave() }`:
+- `setKey` for rekeys.
+- `setTicket` (optional) for a fresh room ticket.
+- `leave()` stops the recorders and resolves after their last chunks are handed over. The Scribe calls it before closing.
+
+The Scribe treats the page as joined once `window.__scribe` exists.
 
 ## Privacy
 
 - Audio never leaves the NAS. Transcription and summaries run locally, and no cloud speech or LLM service is used.
-- Raw audio is deleted as soon as notes are written or processing fails. Any leftovers older than 7 days are removed hourly.
+- Raw audio is deleted once the Portal has complete notes. If something failed, it is kept so the notes can be retried (see "What happens to the raw audio"). Anything older than 7 days is removed hourly.
 - The notes folder is on the InFocus Drive share, so **anyone with access to that share can read it**, not only producers. To keep notes private, set `IFD_MEETINGS_ROOT` to a folder whose NAS permissions are limited to producers and admins, while still letting uid 1000 write to it.
 - Files are owned by uid 1000 (the container's renumbered `pwuser`; the NAS service owner). Check `getent passwd 1000` on a new NAS and pick a non-person uid for `SCRIBE_UID` if needed.
 
@@ -142,9 +180,10 @@ The page must provide `window.__scribe.setKey(key, epoch)` for rekeys.
 | `MEETING_ROOM_URL` | (required for notes) | Drive + Scribe | Meeting room Worker origin; start requests' `roomUrl` must match |
 | `PACKAGES_SERVICE_TOKEN` | (existing) | Drive only | Portal ↔ Drive bearer (the Portal's `DRIVE_SERVICE_TOKEN`) |
 | `SCRIBE_URL` | `http://127.0.0.1:8792` | Drive | Where the Drive finds the Scribe |
-| `IFD_MEETINGS_ROOT` | `Meetings` | Drive + Scribe | Notes folder, relative to the Drive root; the only folder mounted into the Scribe |
+| `IFD_MEETINGS_ROOT` | `.ifd-meetings` | Drive + Scribe | Notes folder, relative to the Drive root; the only folder mounted into the Scribe |
 | `SCRIBE_WHISPER_MODEL` | `small.en` | Scribe | faster-whisper model (`base.en` is faster, `medium.en` is slower) |
 | `SCRIBE_WHISPER_THREADS` | `2` | Scribe | CPU threads for transcription |
+| `SCRIBE_WHISPER_MAX_MB` | `2000` | Scribe | Resident-memory cap for the whisper child; a 20-minute piece above it becomes a gap |
 | `SCRIBE_OLLAMA_MODEL` | `qwen2.5:1.5b` | Scribe | Summary model (any Ollama tag; pulled on first use) |
 | `SCRIBE_TIMEZONE` | `America/Los_Angeles` | Scribe | Folder names and transcript date |
 
@@ -155,7 +194,7 @@ Compose sets the in-container values `SCRIBE_DRIVE_URL`, `SCRIBE_MEETINGS_DIR`, 
 - **CPU:** compose caps the Scribe at 2 CPUs, so the Drive stays responsive.
   - On NAS-class CPUs, expect a 45-minute meeting to take roughly **20–35 minutes** to transcribe with `small.en`, plus a few minutes for the summary.
   - Benchmark on your NAS with a real recording before relying on this. If it is too slow, try `base.en`.
-- **RAM:** idle, only the FastAPI process (tens of MB). While working: Chromium needs about 300–500 MB per live meeting, the whisper `small.en` int8 child about 1 GB, and `qwen2.5:1.5b` about 1.5 GB while it summarizes. Whisper and Ollama run one after the other, never together. The container limit is 3 GB.
+- **RAM:** idle, only the FastAPI process (tens of MB). While working: Chromium needs about 300–500 MB per live meeting, the whisper `small.en` int8 child about 1 GB per 20-minute piece whatever the meeting length (killed above `SCRIBE_WHISPER_MAX_MB`), and `qwen2.5:1.5b` about 1.5 GB while it summarizes. Whisper and Ollama run one after the other, never together. The container limit is 3 GB.
 - **Disk:**
   - The Playwright base image is about 2 GB, plus the CPU-only Ollama binary.
   - The whisper model is about 500 MB, in the `scribe-models` volume.
@@ -193,7 +232,9 @@ If a NAS firewall blocks Docker bridge → host traffic, allow the `scribe` netw
 | Start returns 422 | `PORTAL_BASE_URL` / `MEETING_ROOM_URL` set and equal to the origins the Portal sends? |
 | Start returns 503 | `SCRIBE_INTERNAL_TOKEN` missing in the Drive's `.env` |
 | Drive returns 502 for scribe routes | Scribe container down |
-| FAILED right after start | Chromium could not launch or join: sandbox/seccomp (see Isolation), or `/meet-scribe` unreachable |
-| Notes FAILED at the end | Meetings folder not writable by uid 1000 (`Permission denied` in the logs) |
+| FAILED right after start, `/health` 503 | Preflight: `/meetings` or `/scribe-tmp` not writable by uid 1000 ("PREFLIGHT FAILED" in the logs) |
+| FAILED "could not join the meeting" | Chromium could not launch or join: sandbox/seccomp (see Isolation), or `/meet-scribe` unreachable |
+| Notes FAILED at the end | `docker logs infocus-scribe` and `last_error` in the job's `job.json`; the audio is kept and retried hourly (up to 3 attempts) |
+| "missing" list in a transcript | A piece timed out, ran out of memory (`SCRIBE_WHISPER_MAX_MB`) or crashed; the job is `partial` and its audio kept for 7 days |
 | Notes READY but "Summary unavailable" | `docker logs infocus-scribe`: did `ollama serve` start, and did the first-run model pull finish (network, disk)? |
 | Transcript empty | The scribe page sent no chunks (check the Portal `/meet-scribe` page and E2EE key) |

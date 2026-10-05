@@ -90,6 +90,15 @@ class ScribeStart(_Body):
 class ScribeRekey(_Body):
     key: str = Field(pattern=KEY_PATTERN)
     epoch: int = Field(ge=0, le=1_000_000)
+    # Re-ticketing (optional, additive): a fresh room ticket for the Scribe's next connections.
+    roomToken: str | None = Field(default=None, min_length=1, max_length=4096, pattern=r"^[A-Za-z0-9._~+/=-]+$")
+    roomUrl: str | None = Field(default=None, max_length=500)
+    ticketExpiresAt: datetime | None = None
+
+    @field_validator("roomUrl")
+    @classmethod
+    def _room_pinned(cls, value: str | None) -> str | None:
+        return None if value is None else _check_pinned(value, get_settings().meeting_room_url, "MEETING_ROOM_URL")
 
 
 class ScribeStop(_Body):
@@ -119,8 +128,8 @@ async def forward_to_scribe(path: str, payload: dict[str, Any]) -> tuple[int, An
     return resp.status_code, data
 
 
-async def _relay(path: str, body: BaseModel) -> JSONResponse:
-    status, data = await forward_to_scribe(path, body.model_dump(mode="json"))
+async def _relay(path: str, body: BaseModel, include: set[str] | None = None) -> JSONResponse:
+    status, data = await forward_to_scribe(path, body.model_dump(mode="json", exclude_none=True, include=include))
     if status >= 500:
         log.warning("scribe %s failed with %s", path, status)
         return JSONResponse({"detail": "Scribe error"}, status_code=502)
@@ -134,7 +143,7 @@ async def scribe_start(body: ScribeStart) -> JSONResponse:
 
 @router.post("/scribe/rekey")
 async def scribe_rekey(body: ScribeRekey) -> JSONResponse:
-    return await _relay("/sessions/rekey", body)
+    return await _relay("/sessions/rekey", body, include={"meetingId", "key", "epoch", "roomToken"})
 
 
 @router.post("/scribe/stop")
@@ -153,30 +162,34 @@ def meetings_dir() -> Path:
     return Path(get_settings().drive_root) / meetings_root_rel()
 
 
-def find_meeting_folder(root: Path, meeting_id: str) -> Path | None:
-    """The notes folder ends with "(<last 6 of id>)"; transcript.json confirms the full id."""
+def find_meeting_folders(root: Path, meeting_id: str) -> list[Path]:
+    """Every notes folder (one per recording part) of a meeting, oldest recording first.
+    Names contain "(<last 6 of id>)"; transcript.json confirms the full id."""
     if not root.is_dir():
-        return None
-    suffix = f"({meeting_id[-6:]})"
-    for folder in sorted(root.iterdir(), reverse=True):
-        if not folder.is_dir() or folder.is_symlink() or not folder.name.endswith(suffix):
+        return []
+    tag = f"({meeting_id[-6:]})"
+    found: list[tuple[int, str, Path]] = []
+    for folder in root.iterdir():
+        if not folder.is_dir() or folder.is_symlink() or tag not in folder.name:
             continue
         try:
             meta = json.loads((folder / "transcript.json").read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if isinstance(meta, dict) and meta.get("meetingId") == meeting_id:
-            return folder
-    return None
+            started = meta.get("recordingStartedMs")
+            found.append((started if isinstance(started, int) else 0, folder.name, folder))
+    return [folder for _, _, folder in sorted(found)]
 
 
 @router.get("/{meeting_id}/transcript")
 def meeting_transcript(meeting_id: str = PathParam(pattern=MEETING_ID_PATTERN)) -> Response:
-    folder = find_meeting_folder(meetings_dir(), meeting_id)
-    md = folder / "transcript.md" if folder else None
-    if md is None or not md.is_file() or md.is_symlink():
+    """The transcript; a meeting recorded in several parts gets them all, in order."""
+    parts = [folder / "transcript.md" for folder in find_meeting_folders(meetings_dir(), meeting_id)]
+    texts = [md.read_text(encoding="utf-8") for md in parts if md.is_file() and not md.is_symlink()]
+    if not texts:
         raise HTTPException(status_code=404, detail="Transcript not found")
-    return Response(md.read_text(encoding="utf-8"), media_type="text/markdown; charset=utf-8")
+    return Response("\n---\n\n".join(texts), media_type="text/markdown; charset=utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +228,8 @@ class NotesUpdate(BaseModel):
     status: Literal["RECORDING", "PROCESSING", "READY", "FAILED"]
     summaryMarkdown: str | None = Field(default=None, max_length=200_000)
     drivePath: str | None = Field(default=None, max_length=500)
+    # Why notes FAILED (e.g. "notes folder not writable"); additive, the Portal may ignore it.
+    reason: str | None = Field(default=None, max_length=200)
 
     @field_validator("drivePath")
     @classmethod

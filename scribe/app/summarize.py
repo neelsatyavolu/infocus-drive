@@ -19,6 +19,11 @@ log = logging.getLogger("scribe.summarize")
 # Small local model: keep each prompt well inside num_ctx.
 CHUNK_BUDGET = 12_000
 NUM_CTX = 8192
+# Digests are short (≈300 tokens each), and all of them together must leave the final
+# call room inside num_ctx: above this they are digested again (hierarchically).
+DIGEST_NUM_PREDICT = 300
+DIGEST_BUDGET = 16_000
+MAX_DIGEST_ROUNDS = 4
 OLLAMA_TIMEOUT = httpx.Timeout(900.0, connect=5.0)
 
 SUMMARY_UNAVAILABLE = (
@@ -165,12 +170,37 @@ def parse_note(reply: str) -> MeetingNote:
         raise NotJSON(str(e)) from e
 
 
-# complete(system, user, json_schema) -> model text
-Complete = Callable[[str, str, Optional[dict[str, Any]]], str]
+# complete(system, user, json_schema, num_predict) -> model text
+Complete = Callable[[str, str, Optional[dict[str, Any]], Optional[int]], str]
+
+
+def _digests_size(digests: list[str]) -> int:
+    return len(user_from_digests(digests, "", ""))
+
+
+def _fit(digests: list[str], budget: int) -> list[str]:
+    """Last resort when digesting stops shrinking: cut every digest to an equal share."""
+    share = max(200, budget // max(1, len(digests)) - 20)
+    return [d[:share] for d in digests]
+
+
+def digest(complete: Complete, chunks: list[str], chunk_budget: int = CHUNK_BUDGET,
+           budget: int = DIGEST_BUDGET) -> list[str]:
+    """Digest each chunk; while the digests together are over `budget`, digest the digests
+    (grouped into `chunk_budget` pieces) so the final prompt fits num_ctx."""
+    digests = [complete(DIGEST_SYSTEM, chunk, None, DIGEST_NUM_PREDICT) for chunk in chunks]
+    rounds = 1
+    while _digests_size(digests) > budget and len(digests) > 1 and rounds < MAX_DIGEST_ROUNDS:
+        groups = chunk_transcript("\n".join(digests), chunk_budget)
+        if len(groups) >= len(digests):
+            break  # digests longer than a chunk: another round wouldn't shrink anything
+        digests = [complete(DIGEST_SYSTEM, group, None, DIGEST_NUM_PREDICT) for group in groups]
+        rounds += 1
+    return digests if _digests_size(digests) <= budget else _fit(digests, budget)
 
 
 def summarize(complete: Complete, title: str, started: str, transcript: str,
-              chunk_budget: int = CHUNK_BUDGET) -> MeetingNote:
+              chunk_budget: int = CHUNK_BUDGET, digest_budget: int = DIGEST_BUDGET) -> MeetingNote:
     """Redrule's Summarizer: digest long transcripts, then one JSON note (one retry, then fallback)."""
     chunks = chunk_transcript(transcript, chunk_budget)
     if not chunks:
@@ -178,11 +208,10 @@ def summarize(complete: Complete, title: str, started: str, transcript: str,
     if len(chunks) == 1:
         user = user_prompt(transcript, title, started)
     else:
-        digests = [complete(DIGEST_SYSTEM, chunk, None) for chunk in chunks]
-        user = user_from_digests(digests, title, started)
+        user = user_from_digests(digest(complete, chunks, chunk_budget, digest_budget), title, started)
     reply = ""
     for _ in range(2):
-        reply = complete(SYSTEM, user, SCHEMA)
+        reply = complete(SYSTEM, user, SCHEMA, None)
         try:
             return parse_note(reply)
         except NotJSON:
@@ -199,11 +228,15 @@ class OllamaChat:
         self._model = model
         self._client = client or httpx.Client(timeout=OLLAMA_TIMEOUT)
 
-    def __call__(self, system: str, user: str, json_schema: dict[str, Any] | None) -> str:
+    def __call__(self, system: str, user: str, json_schema: dict[str, Any] | None,
+                 num_predict: int | None = None) -> str:
+        options: dict[str, Any] = {"temperature": 0.2, "num_ctx": NUM_CTX}
+        if num_predict is not None:
+            options["num_predict"] = num_predict
         body: dict[str, Any] = {
             "model": self._model, "stream": False,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            "options": {"temperature": 0.2, "num_ctx": NUM_CTX},
+            "options": options,
         }
         if json_schema is not None:
             body["format"] = json_schema

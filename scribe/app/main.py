@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 from contextlib import asynccontextmanager
@@ -13,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from . import portal_client, preflight
 from .config import get_config
 from .session import SessionManager, StartRequest
 
@@ -71,6 +73,8 @@ class StartBody(_Body):
 class RekeyBody(_Body):
     key: str = Field(pattern=KEY_PATTERN)
     epoch: int = Field(ge=0, le=1_000_000)
+    # Optional fresh room ticket (re-ticketing, about every 2 h and on every rekey).
+    roomToken: str | None = Field(default=None, min_length=1, max_length=4096, pattern=r"^[A-Za-z0-9._~+/=-]+$")
 
 
 class StopBody(_Body):
@@ -80,9 +84,15 @@ class StopBody(_Body):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cfg = get_config()
-    cfg.tmp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cfg.tmp_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass  # reported by the preflight below
     if not cfg.internal_token:
         log.error("SCRIBE_INTERNAL_TOKEN is not set; every request will be refused")
+    problems = preflight.problems(cfg)
+    if problems:
+        log.error("PREFLIGHT FAILED at startup, meeting notes cannot be saved: %s", "; ".join(problems))
     manager = SessionManager(cfg)
     manager.start_worker()
     app.state.manager = manager
@@ -107,29 +117,40 @@ def _manager(request: Request) -> SessionManager:
 
 
 @app.get("/health")
-def health() -> dict[str, bool]:
-    return {"ok": True}
+def health() -> JSONResponse:
+    """Unhealthy (503) while the notes or recordings folder isn't writable."""
+    problems = preflight.problems(get_config())
+    if problems:
+        log.error("health: %s", "; ".join(problems))
+        return JSONResponse({"ok": False, "problems": problems}, status_code=503)
+    return JSONResponse({"ok": True})
 
 
 @app.post("/sessions/start", dependencies=[Depends(require_internal_token)])
 async def start(body: StartBody, request: Request) -> dict[str, object]:
-    state = _manager(request).start(StartRequest(
-        meeting_id=body.meetingId, title=body.title, starts_at=body.startsAt, room_url=body.roomUrl,
-        room_token=body.roomToken, key=body.key, epoch=body.epoch, portal_base_url=body.portalBaseUrl,
-    ))
-    return {"ok": True, "state": state}
+    """A healthy recording for this meeting → "already-recording"; otherwise a new part
+    starts (also after the 4-hour cap or a Chromium crash while the meeting is live)."""
+    try:
+        state, part = _manager(request).start(StartRequest(
+            meeting_id=body.meetingId, title=body.title, starts_at=body.startsAt, room_url=body.roomUrl,
+            room_token=body.roomToken, key=body.key, epoch=body.epoch, portal_base_url=body.portalBaseUrl,
+        ))
+    except preflight.PreflightFailed as e:
+        await asyncio.to_thread(portal_client.post_notes, get_config(), body.meetingId, "FAILED", reason=e.reason)
+        raise HTTPException(status_code=503, detail=e.reason) from None
+    return {"ok": True, "state": state, "part": part}
 
 
 @app.post("/sessions/rekey", dependencies=[Depends(require_internal_token)])
 async def rekey(body: RekeyBody, request: Request) -> dict[str, object]:
     try:
-        applied = await _manager(request).rekey(body.meetingId, body.key, body.epoch)
+        state = await _manager(request).rekey(body.meetingId, body.key, body.epoch, body.roomToken)
     except Exception as e:  # never let a browser error carry the key into logs
         log.warning("rekey failed: %s", type(e).__name__)
         raise HTTPException(status_code=409, detail="Rekey failed") from None
-    if not applied:
+    if state is None:
         raise HTTPException(status_code=404, detail="Not recording this meeting")
-    return {"ok": True}
+    return {"ok": True, "state": state}
 
 
 @app.post("/sessions/stop", dependencies=[Depends(require_internal_token)])

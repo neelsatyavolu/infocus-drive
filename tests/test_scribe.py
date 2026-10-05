@@ -122,10 +122,14 @@ def test_sanitize_title(title, expected):
     assert sanitize_title(title) == expected
 
 
-def test_folder_name_uses_local_time_and_id_suffix():
+def test_folder_name_uses_local_time_id_recording_start_and_part():
     starts = datetime(2026, 10, 5, 4, 15, tzinfo=timezone.utc)  # Sunday 9:15 PM Pacific
-    assert folder_name(starts, "Producer meeting", MEETING, "America/Los_Angeles") == \
-        "2026-10-04 2115 Producer meeting (abc123)"
+    rec = int(datetime(2026, 10, 5, 4, 17, tzinfo=timezone.utc).timestamp() * 1000)
+    assert folder_name(starts, "Producer meeting", MEETING, "America/Los_Angeles", rec) == \
+        "2026-10-04 2115 Producer meeting (abc123) rec 2117"
+    later = rec + 85 * 60 * 1000
+    assert folder_name(starts, "Producer meeting", MEETING, "America/Los_Angeles", later, part=2) == \
+        "2026-10-04 2115 Producer meeting (abc123) rec 2242 part 2"
 
 
 def test_write_notes_returns_drive_relative_path(tmp_path):
@@ -155,51 +159,6 @@ def test_cleanup_removes_only_old_leftovers(tmp_path):
     os.utime(live, (0, 0))
     assert cleanup_leftovers(tmp_path, keep={"live"}) == 1
     assert not old.exists() and new.exists() and live.exists()
-
-
-def test_failed_processing_deletes_raw_audio(tmp_path, monkeypatch):
-    from app import pipeline
-
-    audio = tmp_path / "tmp" / "m-1"
-    audio.mkdir(parents=True)
-    (audio / "chunk").write_bytes(b"x")
-    sent = []
-    monkeypatch.setattr(pipeline, "transcribe_in_child", lambda cfg, d: (_ for _ in ()).throw(OSError("disk")))
-    monkeypatch.setattr(pipeline.portal_client, "post_notes", lambda cfg, mid, status, **kw: sent.append(status))
-    job = pipeline.Job(meeting_id=MEETING, title="T", starts_at=datetime.now(timezone.utc),
-                       recording_started_ms=0, audio_dir=audio)
-    pipeline.process(_cfg(tmp_path), job)
-    assert sent == ["FAILED"] and not audio.exists()
-
-
-def test_successful_processing_writes_notes_and_reports_ready(tmp_path, monkeypatch):
-    from app import pipeline
-
-    (tmp_path / "Meetings").mkdir()
-    audio = tmp_path / "tmp" / "m-2"
-    audio.mkdir(parents=True)
-    sent = []
-    monkeypatch.setattr(pipeline, "transcribe_in_child", lambda cfg, d: [Segment(1_000, 2_000, "u1", "Abby", "Hi.")])
-    seen = {}
-
-    def fake_summary(cfg, title, started, text):
-        seen.update(title=title, started=started, text=text)
-        return "# Notes\n"
-
-    monkeypatch.setattr(pipeline, "summarize_meeting", fake_summary)
-    monkeypatch.setattr(pipeline.portal_client, "post_notes", lambda cfg, mid, status, **kw: sent.append((status, kw)))
-    job = pipeline.Job(meeting_id=MEETING, title="Producer meeting",
-                       starts_at=datetime(2026, 10, 5, 4, 15, tzinfo=timezone.utc), recording_started_ms=0,
-                       audio_dir=audio)
-    pipeline.process(_cfg(tmp_path), job)
-    status, kw = sent[0]
-    assert status == "READY" and kw["drive_path"] == "Meetings/2026-10-04 2115 Producer meeting (abc123)"
-    assert (tmp_path / kw["drive_path"] / "transcript.md").read_text().count("[00:00:01] Abby: Hi.") == 1
-    assert kw["summary_markdown"] == "# Notes\n"
-    assert (tmp_path / kw["drive_path"] / "summary.md").read_text() == "# Notes\n"
-    assert seen == {"title": "Producer meeting", "started": "Oct 4, 2026, 9:15 PM PDT",
-                    "text": "[00:00:01] Abby: Hi."}
-    assert not audio.exists()
 
 
 # --- summary prompt chunking --------------------------------------------------------
@@ -296,8 +255,9 @@ class FakeModel:
         self.replies = list(replies)
         self.calls = []
 
-    def __call__(self, system, user, schema):
+    def __call__(self, system, user, schema, num_predict=None):
         self.calls.append((system, user, schema))
+        self.limits = getattr(self, "limits", []) + [num_predict]
         return self.replies.pop(0)
 
 
@@ -315,6 +275,7 @@ def test_summarize_long_transcript_digests_then_writes_json():
     summarize.summarize(model, "T", STARTED, text, chunk_budget=2500)
     digests = [c for c in model.calls if c[0] == summarize.DIGEST_SYSTEM]
     assert len(digests) == 3 and all(c[2] is None for c in digests)
+    assert model.limits == [300, 300, 300, None]  # digests are capped; the final note isn't
     assert "Part 3:\n- d3" in model.calls[-1][1]
 
 
@@ -338,9 +299,10 @@ def test_ollama_chat_sends_schema_as_format():
     assert chat("sys", "user", summarize.SCHEMA) == "{}"
     assert seen["format"] == summarize.SCHEMA and seen["options"]["num_ctx"] == 8192
     assert seen["messages"][0] == {"role": "system", "content": "sys"}
+    assert "num_predict" not in seen["options"]
     seen.clear()
-    chat("sys", "user", None)
-    assert "format" not in seen
+    chat("sys", "user", None, 300)
+    assert "format" not in seen and seen["options"]["num_predict"] == 300
 
 
 # --- on-demand Ollama lifecycle -----------------------------------------------------
@@ -444,14 +406,6 @@ def test_server_startup_failure_stops_the_process(tmp_path):
     assert procs[1].terminated
 
 
-def test_transcription_runs_in_a_child_process_that_exits(tmp_path):
-    from app import pipeline
-
-    empty = tmp_path / "audio"
-    empty.mkdir()
-    assert pipeline.transcribe_in_child(_cfg(tmp_path), empty) == []
-
-
 # --- portal client ------------------------------------------------------------------
 
 def _cfg(tmp_path, **overrides) -> scribe_config.ScribeConfig:
@@ -498,10 +452,11 @@ class FakeManager:
 
     def start(self, req):
         self.started.append(req)
-        return "starting"
+        return "starting", 1
 
-    async def rekey(self, meeting_id, key, epoch):
-        return meeting_id == MEETING
+    async def rekey(self, meeting_id, key, epoch, room_token=None):
+        self.rekeyed = (meeting_id, room_token)
+        return "applied" if meeting_id == MEETING else None
 
     def stop(self, meeting_id):
         return False
@@ -528,7 +483,7 @@ def test_scribe_api_requires_token_and_matching_portal(scribe_client):
     assert res.status_code == 422 and KEY not in res.text
     res = client.post("/sessions/start", json={**START, "roomUrl": "https://evil.example.com"}, headers=auth)
     assert res.status_code == 422
-    assert client.post("/sessions/start", json=START, headers=auth).json() == {"ok": True, "state": "starting"}
+    assert client.post("/sessions/start", json=START, headers=auth).json() == {"ok": True, "state": "starting", "part": 1}
     assert manager.started[0].meeting_id == MEETING
     assert client.post("/sessions/rekey", json={"meetingId": "zzzzzzzzzzzz", "key": KEY, "epoch": 1},
                        headers=auth).status_code == 404

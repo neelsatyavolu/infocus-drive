@@ -106,6 +106,8 @@ services:
     image: infocus-scribe:local
     container_name: infocus-scribe
     restart: unless-stopped
+    # Time to ask live pages to leave (flushes the last audio) and mark jobs for restart.
+    stop_grace_period: 60s
     networks:
       - scribe
     ports:
@@ -131,13 +133,15 @@ services:
       IFD_SCRIBE_TMP: /scribe-tmp
       SCRIBE_WHISPER_MODEL: ${SCRIBE_WHISPER_MODEL:-small.en}
       SCRIBE_WHISPER_THREADS: ${SCRIBE_WHISPER_THREADS:-2}
+      # The whisper child is killed above this; that 20-minute piece becomes a gap in the notes.
+      SCRIBE_WHISPER_MAX_MB: ${SCRIBE_WHISPER_MAX_MB:-2000}
       SCRIBE_OLLAMA_MODEL: ${SCRIBE_OLLAMA_MODEL:-qwen2.5:1.5b}
       SCRIBE_TIMEZONE: ${SCRIBE_TIMEZONE:-America/Los_Angeles}
     volumes:
       # Only the notes folder. Create it first and let the image's pwuser
       # (uid 1000) write to it; see docs/MEETINGS-SCRIBE.md.
       - "/volume2/InFocus Drive/${IFD_MEETINGS_ROOT:-.ifd-meetings}:/meetings"
-      # Raw per-speaker audio until notes are written (deleted after, or after 7 days).
+      # Raw per-speaker audio + job markers until the Portal has the notes (or 7 days).
       - scribe-tmp:/scribe-tmp
       # faster-whisper + Ollama model caches (each downloaded on first use).
       - scribe-models:/models

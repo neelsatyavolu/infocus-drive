@@ -9,6 +9,7 @@ from pathlib import Path
 
 MAX_SESSION_SECONDS = 4 * 60 * 60
 LEFTOVER_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+WHISPER_MAX_MB = 2000
 
 
 def _env(name: str, default: str = "") -> str:
@@ -46,6 +47,8 @@ class ScribeConfig:
     ollama_bin: str = "ollama"
     ollama_port: int = 11434
     max_session_seconds: int = MAX_SESSION_SECONDS
+    # The whisper child is killed above this resident size; that 20-minute piece becomes a gap.
+    whisper_max_mb: int = WHISPER_MAX_MB
 
 
 def load_config() -> ScribeConfig:
@@ -65,6 +68,7 @@ def load_config() -> ScribeConfig:
         ollama_model=_env("SCRIBE_OLLAMA_MODEL", "qwen2.5:1.5b"),
         ollama_models_dir=Path(_env("OLLAMA_MODELS", "/models/ollama")),
         timezone=_env("SCRIBE_TIMEZONE", "America/Los_Angeles"),
+        whisper_max_mb=max(500, _env_int("SCRIBE_WHISPER_MAX_MB", WHISPER_MAX_MB)),
     )
 
 
