@@ -64,6 +64,7 @@ type FS struct {
 	refreshing atomic.Bool // a background share-list refresh is running
 	locks      *pendingLocks
 	waiting    map[string]*waiter // new empty files waiting out PendingGrace
+	readSlots  chan struct{}      // downloads all reads share (totalReadStreams)
 
 	sharesTTL, listTTL, listStale time.Duration // the constants; tests shorten them
 }
@@ -95,6 +96,7 @@ func New(client *api.Client, tempDir string) *FS {
 		lists:        map[string]cachedList{},
 		flights:      map[string]*flight{},
 		waiting:      map[string]*waiter{},
+		readSlots:    make(chan struct{}, totalReadStreams),
 		PendingGrace: pendingGrace,
 		sharesTTL:    sharesTTL,
 		listTTL:      listTTL,

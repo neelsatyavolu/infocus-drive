@@ -303,7 +303,7 @@ func (r *remoteFile) Read(p []byte) (int, error) {
 		}
 		end := r.readEnd()
 		if end-r.off > smallRead {
-			r.ahead = startReadAhead(r.ctx, r.src, r.off, end, r.version, r.info.size)
+			r.ahead = startReadAhead(r.ctx, r.src, r.off, end, r.version, r.info.size, r.fs.readSlots)
 			continue
 		}
 		data, version, err := r.src.Range(api.Warm(r.ctx), r.off, end-r.off) // small: latency-bound

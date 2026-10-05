@@ -26,6 +26,8 @@ type revDrive struct {
 	data2      []byte
 	rangeBytes int64
 	ranges     []string
+	inflight   int // ranged downloads being served right now
+	maxFlight  int
 }
 
 func newRevDrive(t *testing.T, name string, data []byte) (*revDrive, *FS, *httptest.Server) {
@@ -42,6 +44,12 @@ func newRevDrive(t *testing.T, name string, data []byte) (*revDrive, *FS, *httpt
 			d.mu.Unlock()
 			json.NewEncoder(w).Encode(map[string]any{"path": q.Get("path"), "items": items})
 		case "/api/download":
+			d.mu.Lock()
+			d.inflight++
+			d.maxFlight = max(d.maxFlight, d.inflight)
+			d.mu.Unlock()
+			defer func() { d.mu.Lock(); d.inflight--; d.mu.Unlock() }()
+			time.Sleep(5 * time.Millisecond) // a real link: requests overlap
 			d.mu.Lock()
 			data, etag := d.data, d.etag
 			if rng := r.Header.Get("Range"); rng != "" {
@@ -216,5 +224,52 @@ func TestUnknownTypeFetchesOnlyTheRange(t *testing.T) {
 	defer d.mu.Unlock()
 	if d.rangeBytes != 65536 || len(d.ranges) != 1 {
 		t.Fatalf("Drive asked for %d bytes in %v", d.rangeBytes, d.ranges)
+	}
+}
+
+// Finder making a thumbnail opens a big video and reads a little of it. The
+// read must not start fetching megabytes ahead it will never use.
+func TestPeekingAtABigFileFetchesLittle(t *testing.T) {
+	d, _, dav := newRevDrive(t, "clip.mov", make([]byte, 64<<20))
+	req, _ := http.NewRequest("GET", dav.URL+"/V/S/clip.mov", nil)
+	req.SetBasicAuth(User, "pw")
+	res, err := dav.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(res.Body, make([]byte, 300<<10)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond) // let anything already started finish
+	res.Body.Close()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	// Socket buffers take ~1 MB more than the client reads; before the ramp
+	// this fetched 17+ MB (six chunks at once).
+	if d.rangeBytes > 6<<20 {
+		t.Fatalf("reading 300 KB fetched %d MB from the Drive: %v", d.rangeBytes>>20, d.ranges)
+	}
+}
+
+// Many files read at once (a folder of thumbnails) share a cap on parallel
+// downloads, so they can't swamp the link and stall everything else.
+func TestParallelReadsShareACap(t *testing.T) {
+	d, _, dav := newRevDrive(t, "clip.mov", make([]byte, 48<<20))
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if code, body := davDo(t, dav, "GET", "clip.mov"); code != 200 || len(body) != 48<<20 {
+				t.Errorf("GET: %d, %d bytes", code, len(body))
+			}
+		}()
+	}
+	wg.Wait()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	// totalReadStreams large chunks, plus each read's small first chunk.
+	if d.maxFlight > totalReadStreams+5 {
+		t.Fatalf("%d downloads at once for 5 reads", d.maxFlight)
 	}
 }
