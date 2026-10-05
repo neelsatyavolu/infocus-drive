@@ -32,6 +32,11 @@ else
 fi
 case "$TAG" in cli-v*) ;; *) echo "tag must look like cli-v1.2.3" >&2; exit 2 ;; esac
 VERSION="${TAG#cli-v}"
+# Default to the addresses the release workflow builds with (repo variables).
+if [ "${ALLOW_NO_PORTAL:-}" != 1 ]; then
+  export PORTAL_URL="${PORTAL_URL:-$(gh variable get PORTAL_URL 2>/dev/null || true)}"
+  export DRIVE_URL="${DRIVE_URL:-$(gh variable get DRIVE_URL 2>/dev/null || true)}"
+fi
 if [ -z "${PORTAL_URL:-}" ] && [ "${ALLOW_NO_PORTAL:-}" != 1 ]; then
   echo "set PORTAL_URL (and DRIVE_URL) for the release build, or ALLOW_NO_PORTAL=1 for a Drive-only app" >&2
   exit 2
