@@ -4,8 +4,10 @@
 # and `ollama serve` are started per meeting/job and exit afterwards.
 # The Playwright image ships Python 3.12, a matching Chromium build and the
 # non-root `pwuser`. Rebuild this image when Playwright/Chromium updates
-# (bump the tag here and `playwright` in requirements.txt together).
-FROM mcr.microsoft.com/playwright/python:v1.55.0-noble
+# (bump the tag here and `playwright` in requirements.txt together). The meeting page
+# needs RTCRtpScriptTransform (end-to-end encryption), which Chromium has from 141 on;
+# an older build shows "Unsupported browser" and every meeting fails to join.
+FROM mcr.microsoft.com/playwright/python:v1.63.0-noble
 
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
