@@ -5,6 +5,9 @@ pydantic==2.11.4
 # Must match the Playwright base image tag in the Dockerfile.
 playwright==1.63.0
 faster-whisper==1.1.1
+# PyAV 19 removed av.open(metadata_errors=...), which faster-whisper (through 1.2.1) still passes:
+# every transcription failed with TypeError.
+av==18.1.0
 # faster-whisper imports requests but does not declare it; huggingface_hub 1.x dropped it.
 requests==2.32.3
 huggingface_hub>=0.23,<1.0
