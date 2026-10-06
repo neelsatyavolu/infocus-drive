@@ -18,7 +18,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from starlette.middleware.sessions import SessionMiddleware
@@ -77,6 +77,7 @@ from fsops import (
     upload_fingerprint,
     write_upload_stream,
 )
+import link_preview
 import thumbs
 import webproxy
 from zipstream import stream_zip_store, zip_store_content_length
@@ -2252,9 +2253,82 @@ def api_folder_link_zip(token: str, path: str = Query("", description="Subfolder
     return _zip_response(entries, f"{Path(rel).name}.zip")
 
 
+@app.get("/api/s/{token}/thumb", response_model=None)
+def api_file_link_thumb(token: str):
+    """JPEG preview image for a file link (og:image in iMessage, Slack, …)."""
+    try:
+        payload, root, rel, _sub = _link_target(token)
+        file_path, _name = _link_file(payload, root, rel)
+    except LinkError as e:
+        return _file_link_error(e)
+    thumb_path = thumbs.get_or_create(file_path, 512)
+    if thumb_path is None:
+        raise HTTPException(status_code=404, detail="No thumbnail")
+    return FileResponse(path=thumb_path, media_type="image/jpeg")
+
+
+def _share_preview(token: str) -> tuple[str, str, str | None]:
+    """(title, description, thumbnail path or None) for a share link's preview."""
+    try:
+        payload, root, rel, _sub = _link_target(token)
+        if is_folder_link(payload):
+            listing = _link_listing(payload, root, rel, "")
+            if listing is not None:
+                count = link_preview.item_count(len(listing["items"]))
+                return listing["name"], f"Folder · {count} · Shared from {link_preview.SITE}", None
+        file_path, name = _link_file(payload, root, rel)
+        size = link_preview.human_size(file_path.stat().st_size)
+    except LinkError as e:
+        title = "This link has expired" if e.code == "expired" else "Link not available"
+        return title, link_preview.SITE, None
+    label = link_preview.kind_label(preview_kind(name))
+    thumb = f"/api/s/{token}/thumb" if thumbs.thumb_kind(name) else None
+    return name, f"{label} · {size} · Shared from {link_preview.SITE}", thumb
+
+
 @app.get("/s/{token}")
-def share_page(token: str) -> FileResponse:
-    return FileResponse(STATIC / "share.html")
+def share_page(token: str) -> HTMLResponse:
+    base = (get_settings().public_base_url or "").rstrip("/")
+    title, description, thumb = _share_preview(token)
+    page = link_preview.inject(
+        (STATIC / "share.html").read_text(encoding="utf-8"),
+        title=title,
+        description=description,
+        url=f"{base}/s/{token}",
+        image=base + (thumb or link_preview.ICON),
+    )
+    return HTMLResponse(page)
+
+
+@app.get("/open")
+def open_link(
+    share: str = Query("", description="Drive the item is on"),
+    path: str = Query("", description="Folder to open"),
+    file: str = Query("", description="File to open"),
+) -> HTMLResponse:
+    """Copy-link target: the Drive app, with a preview built only from the URL.
+
+    Recipients sign in to see the item, so the preview never touches the disk —
+    it can't confirm a path exists or leak anything the URL doesn't already say.
+    """
+    base = (get_settings().public_base_url or "").rstrip("/")
+    query = urlencode({key: value for key, value in (("share", share), ("path", path), ("file", file)) if value})
+    target = file or path
+    title = link_preview.base_name(target) or link_preview.SITE
+    if file:
+        what = link_preview.kind_label(preview_kind(title))
+    else:
+        what = "Folder" if target.strip("/") else "Drive"
+    parent = link_preview.parent_name(target)
+    description = f"{what} in {parent} · {link_preview.SITE}" if parent else f"{what} · {link_preview.SITE}"
+    page = link_preview.inject(
+        (STATIC / "index.html").read_text(encoding="utf-8"),
+        title=title,
+        description=description,
+        url=f"{base}/open?{query}",
+        image=base + link_preview.ICON,
+    )
+    return HTMLResponse(page)
 
 
 # ---------------------------------------------------------------------------

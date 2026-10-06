@@ -402,3 +402,96 @@ def test_folder_link_refuses_symlink_swapped_in(client, drive_root, folder_token
     assert "secret" not in res.text
     assert public.get(f"/api/s/{folder_token}/file", params={"path": "secret.txt"}).status_code == 404
     assert public.get(f"/api/s/{folder_token}/zip").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Link previews (Open Graph) for iMessage / Slack / etc.
+# ---------------------------------------------------------------------------
+
+
+def _og(html: str, prop: str) -> str:
+    import re
+
+    match = re.search(rf'<meta property="{prop}" content="([^"]*)"', html)
+    assert match, f"missing {prop}"
+    return match.group(1)
+
+
+def test_share_page_previews_file(client):
+    token = client.post("/api/file-link", json={"path": "clip.mp4", "days": 7}).json()["url"].rsplit("/", 1)[-1]
+    page = TestClient(client.app).get(f"/s/{token}").text
+    assert _og(page, "og:title") == "clip.mp4"
+    assert _og(page, "og:description") == "Video · 14 B · Shared from InFocus Drive"
+    assert _og(page, "og:image") == f"https://drive.infocuspaly.com/api/s/{token}/thumb"
+    assert _og(page, "og:url") == f"https://drive.infocuspaly.com/s/{token}"
+    assert "<title>clip.mp4 · InFocus Drive</title>" in page
+    assert "share.js" in page
+
+
+def test_share_page_without_thumbnail_uses_app_icon(client):
+    token = client.post("/api/file-link", json={"path": "notes.txt", "days": 7}).json()["url"].rsplit("/", 1)[-1]
+    page = TestClient(client.app).get(f"/s/{token}").text
+    assert _og(page, "og:description") == "Document · 11 B · Shared from InFocus Drive"
+    assert _og(page, "og:image").startswith("https://drive.infocuspaly.com/assets/apple-touch-icon.png")
+
+
+def test_share_page_previews_folder(client, folder_token):
+    page = TestClient(client.app).get(f"/s/{folder_token}").text
+    assert _og(page, "og:title") == "Camp"
+    # take.mp4 + clips/ (hidden files, #recycle and symlinks aren't listed)
+    assert _og(page, "og:description") == "Folder · 2 items · Shared from InFocus Drive"
+
+
+def test_share_page_preview_escapes_names(client, drive_root):
+    (drive_root / 'a"<b>&.txt').write_text("x")
+    token = client.post("/api/file-link", json={"path": 'a"<b>&.txt', "days": 7}).json()["url"].rsplit("/", 1)[-1]
+    page = TestClient(client.app).get(f"/s/{token}").text
+    assert _og(page, "og:title") == "a&quot;&lt;b&gt;&amp;.txt"
+    assert '<b>' not in page.split("<body", 1)[0]
+
+
+def test_share_page_preview_for_bad_links(client, secret):
+    import file_links
+    import main
+
+    public = TestClient(main.app)
+    page = public.get("/s/not-a-token").text
+    assert _og(page, "og:title") == "Link not available"
+    assert "share.js" in page
+
+    token = file_links.mint(share="InFocus Drive", path="clip.mp4", days=1, uid=1, gid=1, name="clip.mp4")
+    payload = file_links.decode(token)
+    payload["exp"] = int(time.time()) - 10
+    expired = file_links._ser().dumps(payload)
+    assert _og(public.get(f"/s/{expired}").text, "og:title") == "This link has expired"
+
+
+def test_share_link_thumbnail(client, drive_root, tmp_path, monkeypatch):
+    from PIL import Image
+
+    monkeypatch.setenv("IFD_THUMB_CACHE_DIR", str(tmp_path / "thumbs"))
+    Image.new("RGB", (40, 30), "red").save(drive_root / "pic.png")
+    token = client.post("/api/file-link", json={"path": "pic.png", "days": 7}).json()["url"].rsplit("/", 1)[-1]
+    public = TestClient(client.app)
+    res = public.get(f"/api/s/{token}/thumb")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "image/jpeg"
+    assert public.get("/api/s/not-a-token/thumb").status_code == 404
+
+
+def test_open_link_previews_file_from_url_only(client):
+    public = TestClient(client.app)
+    page = public.get("/open", params={"share": "InFocus Drive", "file": "Camp/take.mp4"}).text
+    assert _og(page, "og:title") == "take.mp4"
+    assert _og(page, "og:description") == "Video in Camp · InFocus Drive"
+    assert "<title>take.mp4 · InFocus Drive</title>" in page
+    assert "app.js" in page
+
+
+def test_open_link_previews_folder(client):
+    public = TestClient(client.app)
+    page = public.get("/open", params={"share": "InFocus Drive", "path": "Camp/clips"}).text
+    assert _og(page, "og:title") == "clips"
+    assert _og(page, "og:description") == "Folder in Camp · InFocus Drive"
+    root = public.get("/open", params={"share": "InFocus Drive"}).text
+    assert _og(root, "og:title") == "InFocus Drive"

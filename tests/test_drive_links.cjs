@@ -25,7 +25,7 @@ function setup() {
     store() {}, setQuickScope() {}, clearSearch() {}, loadUsage() {}, refreshShortcuts() {},
     render() {}, scrollItemIntoView() {},
   });
-  for (const name of ['copyItemLinks', 'pathFromHash', 'hashForPath', 'loadRoute']) {
+  for (const name of ['copyItemLinks', 'openLinkHash', 'pathFromHash', 'hashForPath', 'loadRoute']) {
     const body = source.match(new RegExp(`^(?:async )?function ${name}\\([^]*?^}`, 'm'));
     assert.ok(body, `Missing ${name}`);
     vm.runInContext(body[0], context);
@@ -41,12 +41,22 @@ test('folder and file links round-trip reserved characters using the public host
   const links = calls.clipboard.split('\n').map(link => new URL(link));
   assert.equal(links.length, 2);
   for (const url of links) {
-    assert.equal(url.origin, 'https://drive.infocuspaly.com');
-    c.location.hash = url.hash;
+    // The path is in the query (not the hash) so link previews can see it.
+    assert.equal(url.origin + url.pathname, 'https://drive.infocuspaly.com/open');
+    assert.equal(url.hash, '');
+    c.location.hash = c.openLinkHash(url.search);
     assert.equal(c.pathFromHash(), folder);
-    assert.equal(new URLSearchParams(url.hash.split('?')[1]).get('share'), 'InFocus Drive');
+    assert.equal(new URLSearchParams(c.location.hash.split('?')[1]).get('share'), 'InFocus Drive');
   }
-  assert.equal(new URLSearchParams(links[1].hash.split('?')[1]).get('file'), file);
+  assert.equal(links[0].searchParams.get('path'), folder);
+  assert.equal(links[1].searchParams.get('file'), file);
+  assert.equal(new URLSearchParams(c.openLinkHash(links[1].search).split('?')[1]).get('file'), file);
+});
+
+test('open links without a share or path land on the drive root', () => {
+  const { context: c } = setup();
+  assert.equal(c.openLinkHash(''), '#/');
+  assert.equal(c.openLinkHash('?share=Photos'), '#/?share=Photos');
 });
 
 test('signed-out recipients must sign in before listing', async () => {
@@ -136,7 +146,7 @@ test('copy link works when the modern clipboard API is unavailable on LAN', asyn
   const fallback = fallbackClipboard(c);
   await c.copyItemLinks([{ path: 'Folder', is_dir: true }]);
   assert.equal(fallback.copied.length, 1);
-  assert.match(fallback.copied[0], /#\/Folder\?share=InFocus\+Drive$/);
+  assert.match(fallback.copied[0], /\/open\?share=InFocus\+Drive&path=Folder$/);
   assert.equal(fallback.removed, 1);
   assert.match(calls.messages[0], /Link copied/);
 });

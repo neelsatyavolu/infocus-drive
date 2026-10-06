@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261002-foldershare";
-import * as api from "./api.js?v=20261002-foldershare";
-import { ApiError } from "./api.js?v=20261002-foldershare";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261006-linkpreview";
+import * as api from "./api.js?v=20261006-linkpreview";
+import { ApiError } from "./api.js?v=20261006-linkpreview";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261002-foldershare";
-import { $, el, icon, show } from "./dom.js?v=20261002-foldershare";
+} from "./format.js?v=20261006-linkpreview";
+import { $, el, icon, show } from "./dom.js?v=20261006-linkpreview";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261002-foldershare";
+} from "./quick.js?v=20261006-linkpreview";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -572,10 +572,9 @@ async function copyItemLinks(items) {
   if (!items.length) return;
   const base = state.me?.public_base_url || location.origin;
   const links = items.map((item) => {
-    const url = new URL("/", base);
-    const params = new URLSearchParams({ share: state.share });
-    if (!item.is_dir) params.set("file", item.path);
-    url.hash = `${hashForPath(item.is_dir ? item.path : parentPath(item.path))}?${params}`;
+    // Path in the query, not the hash, so iMessage/Slack previews can show the item.
+    const url = new URL("/open", base);
+    url.search = new URLSearchParams({ share: state.share, [item.is_dir ? "path" : "file"]: item.path });
     return url.href;
   });
   const text = links.join("\n");
@@ -690,6 +689,18 @@ function pathFromHash() {
 function hashForPath(path) {
   const parts = pathParts(path).map(encodeURIComponent);
   return parts.length ? `#/${parts.join("/")}` : "#/";
+}
+
+/** Hash route for a copied `/open?share=…&path=…|file=…` link. */
+function openLinkHash(search) {
+  const query = new URLSearchParams(search);
+  const file = query.get("file") || "";
+  const params = new URLSearchParams();
+  if (query.get("share")) params.set("share", query.get("share"));
+  if (file) params.set("file", file);
+  const hash = hashForPath(file ? parentPath(file) : query.get("path") || "");
+  const tail = params.toString();
+  return tail ? `${hash}?${tail}` : hash;
 }
 
 async function loadRoute() {
@@ -2390,7 +2401,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261002-foldershare").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261006-linkpreview").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -5360,6 +5371,9 @@ function updateLanBadge(me) {
    Boot
    --------------------------------------------------------------------------- */
 async function boot() {
+  if (location.pathname === "/open") {
+    history.replaceState(null, "", `/${openLinkHash(location.search)}`);
+  }
   // Prefer localStorage over whatever class survived the reload (avoids half-switched UI).
   applyTheme(storedTheme());
   restoreSidebarWidth();

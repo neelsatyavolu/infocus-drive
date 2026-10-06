@@ -112,7 +112,9 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | GET | `/api/upload/status` | Resume: which chunks received |
 | POST | `/api/upload/complete` `/api/upload/abort` | Assemble or discard session |
 | POST | `/api/file-link` | Mint public file or folder URL (`path`, `days` 1–30, default 7). Not `POST /api/share` (NAS switcher). |
-| GET | `/s/{token}` | Public share page (no login) |
+| GET | `/s/{token}` | Public share page (no login); Open Graph tags for link previews |
+| GET | `/api/s/{token}/thumb` | Public JPEG preview (og:image) for a file link |
+| GET | `/open?share=&path=\|file=` | Copy-link target: Drive app with Open Graph tags built from the URL only |
 | GET | `/api/s/{token}?path=` | Public file metadata, or folder listing (`path` = item inside a folder link; never leaves the folder) |
 | GET | `/api/s/{token}/file?path=&inline=` | Public download / preview stream |
 | GET | `/api/s/{token}/zip?path=` | Folder link: STORE zip of the folder or a subfolder |
