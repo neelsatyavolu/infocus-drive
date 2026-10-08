@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -37,11 +38,14 @@ Each speaker label is the participant's own name (their InFocus display name), t
 Rules:
 - Report only what was said. Never invent names, numbers, dates or commitments.
 - The transcript comes from speech recognition: silently fix obvious mis-hearings, ignore filler and small talk.
+- "Participants" lists the correct spelling of everyone's name. A name in the transcript that sounds like one of them (a mis-hearing) means that person.
 - title: 3-7 words naming the meeting's subject, no date.
 - tldr: two or three sentences a colleague who missed the meeting could act on.
+- Cover the whole meeting, start to finish: later topics matter as much as the first one.
 - sections: 2-6 topic sections in the order discussed, each with concise, specific bullets.
+- Bullets, decisions and tasks are plain sentences: no leading "-", "*" or numbers.
 - decisions: things actually agreed. Empty list if none.
-- action_items: concrete follow-ups. owner is a name if one was stated, otherwise an empty string.
+- action_items: concrete follow-ups someone actually took on or was given in the meeting; never add tasks nobody said. owner is a name if one was stated, otherwise an empty string.
 Reply with a single JSON object and nothing else, with exactly these keys:
 {"title": string, "tldr": string, "sections": [{"heading": string, "bullets": [string]}], "decisions": [string], "action_items": [{"owner": string, "task": string}]}"""
 
@@ -66,17 +70,26 @@ SCHEMA = _object({
 })
 
 
-def _header(title: str, started: str) -> str:
-    return f"InFocus producer meeting \"{title}\", started {started}."
+_SPEAKER = re.compile(r"^\[\d{2}:\d{2}:\d{2}\] ([^:\n]{1,80}): ", re.MULTILINE)
+
+
+def speaker_names(transcript: str) -> list[str]:
+    """Speaker labels in order of first appearance (lines are `[hh:mm:ss] Name: text`)."""
+    return list(dict.fromkeys(m.group(1).strip() for m in _SPEAKER.finditer(transcript)))
+
+
+def _header(title: str, started: str, participants: list[str] | None = None) -> str:
+    line = f"InFocus producer meeting \"{title}\", started {started}."
+    return f"{line}\nParticipants: {', '.join(participants)}." if participants else line
 
 
 def user_prompt(transcript: str, title: str, started: str) -> str:
-    return f"{_header(title, started)}\n\nTranscript:\n{transcript}"
+    return f"{_header(title, started, speaker_names(transcript))}\n\nTranscript:\n{transcript}"
 
 
-def user_from_digests(digests: list[str], title: str, started: str) -> str:
+def user_from_digests(digests: list[str], title: str, started: str, participants: list[str] | None = None) -> str:
     body = "\n\n".join(f"Part {i + 1}:\n{d}" for i, d in enumerate(digests))
-    return f"{_header(title, started)}\n\nDigests of the transcript, in order:\n{body}"
+    return f"{_header(title, started, participants)}\n\nDigests of the transcript, in order:\n{body}"
 
 
 def chunk_transcript(text: str, max_chars: int = CHUNK_BUDGET) -> list[str]:
@@ -140,12 +153,20 @@ class NotJSON(ValueError):
     pass
 
 
+_BULLET_MARKER = re.compile(r"^\s*(?:(?:[-*•]|\d+[.)])\s+)+")
+
+
+def _plain(text: str) -> str:
+    """Drop list markers the model put in front ("- - a" would render as a nested bullet)."""
+    return _BULLET_MARKER.sub("", text).strip()
+
+
 def _strings(value: Any) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise NotJSON("expected a list of strings")
-    return value
+    return [_plain(v) for v in value]
 
 
 def parse_note(reply: str) -> MeetingNote:
@@ -163,7 +184,7 @@ def parse_note(reply: str) -> MeetingNote:
         items = []
         for item in data.get("action_items") or []:
             owner = (item.get("owner") or "").strip()
-            items.append(ActionItem(task=str(item["task"]), owner=owner or None))
+            items.append(ActionItem(task=_plain(str(item["task"])), owner=owner or None))
         return MeetingNote(title=title, tldr=tldr, sections=sections,
                            decisions=_strings(data.get("decisions")), action_items=items)
     except (ValueError, KeyError, TypeError, AttributeError) as e:
@@ -208,7 +229,8 @@ def summarize(complete: Complete, title: str, started: str, transcript: str,
     if len(chunks) == 1:
         user = user_prompt(transcript, title, started)
     else:
-        user = user_from_digests(digest(complete, chunks, chunk_budget, digest_budget), title, started)
+        user = user_from_digests(digest(complete, chunks, chunk_budget, digest_budget), title, started,
+                                 speaker_names(transcript))
     reply = ""
     for _ in range(2):
         reply = complete(SYSTEM, user, SCHEMA, None)

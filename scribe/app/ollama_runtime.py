@@ -17,6 +17,7 @@ import httpx
 
 from .config import ScribeConfig
 from .summarize import SUMMARY_UNAVAILABLE, OllamaChat, summarize
+from .workers_ai import CLOUD_CHUNK_BUDGET, WorkersAIChat, configured as workers_ai_configured
 
 log = logging.getLogger("scribe.ollama")
 
@@ -92,7 +93,16 @@ class OllamaServer:
 
 def summarize_meeting(cfg: ScribeConfig, title: str, started: str, transcript: str,
                       server_factory: Callable[[ScribeConfig], OllamaServer] = OllamaServer) -> str:
-    """Notes markdown, or the "Summary unavailable" note on any failure (the transcript still ships)."""
+    """Notes markdown, or the "Summary unavailable" note on any failure (the transcript still ships).
+
+    Workers AI first when it's configured (one call over the whole transcript); the local model
+    is the fallback."""
+    if workers_ai_configured(cfg):
+        try:
+            return summarize(WorkersAIChat(cfg), title, started, transcript,
+                             chunk_budget=CLOUD_CHUNK_BUDGET, digest_budget=CLOUD_CHUNK_BUDGET).markdown
+        except Exception as e:
+            log.warning("Workers AI summary failed (%s); using the local model", type(e).__name__)
     try:
         with server_factory(cfg) as base_url:
             chat = OllamaChat(base_url, cfg.ollama_model)

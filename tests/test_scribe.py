@@ -202,7 +202,7 @@ def test_system_prompt_uses_real_speaker_names_and_keeps_redrule_rules():
 
 def test_user_prompts():
     assert summarize.user_prompt("[00:00:01] Abby: hi", "Producer meeting", STARTED) == (
-        'InFocus producer meeting "Producer meeting", started Oct 4, 2026, 9:15 PM PDT.\n\n'
+        'InFocus producer meeting "Producer meeting", started Oct 4, 2026, 9:15 PM PDT.\nParticipants: Abby.\n\n'
         "Transcript:\n[00:00:01] Abby: hi")
     assert summarize.user_from_digests(["- a", "- b"], "T", STARTED) == (
         'InFocus producer meeting "T", started Oct 4, 2026, 9:15 PM PDT.\n\n'

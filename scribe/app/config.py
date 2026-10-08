@@ -10,6 +10,7 @@ from pathlib import Path
 MAX_SESSION_SECONDS = 4 * 60 * 60
 LEFTOVER_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 WHISPER_MAX_MB = 2000
+WORKERS_AI_MODEL = "@cf/openai/gpt-oss-120b"
 
 
 def _env(name: str, default: str = "") -> str:
@@ -49,6 +50,11 @@ class ScribeConfig:
     max_session_seconds: int = MAX_SESSION_SECONDS
     # The whisper child is killed above this resident size; that 20-minute piece becomes a gap.
     whisper_max_mb: int = WHISPER_MAX_MB
+    # Cloudflare Workers AI writes the summary when both are set (workers_ai.py); the local
+    # Ollama model is the fallback. The transcript is sent to Cloudflare for that one request.
+    workers_ai_account_id: str = ""
+    workers_ai_token: str = ""
+    workers_ai_model: str = WORKERS_AI_MODEL
 
 
 def load_config() -> ScribeConfig:
@@ -69,6 +75,9 @@ def load_config() -> ScribeConfig:
         ollama_models_dir=Path(_env("OLLAMA_MODELS", "/models/ollama")),
         timezone=_env("SCRIBE_TIMEZONE", "America/Los_Angeles"),
         whisper_max_mb=max(500, _env_int("SCRIBE_WHISPER_MAX_MB", WHISPER_MAX_MB)),
+        workers_ai_account_id=_env("SCRIBE_WORKERS_AI_ACCOUNT_ID"),
+        workers_ai_token=_env("SCRIBE_WORKERS_AI_TOKEN"),
+        workers_ai_model=_env("SCRIBE_WORKERS_AI_MODEL", WORKERS_AI_MODEL),
     )
 
 

@@ -136,6 +136,10 @@ services:
       # The whisper child is killed above this; that 20-minute piece becomes a gap in the notes.
       SCRIBE_WHISPER_MAX_MB: ${SCRIBE_WHISPER_MAX_MB:-2000}
       SCRIBE_OLLAMA_MODEL: ${SCRIBE_OLLAMA_MODEL:-qwen2.5:1.5b}
+      # Optional: Cloudflare Workers AI writes summaries (the local model is the fallback).
+      SCRIBE_WORKERS_AI_ACCOUNT_ID: ${SCRIBE_WORKERS_AI_ACCOUNT_ID:-}
+      SCRIBE_WORKERS_AI_TOKEN: ${SCRIBE_WORKERS_AI_TOKEN:-}
+      SCRIBE_WORKERS_AI_MODEL: ${SCRIBE_WORKERS_AI_MODEL:-@cf/openai/gpt-oss-120b}
       SCRIBE_TIMEZONE: ${SCRIBE_TIMEZONE:-America/Los_Angeles}
     volumes:
       # Only the notes folder. Create it first and let the image's pwuser

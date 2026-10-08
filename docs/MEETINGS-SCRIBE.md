@@ -1,6 +1,6 @@
 # Meetings Scribe
 
-The Scribe turns Portal producer meetings into notes **on the NAS**. It joins a meeting as a silent listener, records each speaker separately, transcribes with faster-whisper, summarizes with a local Ollama model, and writes the notes to the Drive. The Portal shows the summary and links to the transcript.
+The Scribe turns Portal producer meetings into notes **on the NAS**. It joins a meeting as a silent listener, records each speaker separately, transcribes with faster-whisper, summarizes with Cloudflare Workers AI (`gpt-oss-120b`) when it's configured or a local Ollama model otherwise, and writes the notes to the Drive. The Portal shows the summary and links to the transcript.
 
 Design: `docs/superpowers/specs/2026-10-03-meetings-design.md` in the infocus-packages repo.
 
@@ -90,8 +90,10 @@ Raw audio is never deleted because something after the recording failed.
 The prompt, JSON shape, parser and markdown are ported from Redrule's `MinutesCore` (`Summary.swift`, `Summarizer.swift`, `Models.swift`), in `scribe/app/summarize.py`. The only change to the prompt is the speaker sentence: labels are the participants' InFocus names, from their own audio tracks.
 
 - **User line:** `InFocus producer meeting "<title>", started <date, time Pacific>.` followed by the transcript.
-- **Long transcripts:** transcripts over 12,000 characters (sized for a small model, `num_ctx` 8192) are first digested chunk by chunk into plain bullets. The note is then written from the digests.
-- **JSON:** the model returns `{title, tldr, sections[{heading, bullets}], decisions, action_items[{owner, task}]}`, enforced with Ollama's `format` JSON schema.
+- **Workers AI** (when configured): the whole transcript goes in one call, up to about 300,000 characters (the 4-hour recording cap). If the call fails (network, Cloudflare error), the local model writes the notes instead.
+- **Long transcripts (local model):** transcripts over 12,000 characters (sized for a small model, `num_ctx` 8192) are first digested chunk by chunk into plain bullets. The note is then written from the digests.
+- **Bullets:** list markers the model puts in front of bullets, decisions and tasks ("- ", "* ", "1. ") are removed, so the markdown never shows "- - ".
+- **JSON:** the model returns `{title, tldr, sections[{heading, bullets}], decisions, action_items[{owner, task}]}`, enforced with Ollama's `format` JSON schema (Workers AI gets the same shape from the prompt; the parser checks it).
   - The parser tolerates code fences or prose around the JSON.
   - If the reply isn't valid JSON, it retries once. If that fails too, it keeps the model's raw text as the tl;dr.
 - **Markdown** (`summary.md`, also sent to the Portal as `summaryMarkdown`):
@@ -166,7 +168,8 @@ The Scribe treats the page as joined once `window.__scribe` exists.
 
 ## Privacy
 
-- Audio never leaves the NAS. Transcription and summaries run locally, and no cloud speech or LLM service is used.
+- Audio never leaves the NAS, and transcription runs locally.
+- **Summaries:** with `SCRIBE_WORKERS_AI_ACCOUNT_ID` and `SCRIBE_WORKERS_AI_TOKEN` set, the finished transcript text is sent to Cloudflare Workers AI for one summary request. Cloudflare keeps no prompts or outputs and doesn't train on them ([Your Data and Workers AI](https://developers.cloudflare.com/workers-ai/platform/data-usage/)), but it does read the text in plain form while summarizing. Leave both empty to keep summaries on the NAS (local Ollama model).
 - Raw audio is deleted once the Portal has complete notes. If something failed, it is kept so the notes can be retried (see "What happens to the raw audio"). Anything older than 7 days is removed hourly.
 - The notes folder is on the InFocus Drive share, so **anyone with access to that share can read it**, not only producers. To keep notes private, set `IFD_MEETINGS_ROOT` to a folder whose NAS permissions are limited to producers and admins, while still letting uid 1000 write to it.
 - Files are owned by uid 1000 (the container's renumbered `pwuser`; the NAS service owner). Check `getent passwd 1000` on a new NAS and pick a non-person uid for `SCRIBE_UID` if needed.
@@ -184,7 +187,10 @@ The Scribe treats the page as joined once `window.__scribe` exists.
 | `SCRIBE_WHISPER_MODEL` | `small.en` | Scribe | faster-whisper model (`base.en` is faster, `medium.en` is slower) |
 | `SCRIBE_WHISPER_THREADS` | `2` | Scribe | CPU threads for transcription |
 | `SCRIBE_WHISPER_MAX_MB` | `2000` | Scribe | Resident-memory cap for the whisper child; a 20-minute piece above it becomes a gap |
-| `SCRIBE_OLLAMA_MODEL` | `qwen2.5:1.5b` | Scribe | Summary model (any Ollama tag; pulled on first use) |
+| `SCRIBE_OLLAMA_MODEL` | `qwen2.5:1.5b` | Scribe | Local summary model (any Ollama tag; pulled on first use). The fallback when Workers AI is set |
+| `SCRIBE_WORKERS_AI_ACCOUNT_ID` | empty | Scribe | Cloudflare account id. With the token, Workers AI writes the summary |
+| `SCRIBE_WORKERS_AI_TOKEN` | empty | Scribe | Cloudflare API token with only the **Workers AI** permission (secret; NAS `.env` only) |
+| `SCRIBE_WORKERS_AI_MODEL` | `@cf/openai/gpt-oss-120b` | Scribe | Workers AI model (128k-token context: a whole meeting in one call) |
 | `SCRIBE_TIMEZONE` | `America/Los_Angeles` | Scribe | Folder names and transcript date |
 
 Compose sets the in-container values `SCRIBE_DRIVE_URL`, `SCRIBE_MEETINGS_DIR`, and `IFD_SCRIBE_TMP`. The image sets `OLLAMA_MODELS=/models/ollama`.
