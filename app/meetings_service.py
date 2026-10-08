@@ -17,7 +17,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -75,6 +75,8 @@ class ScribeStart(_Body):
     key: str = Field(pattern=KEY_PATTERN)
     epoch: int = Field(ge=0, le=1_000_000)
     portalBaseUrl: str = Field(max_length=500)
+    # People's names (and nicknames) the transcriber should expect; see scribe/app/vocabulary.py.
+    vocabulary: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=300)
 
     @field_validator("roomUrl")
     @classmethod

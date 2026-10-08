@@ -7,6 +7,7 @@ import hmac
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import Annotated
 from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from . import portal_client, preflight
 from .config import get_config
 from .session import SessionManager, StartRequest
+from .vocabulary import clean_vocabulary
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("scribe")
@@ -58,6 +60,7 @@ class StartBody(_Body):
     key: str = Field(pattern=KEY_PATTERN)
     epoch: int = Field(ge=0, le=1_000_000)
     portalBaseUrl: str = Field(max_length=500, pattern=r"^https?://")
+    vocabulary: list[Annotated[str, Field(max_length=80)]] = Field(default_factory=list, max_length=300)
 
     @field_validator("portalBaseUrl")
     @classmethod
@@ -134,6 +137,7 @@ async def start(body: StartBody, request: Request) -> dict[str, object]:
         state, part = _manager(request).start(StartRequest(
             meeting_id=body.meetingId, title=body.title, starts_at=body.startsAt, room_url=body.roomUrl,
             room_token=body.roomToken, key=body.key, epoch=body.epoch, portal_base_url=body.portalBaseUrl,
+            vocabulary=tuple(clean_vocabulary(body.vocabulary)),
         ))
     except preflight.PreflightFailed as e:
         await asyncio.to_thread(portal_client.post_notes, get_config(), body.meetingId, "FAILED", reason=e.reason)

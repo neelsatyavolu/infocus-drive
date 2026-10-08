@@ -238,3 +238,12 @@ def test_notes_relay_portal_down_is_502(client, relayed, monkeypatch):
 
     monkeypatch.setattr(meetings_service, "forward_to_portal", down)
     assert client.post(NOTES, json={"status": "FAILED"}, headers=SCRIBE_AUTH).status_code == 502
+
+
+def test_start_forwards_the_vocabulary(client, forwarded):
+    names = ["Abby Example", "Otto"]
+    assert client.post("/api/service/meetings/scribe/start", json={**START, "vocabulary": names},
+                       headers=AUTH).status_code == 200
+    assert forwarded[0][1]["vocabulary"] == names
+    too_long = {**START, "vocabulary": ["x" * 81]}
+    assert client.post("/api/service/meetings/scribe/start", json=too_long, headers=AUTH).status_code == 422

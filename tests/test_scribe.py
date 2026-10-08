@@ -502,3 +502,13 @@ def test_config_has_no_packages_token_fallback(monkeypatch):
     monkeypatch.setenv("PACKAGES_SERVICE_TOKEN", "p" * 40)
     monkeypatch.delenv("SCRIBE_INTERNAL_TOKEN", raising=False)
     assert scribe_config.load_config().internal_token == ""
+
+
+def test_scribe_start_keeps_a_cleaned_vocabulary(scribe_client):
+    client, manager = scribe_client
+    auth = {"Authorization": f"Bearer {TOKEN}"}
+    body = {**START, "vocabulary": [" Abby  Example ", "otto", "Otto", ""]}
+    assert client.post("/sessions/start", json=body, headers=auth).status_code == 200
+    assert manager.started[-1].vocabulary == ("Abby Example", "otto")
+    assert client.post("/sessions/start", json=START, headers=auth).status_code == 200
+    assert manager.started[-1].vocabulary == ()

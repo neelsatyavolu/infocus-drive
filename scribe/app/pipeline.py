@@ -10,6 +10,7 @@ a retry. It is deleted once the Portal acknowledges READY for complete notes, or
 from __future__ import annotations
 
 import errno
+import functools
 import logging
 import shutil
 import time
@@ -21,7 +22,8 @@ from .notes_writer import folder_name, local_time, write_notes
 from .ollama_runtime import summarize_meeting
 from .preflight import NOT_WRITABLE
 from .summarize import NO_SPEECH, SUMMARY_UNAVAILABLE
-from .transcribe import Gap, Segment, render_markdown, transcript_json, transcript_lines
+from .transcribe import Gap, Segment, Transcriber, render_markdown, transcript_json, transcript_lines
+from .vocabulary import hotwords
 from .whisper_child import transcribe_streams
 
 log = logging.getLogger("scribe.pipeline")
@@ -31,7 +33,10 @@ _NOT_WRITABLE_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS, errno.ENOSPC, er
 
 
 def transcribe(cfg: ScribeConfig, audio_dir: Path) -> tuple[list[Segment], list[Gap]]:
-    return transcribe_streams(cfg.whisper_model, cfg.whisper_threads, audio_dir, max_mb=cfg.whisper_max_mb)
+    marker = jobs.read_marker(audio_dir)
+    factory = functools.partial(Transcriber, hotwords=hotwords(marker.vocabulary if marker else []))
+    return transcribe_streams(cfg.whisper_model, cfg.whisper_threads, audio_dir, max_mb=cfg.whisper_max_mb,
+                              factory=factory)
 
 
 def failure_reason(error: Exception) -> str:

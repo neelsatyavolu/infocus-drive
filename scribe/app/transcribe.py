@@ -32,13 +32,16 @@ class Gap:
 class Transcriber:
     """Loads the whisper model once per processing job (frees RAM between meetings)."""
 
-    def __init__(self, model: str, threads: int) -> None:
+    def __init__(self, model: str, threads: int, hotwords: str | None = None) -> None:
         from faster_whisper import WhisperModel  # heavy import, only in the container
 
         self._model = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=threads)
+        # People's names and InFocus terms (vocabulary.py), in front of every 30-second window.
+        self._hotwords = hotwords
 
     def transcribe(self, wav: Path, *, offset_ms: int, uid: str, name: str) -> list[Segment]:
-        segments, _info = self._model.transcribe(str(wav), language="en", vad_filter=True, beam_size=1)
+        segments, _info = self._model.transcribe(str(wav), language="en", vad_filter=True, beam_size=1,
+                                                 hotwords=self._hotwords)
         out: list[Segment] = []
         for seg in segments:
             text = " ".join(seg.text.split())

@@ -44,6 +44,8 @@ class JobMarker:
     complete: bool = True
     last_error: str | None = None
     updated_ms: int = 0
+    # People's names from the Portal's start request (transcription hotwords).
+    vocabulary: list[str] = field(default_factory=list)
 
     @property
     def starts_at_dt(self) -> datetime:

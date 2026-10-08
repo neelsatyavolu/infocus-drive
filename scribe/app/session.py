@@ -60,6 +60,8 @@ class StartRequest:
     key: str
     epoch: int
     portal_base_url: str
+    # Names the transcriber should expect (vocabulary.py); kept in the job marker for processing.
+    vocabulary: tuple[str, ...] = ()
 
 
 def scribe_page_url(req: StartRequest) -> str:
@@ -176,7 +178,7 @@ class SessionManager:
         audio_dir.mkdir(parents=True, exist_ok=True)
         jobs.write_marker(audio_dir, jobs.JobMarker(
             meeting_id=req.meeting_id, title=req.title, starts_at=req.starts_at.isoformat(),
-            recording_started_ms=now, part=part, state="recording"))
+            recording_started_ms=now, part=part, state="recording", vocabulary=list(req.vocabulary)))
         session = Session(req=req, started_ms=now, audio_dir=audio_dir, store=ChunkStore(audio_dir), part=part,
                           key=req.key, epoch=req.epoch, room_token=req.room_token)
         self.sessions[req.meeting_id] = session
