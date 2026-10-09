@@ -159,6 +159,28 @@ func TestWebdavListAndReadWithRange(t *testing.T) {
 	}
 }
 
+func TestWebdavProppatchDoesNotReplaceFile(t *testing.T) {
+	h := newDavHarness(t)
+	if code, body := h.do(t, "PUT", h.url("InFocus Drive", "note.txt"), "hello"); code != http.StatusCreated {
+		t.Fatalf("PUT: %d %s", code, body)
+	}
+	before := h.drive.uploads
+	patch := `<?xml version="1.0" encoding="utf-8" ?>
+<D:propertyupdate xmlns:D="DAV:" xmlns:Z="urn:example">
+  <D:set><D:prop><Z:author>me</Z:author></D:prop></D:set>
+</D:propertyupdate>`
+	code, resp := h.do(t, "PROPPATCH", h.url("InFocus Drive", "note.txt"), patch, "Content-Type", "application/xml")
+	if code/100 == 5 {
+		t.Fatalf("PROPPATCH: %d %s", code, resp)
+	}
+	if got, ok := h.driveHas("note.txt"); !ok || got != "hello" {
+		t.Fatalf("note.txt = %q ok=%v", got, ok)
+	}
+	if h.drive.uploads != before {
+		t.Fatalf("PROPPATCH uploaded the file (%d -> %d)", before, h.drive.uploads)
+	}
+}
+
 func TestWebdavPutUploadsSmallAndChunked(t *testing.T) {
 	h := newDavHarness(t)
 	if code, body := h.do(t, "PUT", h.url("InFocus Drive", "small.txt"), "hello"); code != http.StatusCreated {

@@ -80,6 +80,17 @@ def test_chunks_key_streams_by_uid_and_stream_start(tmp_path):
     assert out.read_bytes() == b"HDR1c1"
 
 
+def test_a_later_take_without_its_header_does_not_overwrite_the_previous_one(tmp_path):
+    store = recorder.ChunkStore(tmp_path)
+    store.append("u1", "Abby", 1000, 0, b64(b"HDR1"))
+    store.append("u1", "Abby", 11000, 1, b64(b"c1"))
+    # Reconnect lost chunk 0. seq 1 a few minutes later must not replace c1.
+    assert store.append("u1", "Abby", 200_000, 1, b64(b"NEW")) is None
+    first = store.streams()[0]
+    out = recorder.concat_stream(first, tmp_path / "first.webm")
+    assert out.read_bytes() == b"HDR1c1"
+
+
 def test_chunks_concatenate_in_seq_order(tmp_path):
     store = recorder.ChunkStore(tmp_path)
     store.append("u1", "Abby", 1000, 0, b64(b"a"))

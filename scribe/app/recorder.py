@@ -56,6 +56,9 @@ class ChunkStore:
         self.root = root
         self.root.mkdir(parents=True, exist_ok=True)
         self._current: dict[str, StreamInfo] = {}
+        # uid -> (highest seq accepted, latest chunk start_ms). In memory only:
+        # a restart has no current stream, so a continuation is already dropped.
+        self._progress: dict[str, tuple[int, int]] = {}
 
     def append(self, uid: object, name: object, start_ms: object, seq: object, b64: object) -> Path | None:
         """Store one chunk. Returns its path, or None when it was dropped."""
@@ -68,13 +71,24 @@ class ChunkStore:
         data = _decode(b64)
         if data is None:
             return None
+        start = int(start_ms)
         if seq == 0:
-            stream = self._open_stream(uid, clean_name(name), int(start_ms))
+            stream = self._open_stream(uid, clean_name(name), start)
+            self._progress[uid] = (0, start)
         else:
             stream = self._current.get(uid)
             if stream is None:  # no header chunk: undecodable on its own
                 log.info("dropping chunk %s without a stream start", seq)
                 return None
+            # Chunks are ~10s apart and start near stream_start + seq*10s.
+            # A reconnect whose header chunk was lost reuses a low seq with a
+            # much later timestamp and would overwrite the previous take.
+            expected = stream.start_ms + seq * 10_000
+            if start > expected + 60_000:
+                log.info("dropping chunk %s that belongs to a later take", seq)
+                return None
+            max_seq, last_ms = self._progress.get(uid, (-1, stream.start_ms))
+            self._progress[uid] = (max(max_seq, seq), max(last_ms, start))
         path = stream.path / f"{seq:06d}.webm.part"
         path.write_bytes(data)
         return path

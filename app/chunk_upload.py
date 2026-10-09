@@ -315,6 +315,11 @@ def _write_chunk_in_place(
     """
     upload_id = meta["upload_id"]
     offset = index * int(meta["chunk_size"])
+    # Drop a previous "received" marker before rewriting. A retry that dies
+    # mid-body must not leave the old marker, or complete will keep a torn mix
+    # of the previous bytes and the new ones (pwrite does not shrink the file).
+    with as_root():
+        _chunk_path(upload_id, index).unlink(missing_ok=True)
     with as_user(int(meta["uid"]), int(meta["gid"]), meta.get("username") or None), _translate_os_errors():
         fd = os.open(meta["partial"], os.O_WRONLY)
     written = 0

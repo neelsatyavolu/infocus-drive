@@ -151,6 +151,40 @@ def test_pdf_inline_keeps_native_viewer(files_client):
         assert "content-security-policy" not in res.headers
 
 
+def test_next_url_rejects_backslash_open_redirect():
+    assert main._safe_next_url(r"/\evil.example") == "/"
+    assert main._safe_next_url("//evil.example") == "/"
+    assert main._safe_next_url("/\\evil.example/path") == "/"
+    assert main._safe_next_url("/folder/file") == "/folder/file"
+    assert main._safe_next_url("#/Shows") == "/#/Shows"
+    assert main._safe_next_url("https://evil.example") == "/"
+
+
+def test_service_download_blocks_active_content(files_root, files_client, monkeypatch):
+    from config import get_settings
+
+    cycles = files_root / "Package Cycles"
+    cycles.mkdir()
+    (cycles / "evil.html").write_bytes(b"<script>alert(1)</script>")
+    (cycles / "clip.mp4").write_bytes(b"mp4")
+    monkeypatch.setenv("DRIVE_ROOT", str(files_root))
+    get_settings.cache_clear()
+    monkeypatch.setattr(main, "_require_service_read", lambda request, rel, token: None)
+    monkeypatch.setattr(
+        main,
+        "service_identity",
+        lambda: SimpleNamespace(uid=os.getuid(), gid=os.getgid(), username="tester"),
+    )
+    html = files_client.get("/api/service/file", params={"path": "Package Cycles/evil.html", "inline": "1"})
+    assert html.status_code == 200, html.text
+    assert html.headers["content-disposition"].startswith("attachment")
+    assert html.headers["content-security-policy"] == "sandbox"
+    assert html.headers["x-content-type-options"] == "nosniff"
+    video = files_client.get("/api/service/file", params={"path": "Package Cycles/clip.mp4", "inline": "1"})
+    assert video.status_code == 200, video.text
+    assert video.headers["content-disposition"].startswith("inline")
+
+
 def test_attachment_download_gets_hardening_headers(files_client):
     res = files_client.get("/api/download", params={"path": "evil.html"})
     assert res.headers["content-disposition"].startswith("attachment")

@@ -170,6 +170,27 @@ def test_recoverable_states(tmp_path):
     assert "failed" not in {p.name for p in jobs.recoverable(cfg.tmp_dir, failed_retry_after_ms=3_600_000, now=later)}
 
 
+def test_exhausted_processing_job_is_failed_on_recover(tmp_path):
+    from app.session import SessionManager
+
+    cfg = make_cfg(tmp_path)
+    cfg.tmp_dir.mkdir()
+    job_dir = _job(cfg, state="processing", attempts=jobs.MAX_ATTEMPTS, name="stuck")
+    posted = []
+
+    def post(_cfg, _meeting_id, status, **kw):
+        posted.append((status, kw))
+        return True
+
+    manager = SessionManager(cfg, post=post)
+    assert manager.recover() == 0
+    marker = jobs.read_marker(job_dir)
+    assert marker is not None and marker.state == "failed"
+    assert marker.last_error == "interrupted too many times"
+    assert posted == [("FAILED", {"reason": "processing was interrupted"})]
+    assert jobs.recoverable(cfg.tmp_dir) == []
+
+
 def test_next_part_counts_pending_jobs_and_written_notes(tmp_path):
     cfg = make_cfg(tmp_path)
     cfg.tmp_dir.mkdir()

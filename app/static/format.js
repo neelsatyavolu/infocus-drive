@@ -81,9 +81,22 @@ export function formatModified(iso) {
     const n = Math.floor(delta / HOUR);
     return `${n} hour${n === 1 ? "" : "s"} ago`;
   }
-  if (delta < 2 * DAY) return "Yesterday";
-  if (delta < 7 * DAY) return `${Math.floor(delta / DAY)} days ago`;
+  // "Yesterday" is the previous calendar day. A 30–47h-old file can be two days ago.
+  const days = calendarDaysAgo(date);
+  if (days <= 0) {
+    const n = Math.max(1, Math.floor(delta / HOUR));
+    return `${n} hour${n === 1 ? "" : "s"} ago`;
+  }
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days} days ago`;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/** Whole local calendar days between `date` and today (0 = today). */
+function calendarDaysAgo(date) {
+  const now = new Date();
+  const day = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((day(now) - day(date)) / DAY);
 }
 
 /** Full timestamp for tooltips. */

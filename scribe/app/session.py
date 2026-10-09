@@ -84,6 +84,7 @@ class Session:
     token_version: int = 0
     page_key_version: int = -1
     page_token_version: int = -1
+    apply_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     page: Any = None
     joined: bool = False
@@ -135,6 +136,7 @@ class SessionManager:
 
     def recover(self) -> int:
         """Queue every unfinished job folder (interrupted recordings included). Returns the count."""
+        self._abandon_exhausted()
         active = self._active_dirs()
         count = 0
         for job_dir in jobs.recoverable(self.cfg.tmp_dir):
@@ -281,18 +283,30 @@ class SessionManager:
             return outcome
 
     async def _apply(self, session: Session) -> None:
-        page = session.page
-        if page is None:
-            return
-        if session.page_key_version < session.key_version:
-            version = session.key_version
-            await page.evaluate(SET_KEY_JS, [session.key, session.epoch])
-            session.page_key_version = max(session.page_key_version, version)
-        if session.page_token_version < session.token_version:
-            version = session.token_version
-            # Without setTicket the page keeps its ticket; the next (re)launch uses the new one.
-            await page.evaluate(SET_TICKET_JS, session.room_token)
-            session.page_token_version = max(session.page_token_version, version)
+        # Two rekeys can overlap on page.evaluate. Without the lock the older
+        # call can finish last and leave the page on a key we then treat as current.
+        async with session.apply_lock:
+            page = session.page
+            if page is None:
+                return
+            while page is session.page and (
+                session.page_key_version < session.key_version
+                or session.page_token_version < session.token_version
+            ):
+                if session.page_key_version < session.key_version:
+                    version = session.key_version
+                    key, epoch = session.key, session.epoch
+                    await page.evaluate(SET_KEY_JS, [key, epoch])
+                    session.page_key_version = max(session.page_key_version, version)
+                if session.page_token_version < session.token_version:
+                    version = session.token_version
+                    token = session.room_token
+                    # False: this page has no setTicket. Don't mark it applied, and
+                    # don't spin — the next (re)launch puts the ticket in the URL.
+                    applied = await page.evaluate(SET_TICKET_JS, token)
+                    if applied is False:
+                        break
+                    session.page_token_version = max(session.page_token_version, version)
 
     @staticmethod
     async def _wait(session: Session, crashed: asyncio.Event, deadline: float) -> str:
@@ -365,7 +379,22 @@ class SessionManager:
                 self._queued.discard(job_dir.name)
                 self.queue.task_done()
 
+    def _abandon_exhausted(self) -> None:
+        """A kill between 'processing' and the except block never posts FAILED.
+
+        After MAX_ATTEMPTS the job is stuck on PROCESSING until the 7-day cleanup
+        deletes the audio. Tell the Portal once and stop retrying it.
+        """
+        for job_dir, marker in jobs.exhausted(self.cfg.tmp_dir):
+            try:
+                jobs.update_marker(job_dir, state="failed", last_error="interrupted too many times")
+            except OSError as e:
+                log.error("could not give up on a job: %s", type(e).__name__)
+                continue
+            self._post(self.cfg, marker.meeting_id, "FAILED", reason="processing was interrupted")
+
     def _requeue(self) -> None:
+        self._abandon_exhausted()
         active = self._active_dirs()
         for job_dir in jobs.recoverable(self.cfg.tmp_dir, failed_retry_after_ms=FAILED_RETRY_AFTER_MS):
             marker = jobs.read_marker(job_dir)
