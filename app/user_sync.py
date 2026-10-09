@@ -351,17 +351,17 @@ def random_nas_password(length: int = 16) -> str:
             return pwd
 
 
-def fetch_roster_emails(*, force: bool = False) -> set[str]:
-    """Packages website users (email lower). Empty if roster is not configured."""
-    global _roster_cache
-    now = time.time()
-    if not force and _roster_cache and now - _roster_cache[0] < _ROSTER_TTL_S:
-        return set(_roster_cache[1])
+class RosterUnavailable(Exception):
+    """Roster could not be loaded. This is not an empty roster — do not delete accounts."""
+
+
+def _fetch_roster_users() -> list[Any]:
+    """Return the roster's user rows. Raises RosterUnavailable when the list can't be trusted."""
     settings = get_settings()
     url = (settings.packages_roster_url or "").strip()
     token = (settings.packages_service_token or "").strip()
     if not url or not token:
-        return set(_roster_cache[1]) if _roster_cache else set()
+        raise RosterUnavailable("roster is not configured")
     try:
         resp = httpx.get(
             url,
@@ -372,50 +372,64 @@ def fetch_roster_emails(*, force: bool = False) -> set[str]:
         payload = resp.json()
     except (httpx.HTTPError, ValueError) as e:
         log.warning("packages roster fetch failed: %s", e)
-        return set(_roster_cache[1]) if _roster_cache else set()
+        raise RosterUnavailable("roster fetch failed") from e
     users = payload.get("users") if isinstance(payload, dict) else payload
+    if not isinstance(users, list):
+        log.warning("packages roster response has no users list")
+        raise RosterUnavailable("roster response was not a user list")
+    return users
+
+
+def _emails_from_users(users: list[Any]) -> set[str]:
     emails: set[str] = set()
-    if isinstance(users, list):
-        for row in users:
-            if isinstance(row, dict):
-                em = str(row.get("email") or "").strip().lower()
-            else:
-                em = str(row or "").strip().lower()
-            if em and "@" in em:
-                emails.add(em)
+    for row in users:
+        if isinstance(row, dict):
+            em = str(row.get("email") or "").strip().lower()
+        else:
+            em = str(row or "").strip().lower()
+        if em and "@" in em:
+            emails.add(em)
+    return emails
+
+
+def fetch_roster_emails(*, force: bool = False) -> set[str]:
+    """Packages website users (email lower).
+
+    A failed or unconfigured fetch raises RosterUnavailable. A non-forced call
+    may reuse a cache that is still inside its TTL, or a stale cache when the
+    refresh fails. A forced call never substitutes a cache — callers that
+    delete accounts need a list that was actually fetched.
+    """
+    global _roster_cache
+    now = time.time()
+    if not force and _roster_cache and now - _roster_cache[0] < _ROSTER_TTL_S:
+        return set(_roster_cache[1])
+    try:
+        users = _fetch_roster_users()
+    except RosterUnavailable:
+        if not force and _roster_cache:
+            return set(_roster_cache[1])
+        raise
+    emails = _emails_from_users(users)
     _roster_cache = (now, emails)
     return set(emails)
 
 
 def fetch_roster_entries() -> list[dict[str, str]]:
-    settings = get_settings()
-    url = (settings.packages_roster_url or "").strip()
-    token = (settings.packages_service_token or "").strip()
-    if not url or not token:
-        return []
-    try:
-        resp = httpx.get(
-            url,
-            headers={"Authorization": f"Bearer {token}", **_ROSTER_HEADERS_EXTRA},
-            timeout=20.0,
-        )
-        resp.raise_for_status()
-        payload = resp.json()
-    except (httpx.HTTPError, ValueError) as e:
-        log.warning("packages roster fetch failed: %s", e)
-        return []
-    users = payload.get("users") if isinstance(payload, dict) else payload
+    """Fresh roster rows for a sync. Raises RosterUnavailable instead of returning []."""
+    global _roster_cache
+    users = _fetch_roster_users()
     out: list[dict[str, str]] = []
     seen: set[str] = set()
-    if isinstance(users, list):
-        for row in users:
-            if not isinstance(row, dict):
-                continue
-            em = str(row.get("email") or "").strip().lower()
-            if not em or "@" not in em or em in seen:
-                continue
-            seen.add(em)
-            out.append({"email": em, "name": str(row.get("name") or "").strip()})
+    for row in users:
+        if not isinstance(row, dict):
+            continue
+        em = str(row.get("email") or "").strip().lower()
+        if not em or "@" not in em or em in seen:
+            continue
+        seen.add(em)
+        out.append({"email": em, "name": str(row.get("name") or "").strip()})
+    _roster_cache = (time.time(), set(seen))
     return out
 
 
@@ -526,7 +540,13 @@ def revoke_user(
         return {"email": email, "status": "skipped_invalid"}
     local, domain = parts
     email = f"{local}@{domain}"
-    roster_emails = set(roster) if roster is not None else fetch_roster_emails()
+    if roster is None:
+        try:
+            roster_emails = fetch_roster_emails(force=True)
+        except RosterUnavailable:
+            return {"email": email, "status": "error", "detail": "roster unavailable"}
+    else:
+        roster_emails = set(roster)
     if email in roster_emails:
         owner = linux_user_by_email(email)
         return {
@@ -585,7 +605,11 @@ def revoke_user(
 
 def sync_roster(*, ugos_factory: UgosFactory | None = None) -> dict[str, Any]:
     """Create missing NAS users from packages; delete NAS users who left the roster."""
-    entries = fetch_roster_entries()
+    try:
+        entries = fetch_roster_entries()
+    except RosterUnavailable as e:
+        log.warning("skipping roster sync: %s", e)
+        return {"ok": False, "detail": "roster unavailable", "results": []}
     roster = {e["email"] for e in entries}
     claimed: set[str] = set()  # usernames we already handled this run
     results: list[dict[str, Any]] = []
@@ -653,9 +677,14 @@ def ensure_for_login(email: str, name: str = "") -> NasUser | None:
     if is_protected(email):
         return resolve_nas_user(email)
 
-    roster = fetch_roster_emails()
-    if email not in roster:
-        roster = fetch_roster_emails(force=True)
+    try:
+        roster = fetch_roster_emails()
+        if email not in roster:
+            roster = fetch_roster_emails(force=True)
+    except RosterUnavailable:
+        # A timeout or a bad body is not "this person left." Don't delete them.
+        log.warning("roster unavailable; leaving NAS accounts in place")
+        return None
     if email not in roster:
         if email in _load_overrides():
             return resolve_nas_user(email)

@@ -170,6 +170,19 @@ def test_in_place_retry_of_a_chunk_overwrites_it(staging, drive):
     assert (drive / "Shows" / "clip.mov").read_bytes() == b"b" * 1024 * 1024
 
 
+def test_in_place_retry_drops_the_marker_until_the_rewrite_finishes(staging, drive):
+    session = in_place_session(drive, 1024 * 1024)
+    upload_id = session["upload_id"]
+    chunk_upload.write_chunk(upload_id, 0, iter([b"a" * 1024 * 1024]), username="nasadmin", uid=1001)
+    assert chunk_upload.received_indices(upload_id) == [0]
+    with pytest.raises(fsops.FSError):
+        chunk_upload.write_chunk(upload_id, 0, iter([b"b" * 1000]), username="nasadmin", uid=1001)
+    assert chunk_upload.received_indices(upload_id) == []
+    with fsops.use_share_root(drive), pytest.raises(fsops.FSError, match="Missing chunks"):
+        chunk_upload.complete_session(upload_id, username="nasadmin", uid=1001)
+    assert not (drive / "Shows" / "clip.mov").exists()
+
+
 def test_aborted_or_expired_in_place_upload_leaves_nothing(staging, drive, monkeypatch):
     first = in_place_session(drive, 1024 * 1024, name="a.mov")
     chunk_upload.abort_session(first["upload_id"], username="nasadmin", uid=1001)

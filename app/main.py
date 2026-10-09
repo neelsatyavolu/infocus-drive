@@ -100,6 +100,7 @@ from shares import (
 from ugos_api import nas_otp_login, nas_password_login
 from users import _pwd_user, linux_user_email
 from user_sync import (
+    RosterUnavailable,
     UserdClient,
     UserdError,
     allocate_username,
@@ -225,10 +226,16 @@ def _public_config(request: Request | None = None) -> dict[str, Any]:
 
 
 def _safe_next_url(raw: str | None) -> str:
-    """Only allow same-site relative redirects (path or hash)."""
+    """Only allow same-site relative redirects (path or hash).
+
+    Browsers treat ``\\`` as ``/`` when parsing a Location, so ``/\\evil.example``
+    is a protocol-relative redirect. Control characters are stripped the same way.
+    """
     next_url = (raw or "").strip() or "/"
     if next_url.startswith("#"):
-        return f"/{next_url}"
+        next_url = f"/{next_url}"
+    if any(ord(ch) < 32 or ch == "\\" for ch in next_url):
+        return "/"
     if next_url.startswith("/") and not next_url.startswith("//"):
         return next_url
     return "/"
@@ -420,7 +427,10 @@ async def service_ensure_user(request: Request) -> dict[str, Any]:
         rows = [u for u in body["users"] if isinstance(u, dict)]
     else:
         rows = [body]
-    roster = fetch_roster_emails()
+    try:
+        roster = fetch_roster_emails()
+    except RosterUnavailable as e:
+        raise HTTPException(status_code=503, detail="Roster is unavailable") from e
     results = []
     claimed: set[str] = set()
     for row in rows:
@@ -466,7 +476,10 @@ async def service_revoke_user(request: Request) -> dict[str, Any]:
                 emails.append(str(row or "").strip().lower())
     elif body.get("email"):
         emails.append(str(body.get("email") or "").strip().lower())
-    roster = fetch_roster_emails(force=True)
+    try:
+        roster = fetch_roster_emails(force=True)
+    except RosterUnavailable as e:
+        raise HTTPException(status_code=503, detail="Roster is unavailable; no accounts were changed") from e
     results = [revoke_user(email, roster=roster) for email in emails if email and "@" in email]
     return {"results": results}
 
@@ -778,19 +791,13 @@ def service_file(
         raise _fs_http(e) from e
     serve_path = file_path
     serve_name = name
-    media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
     if web:
         proxy = webproxy.get_or_create(file_path)
         if proxy != file_path:
             serve_path = proxy
             serve_name = f"{Path(name).stem}.mp4"
-            media_type = "video/mp4"
-    return FileResponse(
-        path=serve_path,
-        filename=serve_name,
-        media_type=media_type,
-        content_disposition_type="inline" if inline else "attachment",
-    )
+    # Same origin as the signed-in app: HTML/SVG/XML must not run as the session.
+    return _user_file_response(serve_path, serve_name, inline)
 
 
 @app.get("/api/service/thumbnail")

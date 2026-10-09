@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from config import get_settings
 from shares import DEFAULT_SHARE
-from user_sync import ensure_for_login, fetch_roster_emails, is_protected
+from user_sync import RosterUnavailable, ensure_for_login, fetch_roster_emails, is_protected
 from users import _load_overrides, resolve_nas_user
 
 COOKIE = "infocus_drive_email_code"
@@ -115,7 +115,10 @@ def may_request_code(email: str) -> bool:
     # Check eligibility without provisioning or deleting NAS accounts before verification.
     if is_protected(email) or email in _load_overrides():
         return resolve_nas_user(email) is not None
-    return email in fetch_roster_emails() or email in fetch_roster_emails(force=True)
+    try:
+        return email in fetch_roster_emails() or email in fetch_roster_emails(force=True)
+    except RosterUnavailable:
+        return False
 
 
 def send_code(email: str, code: str) -> None:

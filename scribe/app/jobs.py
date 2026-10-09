@@ -93,6 +93,20 @@ def job_dirs(tmp_dir: Path) -> list[tuple[Path, JobMarker]]:
     return sorted(found, key=lambda item: (item[1].recording_started_ms, item[0].name))
 
 
+def exhausted(tmp_dir: Path) -> list[tuple[Path, JobMarker]]:
+    """Jobs killed mid-flight often enough that another retry will not run.
+
+    A normal exception marks the job failed and posts FAILED. A deploy or OOM
+    between the attempt increment and that except leaves state=processing, and
+    recoverable() then skips it forever once attempts hit MAX_ATTEMPTS.
+    """
+    return [
+        (job_dir, marker)
+        for job_dir, marker in job_dirs(tmp_dir)
+        if marker.attempts >= MAX_ATTEMPTS and marker.state in ("processing", "queued", "recording")
+    ]
+
+
 def recoverable(tmp_dir: Path, *, failed_retry_after_ms: int = 0, now: int | None = None) -> list[Path]:
     """Jobs to (re)queue: unfinished ones, and failed ones with attempts left whose last
     attempt is at least `failed_retry_after_ms` old."""

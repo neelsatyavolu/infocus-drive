@@ -114,20 +114,44 @@ def use_share_root(root: Path) -> Iterator[Path]:
         _active_share_root.reset(token)
 
 
-def resolve_rel(rel: str) -> Path:
-    """Resolve a user-supplied relative path under drive root (no escape)."""
+def resolve_rel(rel: str, *, follow_symlinks: bool = True) -> Path:
+    """Resolve a user-supplied relative path under drive root (no escape).
+
+    ``follow_symlinks=False`` resolves parent directories (so a link in a parent
+    still can't escape the share) but leaves the final name alone. Delete,
+    rename, and move use that so a symlink is the link, not the file it points at.
+    """
     root = drive_root()
     rel = (rel or "").strip().lstrip("/")
     # Block traversal segments
     parts = [p for p in Path(rel).parts if p not in ("", ".")]
     if any(p == ".." for p in parts):
         raise FSError("Invalid path", 400)
-    target = (root.joinpath(*parts)).resolve()
+    if not parts:
+        return root
+    target = root.joinpath(*parts)
+    if not follow_symlinks:
+        parent = target.parent.resolve()
+        try:
+            parent.relative_to(root)
+        except ValueError as e:
+            raise FSError("Path outside drive", 400) from e
+        return parent / target.name
+    target = target.resolve()
     try:
         target.relative_to(root)
     except ValueError as e:
         raise FSError("Path outside drive", 400) from e
     return target
+
+
+def _lexists(path: Path) -> bool:
+    """True when this path exists, including a symlink whose target does not."""
+    try:
+        path.lstat()
+    except OSError:
+        return False
+    return True
 
 
 def resolve_within(base_rel: str, sub_rel: str) -> tuple[Path, str]:
@@ -821,49 +845,52 @@ def rename(rel: str, new_name: str, uid: int, gid: int) -> dict[str, Any]:
     new_name = (new_name or "").strip()
     if not new_name or "/" in new_name or new_name in (".", ".."):
         raise FSError("Invalid name")
-    src = resolve_rel(rel)
+    src = resolve_rel(rel, follow_symlinks=False)
     if src == drive_root():
         raise FSError("Cannot rename drive root")
     dest = src.with_name(new_name)
     # ensure dest still under root
-    resolve_rel(str(dest.relative_to(drive_root())))
+    resolve_rel(str(dest.relative_to(drive_root())), follow_symlinks=False)
     with as_user(uid, gid), _translate_os_errors():
-        if not src.exists():
+        if not _lexists(src):
             raise FSError("Not found", 404)
-        if dest.exists():
+        if _lexists(dest):
             raise FSError("Target exists", 409)
         src.rename(dest)
         return _entry(dest, drive_root())
 
 
 def move_item(src_rel: str, dest_dir_rel: str, uid: int, gid: int) -> dict[str, Any]:
-    src = resolve_rel(src_rel)
+    src = resolve_rel(src_rel, follow_symlinks=False)
     dest_dir = resolve_rel(dest_dir_rel)
     if src == drive_root():
         raise FSError("Cannot move drive root")
     # Reject moving a folder into itself or a descendant (API clients / scripts).
+    # Compare the path we will move (the link itself, when src is a symlink).
     try:
-        dest_dir.resolve().relative_to(src.resolve())
+        dest_dir.resolve().relative_to(src)
     except (ValueError, OSError):
         pass
     else:
-        raise FSError("Cannot move a folder into itself", 400)
+        if src.is_dir() and not src.is_symlink():
+            raise FSError("Cannot move a folder into itself", 400)
     dest = dest_dir / src.name
-    resolve_rel(str(dest.relative_to(drive_root())))
+    resolve_rel(str(dest.relative_to(drive_root())), follow_symlinks=False)
     with as_user(uid, gid), _translate_os_errors():
-        if not src.exists():
+        if not _lexists(src):
             raise FSError("Not found", 404)
         if not dest_dir.is_dir():
             raise FSError("Destination not a directory", 400)
-        if dest.exists():
+        if _lexists(dest):
             raise FSError("Target exists", 409)
         # Re-check after resolve under user (symlinks / races).
         try:
-            dest_dir.resolve().relative_to(src.resolve())
+            dest_dir.resolve().relative_to(src)
         except (ValueError, OSError):
             pass
         else:
-            raise FSError("Cannot move a folder into itself", 400)
+            if src.is_dir() and not src.is_symlink():
+                raise FSError("Cannot move a folder into itself", 400)
         shutil.move(str(src), str(dest))
         return _entry(Path(dest), drive_root())
 
@@ -881,14 +908,6 @@ def has_recycle_bin() -> bool:
         return recycle_dir().is_dir()
     except OSError:
         return False
-
-
-def _rel_under_root(path: Path) -> Path:
-    root = drive_root()
-    try:
-        return path.resolve().relative_to(root.resolve())
-    except ValueError as e:
-        raise FSError("Path outside drive", 400) from e
 
 
 def is_under_recycle(rel: str) -> bool:
@@ -931,7 +950,7 @@ def delete(rel: str, uid: int, gid: int, *, permanent: bool = False) -> dict[str
     - Already under `#recycle`, or permanent=True → hard delete
     - No `#recycle` on the share → hard delete (fallback)
     """
-    path = resolve_rel(rel)
+    path = resolve_rel(rel, follow_symlinks=False)
     root = drive_root()
     if path == root:
         raise FSError("Cannot delete drive root")
@@ -939,7 +958,7 @@ def delete(rel: str, uid: int, gid: int, *, permanent: bool = False) -> dict[str
         raise FSError("Cannot delete the Recycle folder — empty it instead", 400)
 
     with as_user(uid, gid), _translate_os_errors():
-        if not path.exists():
+        if not _lexists(path):
             raise FSError("Not found", 404)
 
         under_recycle = is_under_recycle(rel)
@@ -951,7 +970,9 @@ def delete(rel: str, uid: int, gid: int, *, permanent: bool = False) -> dict[str
         )
 
         if soft:
-            rel_path = _rel_under_root(path)
+            # Keep the link's own relative path. resolve() would follow it and
+            # recycle the target instead.
+            rel_path = path.relative_to(root)
             dest = bin_dir.joinpath(*rel_path.parts)
             try:
                 dest.parent.mkdir(parents=True, exist_ok=True)
