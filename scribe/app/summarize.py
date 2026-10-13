@@ -38,7 +38,8 @@ Each speaker label is the participant's own name (their InFocus display name), t
 Rules:
 - Report only what was said. Never invent names, numbers, dates or commitments.
 - Make no assumptions. Do not infer reasons, intentions, owners, deadlines, agreement or outcomes that nobody stated, and do not fill gaps with what usually happens in a meeting like this. If something was left unclear or undecided, say it was left open or leave it out.
-- The transcript comes from speech recognition: silently fix obvious mis-hearings, ignore filler and small talk.
+- Never write that something did not happen (no vote, no decision, nobody objected) unless someone said so. The transcript can be garbled or missing stretches of speech: when a vote or decision was called for and its result is not clearly in the transcript, say the result was not captured in the transcript.
+- The transcript comes from speech recognition: silently fix obvious mis-hearings, ignore filler and small talk. Leave out personal chatter that is not meeting business (other classes, homework).
 - "Participants" lists the correct spelling of everyone's name. A name in the transcript that sounds like one of them (a mis-hearing) means that person.
 - title: 3-7 words naming the meeting's subject, no date.
 - tldr: two or three sentences a colleague who missed the meeting could act on.
@@ -53,6 +54,7 @@ Reply with a single JSON object and nothing else, with exactly these keys:
 DIGEST_SYSTEM = """You are condensing one part of a long meeting transcript so that notes can be written later from your digest.
 Keep every decision, number, date, name, commitment and open question. Drop filler. Keep the order of discussion.
 Do not assume or add anything that was not said: no guessed reasons, owners, deadlines or conclusions.
+Never write that something did not happen unless someone said so. Keep every call for a vote and whatever was said about its result.
 Reply with plain text bullets only."""
 
 

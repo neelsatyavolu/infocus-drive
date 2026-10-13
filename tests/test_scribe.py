@@ -16,7 +16,8 @@ from app import main as scribe_main  # noqa: E402
 from app import portal_client, recorder, session, summarize  # noqa: E402
 from app.notes_writer import folder_name, sanitize_title, write_notes  # noqa: E402
 from app.pipeline import cleanup_leftovers  # noqa: E402
-from app.transcribe import Segment, format_clock, merge_segments, render_markdown, transcript_json  # noqa: E402
+from app.transcribe import (Segment, Transcriber, drop_repeats, format_clock, merge_segments,  # noqa: E402
+                            render_markdown, transcript_json)
 
 TOKEN = "s" * 40
 MEETING = "cmeet0000000000abc123"
@@ -58,6 +59,52 @@ def test_transcript_json_uses_relative_times():
     assert data["meetingId"] == MEETING
     assert data["segments"] == [{"startMs": 2_000, "endMs": 3_500, "uid": "u1", "name": "Abby", "text": "Hi."}]
     assert data["speakers"] == [{"uid": "u1", "name": "Abby"}]
+
+
+def _said(*texts, name="Abby"):
+    return [Segment(i * 30_000, i * 30_000 + 5_000, name.lower(), name, t) for i, t in enumerate(texts)]
+
+
+def test_drop_repeats_removes_a_speech_recognition_loop():
+    looped = _said("So what do we do about late packages?",
+                   "and how can we help people learn and how can we help people learn and how can",
+                   "we help people learn and how can we help people learn and how can we help people",
+                   "and how can we help people learn and how can we help people learn and how can",
+                   "Okay, I vote to keep the policy.")
+    assert [s.text for s in drop_repeats(looped)] == [
+        "So what do we do about late packages?",
+        "and how can we help people learn and how can we help people learn and how can",
+        "Okay, I vote to keep the policy."]
+
+
+def test_drop_repeats_removes_the_same_sentence_said_over_and_over():
+    kept = drop_repeats(_said("Okay, so I'm gonna make the slides.", "Okay, so I'm gonna make the slides.",
+                              "Okay, so I'm gonna make the slides!", "Who has the clips?"))
+    assert [s.text for s in kept] == ["Okay, so I'm gonna make the slides.", "Who has the clips?"]
+
+
+def test_drop_repeats_keeps_ordinary_speech():
+    spoken = _said("Yeah.", "Yeah.", "Let's vote.", "Let's vote.", "I think we should vote on it now.",
+                   "I think we should wait a week and vote then.")
+    assert drop_repeats(spoken) == spoken
+    assert drop_repeats([]) == []
+
+
+def test_transcriber_does_not_feed_one_window_into_the_next(monkeypatch, tmp_path):
+    calls = []
+
+    class FakeModel:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def transcribe(self, wav, **kwargs):
+            calls.append(kwargs)
+            return iter(()), None
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", type(sys)("faster_whisper"))
+    sys.modules["faster_whisper"].WhisperModel = FakeModel
+    assert Transcriber("small.en", 1).transcribe(tmp_path / "a.wav", offset_ms=0, uid="abby", name="Abby") == []
+    assert calls[0]["condition_on_previous_text"] is False
 
 
 def test_empty_transcript_says_so():
@@ -204,6 +251,12 @@ def test_prompts_forbid_assumptions():
     assert "Make no assumptions" in summarize.SYSTEM
     assert "leave it out" in summarize.SYSTEM
     assert "Do not assume" in summarize.DIGEST_SYSTEM
+
+
+def test_prompts_never_report_that_something_did_not_happen():
+    assert "did not happen" in summarize.SYSTEM
+    assert "result was not captured" in summarize.SYSTEM
+    assert "did not happen" in summarize.DIGEST_SYSTEM
 
 
 def test_user_prompts():

@@ -128,5 +128,12 @@ def test_rss_reader_handles_missing_proc():
     assert whisper_child.read_rss_mb(10 ** 9) is None
 
 
+def test_a_speakers_repeated_loop_is_left_out_of_the_transcript(tmp_path):
+    audio = _streams(tmp_path, {"abby": 1_000_000})
+    segments, gaps = _run(audio, {"abby": ["we help people learn"] * 3})
+    assert [s.text for s in segments] == ["we help people learn piece"]
+    assert gaps == []
+
+
 def test_fakes_module_is_importable():  # the spawned child imports it by name
     assert scribe_fakes.fake_transcriber.__module__ == "scribe_fakes"

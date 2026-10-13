@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
 log = logging.getLogger("scribe.transcribe")
+
+# A segment is a repeat when this share of its 3-word runs was in the speaker's previous segment.
+REPEAT_SHARE = 0.8
+_NOT_WORD = re.compile(r"[^a-z0-9' ]+")
 
 
 @dataclass(frozen=True)
@@ -40,8 +45,10 @@ class Transcriber:
         self._hotwords = hotwords
 
     def transcribe(self, wav: Path, *, offset_ms: int, uid: str, name: str) -> list[Segment]:
+        # condition_on_previous_text=False: a window that went wrong (cross-talk, noise) must not
+        # seed the next one, or whisper repeats one phrase for minutes and the real speech is lost.
         segments, _info = self._model.transcribe(str(wav), language="en", vad_filter=True, beam_size=1,
-                                                 hotwords=self._hotwords)
+                                                 hotwords=self._hotwords, condition_on_previous_text=False)
         out: list[Segment] = []
         for seg in segments:
             text = " ".join(seg.text.split())
@@ -49,6 +56,26 @@ class Transcriber:
                 out.append(Segment(start_ms=offset_ms + int(seg.start * 1000),
                                    end_ms=offset_ms + int(seg.end * 1000), uid=uid, name=name, text=text))
         return out
+
+
+def _runs(text: str) -> set[tuple[str, ...]]:
+    words = _NOT_WORD.sub(" ", text.lower()).split()
+    return {tuple(words[i:i + 3]) for i in range(len(words) - 2)}
+
+
+def drop_repeats(segments: list[Segment]) -> list[Segment]:
+    """One speaker's segments in order, without the ones that only repeat the segment before
+    (a speech-recognition loop). The first of a run stays; short replies ("Yeah.") always stay."""
+    kept: list[Segment] = []
+    previous: set[tuple[str, ...]] = set()
+    for seg in segments:
+        runs = _runs(seg.text)
+        if not runs or len(runs & previous) < REPEAT_SHARE * len(runs):
+            kept.append(seg)
+        previous = runs
+    if len(kept) < len(segments):
+        log.info("left out %d repeated segments", len(segments) - len(kept))
+    return kept
 
 
 def merge_segments(per_speaker: Iterable[Iterable[Segment]]) -> list[Segment]:
