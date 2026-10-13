@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -66,3 +67,43 @@ def test_rel_to_root_no_stat(share_tree):
     nested = str(share_tree / "Camp" / "take.mp4")
     assert fsops._rel_to_root(nested, share_tree) == "Camp/take.mp4"
     assert fsops._rel_to_root(str(share_tree), share_tree) == ""
+
+
+def test_symlink_mutations_change_the_link_not_the_target(tmp_path, monkeypatch):
+    root = tmp_path / "drive"
+    root.mkdir()
+    outside = tmp_path / "secret.txt"
+    outside.write_text("secret")
+    inside = root / "real.txt"
+    inside.write_text("keep")
+    (root / "outside.txt").symlink_to(outside)
+    (root / "alias.txt").symlink_to(inside)
+    (root / "dangling.txt").symlink_to(root / "missing.txt")
+    (root / "Dest").mkdir()
+    monkeypatch.setenv("DRIVE_ROOT", str(root))
+    get_settings.cache_clear()
+    uid, gid = os.getuid(), os.getgid()
+
+    deleted = fsops.delete("outside.txt", uid, gid)
+    assert deleted["action"] == "deleted"
+    assert outside.read_text() == "secret"
+    assert not (root / "outside.txt").exists()
+
+    fsops.delete("dangling.txt", uid, gid)
+    assert not os.path.lexists(root / "dangling.txt")
+
+    renamed = fsops.rename("alias.txt", "renamed.txt", uid, gid)
+    assert renamed["name"] == "renamed.txt"
+    assert (root / "renamed.txt").is_symlink()
+    assert inside.read_text() == "keep"
+    assert not os.path.lexists(root / "alias.txt")
+
+    moved = fsops.move_item("renamed.txt", "Dest", uid, gid)
+    assert moved["name"] == "renamed.txt"
+    assert (root / "Dest" / "renamed.txt").is_symlink()
+    assert inside.read_text() == "keep"
+
+    (root / "Folder").mkdir()
+    (root / "Folder" / "nested").mkdir()
+    with pytest.raises(fsops.FSError, match="into itself"):
+        fsops.move_item("Folder", "Folder/nested", uid, gid)

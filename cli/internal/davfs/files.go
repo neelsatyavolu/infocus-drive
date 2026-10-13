@@ -56,12 +56,12 @@ func (i fileInfo) ContentType(context.Context) (string, error) {
 
 var errNotSupported = errors.New("not supported")
 
-// OpenFile implements webdav.FileSystem. x/net/webdav only opens files for
-// reading or with O_RDWR|O_CREATE|O_TRUNC (PUT, COPY, LOCK), so any write
-// open starts an empty file that replaces the target on Close — except for
-// LOCK, which may only create a file that doesn't exist yet.
+// OpenFile implements webdav.FileSystem. PUT, COPY, and LOCK open with
+// O_RDWR|O_CREATE|O_TRUNC and replace the file on Close. PROPPATCH opens
+// O_RDWR with no create/trunc flags; treating that as a new file uploads an
+// empty body over the real one (Office does this when saving).
 func (f *FS) OpenFile(ctx context.Context, name string, flag int, _ os.FileMode) (webdav.File, error) {
-	if flag&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
+	if flag&(os.O_WRONLY|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
 		return f.create(ctx, name)
 	}
 	n, err := f.find(ctx, name)
