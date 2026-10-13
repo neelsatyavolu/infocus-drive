@@ -3,8 +3,8 @@ the Drive → Portal READY.
 
 Raw audio is never deleted because something after the recording failed: the job is
 marked `failed` (or `written` when only the READY call didn't get through) and kept for
-a retry. It is deleted once the Portal acknowledges READY for complete notes, or by the
-7-day cleanup.
+a retry. Once the Portal acknowledges READY for complete notes the job is `done` and its
+audio stays as a backup (so notes can be redone by hand). The 14-day cleanup deletes it.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def failure_reason(error: Exception) -> str:
 
 
 def process(cfg: ScribeConfig, job_dir: Path) -> str:
-    """Run (or resume) one job. Returns the job's state afterwards ("done" when deleted)."""
+    """Run (or resume) one job. Returns the job's state afterwards."""
     marker = jobs.read_marker(job_dir)
     if marker is None:
         log.warning("skipping %s: no job marker", job_dir.name)
@@ -104,7 +104,7 @@ def _write(cfg: ScribeConfig, marker: jobs.JobMarker, segments: list[Segment],
 
 
 def _deliver(cfg: ScribeConfig, job_dir: Path, summary_md: str | None = None) -> str:
-    """READY to the Portal. Complete notes: the raw audio is deleted once acknowledged."""
+    """READY to the Portal. The raw audio stays as a backup until the 14-day cleanup."""
     marker = jobs.read_marker(job_dir)
     if marker is None or not marker.notes_folder:
         return "missing"
@@ -119,15 +119,13 @@ def _deliver(cfg: ScribeConfig, job_dir: Path, summary_md: str | None = None) ->
     if not acked:
         log.warning("READY not acknowledged yet; keeping the recording and retrying later")
         return "written"
-    if marker.complete:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        return "done"
-    jobs.update_marker(job_dir, state="partial")
-    return "partial"
+    state = "done" if marker.complete else "partial"
+    jobs.update_marker(job_dir, state=state)
+    return state
 
 
 def cleanup_leftovers(tmp_dir: Path, now: float | None = None, keep: set[str] | frozenset[str] = frozenset()) -> int:
-    """Delete recordings older than 7 days (by the marker's recording start, else the folder's
+    """Delete recordings older than 14 days (by the marker's recording start, else the folder's
     mtime), except `keep` (live recordings and queued jobs). Returns how many were removed."""
     if not tmp_dir.is_dir():
         return 0

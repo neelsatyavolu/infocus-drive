@@ -73,8 +73,8 @@ Raw audio is never deleted because something after the recording failed.
 
 | Outcome | Job state | Raw audio |
 |---|---|---|
-| Complete notes, Portal acknowledged `READY` | (folder deleted) | deleted |
-| Notes with gaps, `READY` acknowledged | `partial` | kept for a manual retry until the 7-day cleanup |
+| Complete notes, Portal acknowledged `READY` | `done` | kept as a backup until the 14-day cleanup, so the notes can be redone by hand |
+| Notes with gaps, `READY` acknowledged | `partial` | kept for a manual retry until the 14-day cleanup |
 | Notes written, `READY` not acknowledged | `written` | kept. The hourly pass re-sends `READY` from `summary.md` (no re-transcription) |
 | Transcription crash, write error, anything else | `failed` (reason in `last_error`) | kept. `FAILED` with a reason is posted. Retried at the next start and hourly, up to 3 attempts |
 | Notes folder not writable when processing starts | `failed` | kept. Not counted as an attempt, so it is retried hourly until fixed |
@@ -114,7 +114,7 @@ The prompt, JSON shape, parser and markdown are ported from Redrule's `MinutesCo
 - [ ] <task without an owner>
 ```
 
-Every hour the worker deletes recordings older than 7 days (by the marker's recording start), retries `failed` jobs, and re-sends `READY` calls that didn't get through. Live and queued recordings are never removed.
+Every hour the worker deletes recordings older than 14 days (by the marker's recording start), retries `failed` jobs, and re-sends `READY` calls that didn't get through. Live and queued recordings are never removed.
 
 ### Long meetings
 
@@ -171,7 +171,7 @@ The Scribe treats the page as joined once `window.__scribe` exists.
 - Audio never leaves the NAS, and transcription runs locally.
 - **Summaries:** with `SCRIBE_WORKERS_AI_ACCOUNT_ID` and `SCRIBE_WORKERS_AI_TOKEN` set, the finished transcript text is sent to Cloudflare Workers AI for one summary request. Cloudflare keeps no prompts or outputs and doesn't train on them ([Your Data and Workers AI](https://developers.cloudflare.com/workers-ai/platform/data-usage/)), but it does read the text in plain form while summarizing. Leave both empty to keep summaries on the NAS (local Ollama model).
 - The name list from the Portal is kept in the recording's `job.json` until that recording is deleted, and is never written to the notes.
-- Raw audio is deleted once the Portal has complete notes. If something failed, it is kept so the notes can be retried (see "What happens to the raw audio"). Anything older than 7 days is removed hourly.
+- Raw audio is kept for 14 days after the recording, so notes can be retried or redone (see "What happens to the raw audio"). Anything older than 14 days is removed hourly.
 - The notes folder is on the InFocus Drive share, so **anyone with access to that share can read it**, not only producers. To keep notes private, set `IFD_MEETINGS_ROOT` to a folder whose NAS permissions are limited to producers and admins, while still letting uid 1000 write to it.
 - Files are owned by uid 1000 (the container's renumbered `pwuser`; the NAS service owner). Check `getent passwd 1000` on a new NAS and pick a non-person uid for `SCRIBE_UID` if needed.
 
@@ -242,6 +242,6 @@ If a NAS firewall blocks Docker bridge → host traffic, allow the `scribe` netw
 | FAILED right after start, `/health` 503 | Preflight: `/meetings` or `/scribe-tmp` not writable by uid 1000 ("PREFLIGHT FAILED" in the logs) |
 | FAILED "could not join the meeting" | Chromium could not launch or join: sandbox/seccomp (see Isolation), or `/meet-scribe` unreachable |
 | Notes FAILED at the end | `docker logs infocus-scribe` and `last_error` in the job's `job.json`; the audio is kept and retried hourly (up to 3 attempts) |
-| "missing" list in a transcript | A piece timed out, ran out of memory (`SCRIBE_WHISPER_MAX_MB`) or crashed; the job is `partial` and its audio kept for 7 days |
+| "missing" list in a transcript | A piece timed out, ran out of memory (`SCRIBE_WHISPER_MAX_MB`) or crashed; the job is `partial` and its audio kept for 14 days |
 | Notes READY but "Summary unavailable" | `docker logs infocus-scribe`: did `ollama serve` start, and did the first-run model pull finish (network, disk)? |
 | Transcript empty | The scribe page sent no chunks (check the Portal `/meet-scribe` page and E2EE key) |

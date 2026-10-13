@@ -1,5 +1,5 @@
 """Job markers, processing states and retries: raw audio is only deleted once the
-Portal has complete notes (or after 7 days)."""
+Portal has complete notes; every recording is removed after 14 days."""
 
 import errno
 import json
@@ -58,7 +58,7 @@ def test_marker_round_trip_ignores_unknown_keys(tmp_path):
     assert marker.starts_at_dt == STARTS
 
 
-def test_complete_notes_delete_the_audio_once_ready_is_acknowledged(env):
+def test_complete_notes_keep_the_audio_as_a_backup(env):
     cfg, sent, _, _ = env
     job_dir = _job(cfg)
     assert pipeline.process(cfg, job_dir) == "done"
@@ -69,7 +69,8 @@ def test_complete_notes_delete_the_audio_once_ready_is_acknowledged(env):
     meta = json.loads((folder / "transcript.json").read_text())
     assert meta["recordingStartedMs"] == REC and meta["part"] == 1 and meta["complete"] is True
     assert "[00:00:01] Abby: Hi." in (folder / "transcript.md").read_text()
-    assert not job_dir.exists()
+    assert jobs.read_marker(job_dir).state == "done"
+    assert jobs.recoverable(cfg.tmp_dir) == []  # kept as a backup, never processed again by itself
 
 
 def test_a_later_part_gets_its_own_folder(env):
@@ -148,7 +149,7 @@ def test_ready_not_acknowledged_is_retried_without_transcribing_again(env):
     monkeypatch.setattr(pipeline, "transcribe", lambda cfg_, d: pytest.fail("transcribed twice"))
     assert pipeline.process(cfg, job_dir) == "done"
     assert sent[-1][0] == "READY" and sent[-1][1]["summary_markdown"] == "# Notes\n"
-    assert not job_dir.exists()
+    assert jobs.read_marker(job_dir).state == "done"
 
 
 def test_summary_failure_still_delivers_the_transcript(env):
@@ -195,3 +196,13 @@ def test_cleanup_uses_the_recording_start_and_spares_live_and_queued_jobs(tmp_pa
     recent = _job(cfg, name="recent", rec=jobs.now_ms())
     assert pipeline.cleanup_leftovers(cfg.tmp_dir, keep={"live"}) == 1
     assert not old.exists() and live.exists() and recent.exists()
+
+
+def test_cleanup_keeps_recordings_for_14_days(tmp_path):
+    cfg = make_cfg(tmp_path)
+    cfg.tmp_dir.mkdir()
+    day_ms = 24 * 60 * 60 * 1000
+    kept = _job(cfg, name="kept", rec=jobs.now_ms() - 13 * day_ms)
+    expired = _job(cfg, name="expired", rec=jobs.now_ms() - 15 * day_ms)
+    assert pipeline.cleanup_leftovers(cfg.tmp_dir) == 1
+    assert kept.exists() and not expired.exists()

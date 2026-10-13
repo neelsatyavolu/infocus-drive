@@ -2,12 +2,11 @@
 
 The marker says what the audio is (meeting, title, start, part, speakers) and how
 far it got, so a recording survives a failure, a deploy or a reboot and is
-processed (or retried) later. Raw audio is deleted only once the Portal has
-acknowledged READY for complete notes, or after 7 days.
+processed (or retried) later. Raw audio is deleted only by the 14-day cleanup.
 
-States: recording → queued → processing → written → (deleted | partial);
-any step can end in failed. `partial` = notes delivered with gaps (audio kept
-for a manual retry until the 7-day cleanup).
+States: recording → queued → processing → written → (done | partial);
+any step can end in failed. `done` = complete notes delivered, `partial` = notes
+delivered with gaps; both keep their audio for a manual retry until the cleanup.
 """
 
 from __future__ import annotations

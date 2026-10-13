@@ -8,7 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 
 MAX_SESSION_SECONDS = 4 * 60 * 60
-LEFTOVER_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+LEFTOVER_MAX_AGE_SECONDS = 14 * 24 * 60 * 60
 WHISPER_MAX_MB = 2000
 WORKERS_AI_MODEL = "@cf/openai/gpt-oss-120b"
 

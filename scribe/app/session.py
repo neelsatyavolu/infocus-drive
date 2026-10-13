@@ -344,7 +344,7 @@ class SessionManager:
         return {s.audio_dir.name for s in self.sessions.values()}
 
     async def _process_queue(self) -> None:
-        """One job at a time. Hourly: delete recordings older than 7 days, retry failed
+        """One job at a time. Hourly: delete recordings older than 14 days, retry failed
         jobs and READY calls that didn't get through."""
         await asyncio.to_thread(self._cleanup)
         next_maintenance = time.monotonic() + MAINTENANCE_INTERVAL_SECONDS
@@ -376,4 +376,4 @@ class SessionManager:
     def _cleanup(self) -> None:
         removed = pipeline.cleanup_leftovers(self.cfg.tmp_dir, keep=self._active_dirs() | set(self._queued))
         if removed:
-            log.info("removed %s recordings older than 7 days", removed)
+            log.info("removed %s recordings older than 14 days", removed)
