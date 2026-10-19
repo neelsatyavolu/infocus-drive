@@ -5,6 +5,8 @@ import SwiftUI
 struct ApproveExtensionSheet: View {
     let request: ExtensionRequest
     let viewerId: String
+    /// An exec grants it before every member agrees.
+    var grant = false
     /// `terms` is nil when another producer already set them.
     let onConfirm: (_ terms: (days: Double, userIds: [String])?) async -> Bool
     @Environment(\.dismiss) private var dismiss
@@ -19,6 +21,8 @@ struct ApproveExtensionSheet: View {
                 Section {
                     Text("Cycle \(request.cycleNumber) · \(request.groupLabel). Asked for \(ExtensionRequest.daysLabel(request.requestedDays)).")
                         .font(.bodyText)
+                } footer: {
+                    if grant { Text("Grants it now without waiting for every member to agree. One more exec must approve.") }
                 }
                 if let locked {
                     Section("Terms set by another producer") {
@@ -43,12 +47,12 @@ struct ApproveExtensionSheet: View {
             .font(.bodyText)
             .scrollContentBackground(.hidden)
             .brandBackground()
-            .navigationTitle("Approve extension")
+            .navigationTitle(grant ? "Grant extension" : "Approve extension")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Approve") {
+                    Button(grant ? "Grant" : "Approve") {
                         Task {
                             saving = true
                             let terms = locked == nil ? (days: ExtensionRequest.roundDays(days),

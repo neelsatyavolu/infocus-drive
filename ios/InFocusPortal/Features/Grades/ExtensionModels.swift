@@ -9,6 +9,10 @@ struct ExtensionRequestsPayload: Decodable, Hashable, Sendable {
     let canGrant: Bool
     let currentUserId: String
     let approvalsRequired: Int
+    /// The cycle a new request or grant starts on.
+    var activeCycleNumber: Int?
+    /// This semester's cycles, for the grant form.
+    var cycleNumbers: [Int]?
     let requests: [ExtensionRequest]
 }
 
@@ -61,6 +65,8 @@ struct ExtensionRequest: Decodable, Hashable, Sendable, Identifiable {
     let memberConsentComplete: Bool
     /// This person may approve or deny it.
     let canDecide: Bool
+    /// An exec may grant it now, before every member agrees.
+    var canGrantPending: Bool?
     let approvalsRequired: Int
     let approvals: [Approval]
 }

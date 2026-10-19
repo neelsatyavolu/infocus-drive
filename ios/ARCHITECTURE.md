@@ -16,7 +16,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Navigation/` | `AppTab`, `Route`, `DeepLink`, `Router`, `BadgeCenter`, `RouteDestination`, `MainTabView` | shell |
 | `Features/Work/` | `HomeTab`, `WorkTab`, `WorkRoute`, `WorkDestination` | **Work agent** (Home, my packages and stages, Groups review) |
 | `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination` | **Calendar agent** (Master Calendar, The Show, announcements) |
-| `Features/Grades/` | `GradesScreen`, `ExtensionsScreen`, `GradesRoute`, `GradesDestination` | **Grades agent** (grades, extension requests) |
+| `Features/Grades/` | `GradesScreen`, `ExtensionsScreen`, `GrantExtensionSheet`, `Members/`, `ParticipationScreen` (reuses the Grade Editor's `ParticipationEntryView`), `GradesRoute`, `GradesDestination` | **Grades agent** (grades, extension requests and exec grants, Members notes, Participation) |
 | `Features/Messages/` | `MessagesTab`, `MessagesRoute`, `MessagesDestination`, `Equipment/EquipmentScreen`, `Livestreams/LivestreamsScreen` | **Messages agent** (chats, equipment checkout, livestream sign-ups) |
 | `Features/Announcements/` | `AnnouncementsRoute`, `AnnouncementsDestination`, feed/detail/compose views | **Announcements agent** (class feed, submitted announcements, PA script) |
 | `Features/PackageCycles/` | `PackageCyclesRoute`, `PackageCyclesDestination` | **Package Cycles agent** (roster: topic, members, producer; cycle dates) |
@@ -45,7 +45,7 @@ The reserved cases, wired today to placeholders that show the Portal page:
 |---|---|---|
 | `WorkRoute` | `group(rowId:stage:)`, `studentStage(StudentStage)` | `/groups` (Work root), `/groups/<rowId>[/<stage>]`, `/information`, `/brainstorming`, `/a-roll`, `/initial-cut`, `/final-cut` |
 | `CalendarRoute` | `day(date:)`, `theShow` | `/master-calendar[?date=]`, `/show-roles` |
-| `GradesRoute` | `grades`, `extensions`, `extensionRequest(id:)` | `/grades` (and `grades.` host), `/extensions[/<id>]`, `/extension-requests[/<id>]` (all on More) |
+| `GradesRoute` | `grades`, `extensions`, `extensionRequest(id:)`, `members`, `participation` | `/grades` (and `grades.` host), `/extensions[/<id>]`, `/extension-requests[/<id>]`, `/members`, `/participation` (and `grades.` host) (all on More) |
 | `MessagesRoute` | `conversation(id:)`, `equipment`, `livestreams`, `livestream(id:)` | `/equipment` (and `equipment.` host), `/livestreams[/<id>]` (on More) |
 | `AnnouncementsRoute` | `feed`, `announcement(id:)`, `submitted`, `pa` | `/announcements` (Calendar tab), `/announcements/submitted`, `/announcements/pa` (More) |
 | `PackageCyclesRoute` | `home` | `/package-progress`, `/package-cycles` (More) |

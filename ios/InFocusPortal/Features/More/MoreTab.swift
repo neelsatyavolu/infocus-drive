@@ -31,6 +31,8 @@ struct MoreTab: View {
                         Section("Producer tools") {
                             row("Meetings", "video", .meetings(.home))
                             row("Package Cycles", "person.3", .packageCycles(.home))
+                            row("Members", "person.text.rectangle", .grades(.members))
+                            row("Participation", "checklist", .grades(.participation))
                             row("Publishing Queue", "play.rectangle.on.rectangle", .publishing(.home))
                             if user.canManageGrades {
                                 row("Grade Editor", "checklist", .gradeEditor(.home))

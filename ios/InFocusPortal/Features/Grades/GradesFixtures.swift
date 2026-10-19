@@ -116,4 +116,14 @@ enum GradesFixtures {
       ]
     }}
     """#
+
+    static let grantGroupsJSON = #"""
+    {"data":{"groups":[
+      {"id":"row2","groupTopic":"Water polo season","members":[
+        {"userId":"u-otto","id":"u-otto","name":"Otto Example","email":"otto@example.edu"},
+        {"userId":"u-abby","id":"u-abby","name":"Abby Example","email":"abby@example.edu"}]},
+      {"id":"row3","groupTopic":"","members":[
+        {"userId":"u-sage","id":"u-sage","name":"Sage Example","email":"sage@example.edu"}]}
+    ]}}
+    """#
 }
