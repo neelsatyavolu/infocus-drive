@@ -45,6 +45,7 @@ struct StudentGates: Decodable, Sendable, Hashable {
     let unlocked: [String: Bool]
     let statuses: [String: StageStatus]
     let unread: [String: Int]
+    var remainingExecutiveSignoffs: Int? = nil
 
     func status(_ stage: StudentStage) -> StageStatus? { statuses[stage.rawValue] }
 
@@ -79,6 +80,8 @@ struct StageView: Decodable, Sendable {
     let cutApproval: CutApproval?
     let row: StageRow?
     let media: [StageMedia]?
+    /// Final Cut: a member or producer may change the anchors' toss after the upload.
+    var canEditToss: Bool? = nil
 }
 
 struct StageRow: Decodable, Sendable, Hashable {
@@ -99,6 +102,8 @@ struct StageRow: Decodable, Sendable, Hashable {
     let remainingExecutiveSignoffs: Int?
     let assignedProducer: PackagePerson?
     let members: [PackagePerson]
+    /// Set when the executive producers chose this package as Package of the Cycle.
+    var packageOfCycleAt: Date? = nil
 
     var memberNames: String { members.map(\.displayName).joined(separator: ", ") }
 }
@@ -147,6 +152,9 @@ struct StageComment: Decodable, Sendable, Hashable, Identifiable {
     let body: String
     let createdAt: Date
     let author: Author
+    /// Initial Cut: a link to the timecoded review these notes came from (`/projects/<id>/review/<media>…`).
+    var reviewHref: String? = nil
+    var resolvedAt: Date? = nil
 
     var authorName: String { author.name ?? author.email?.split(separator: "@").first.map(String.init) ?? "Someone" }
 }

@@ -17,7 +17,7 @@ struct WorkDestination: View {
         case .studentStage(let stage):
             switch stage {
             case .information:
-                PortalPageScreen(path: stage.rawValue, title: stage.title)
+                CycleGuideScreen()
             case .brainstorming:
                 BrainstormScreen()
             case .aRoll, .initialCut, .finalCut:
