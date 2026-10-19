@@ -220,7 +220,9 @@ final class ReviewLogicTests: XCTestCase {
         XCTAssertEqual(ReviewLogic.guestURL(token: "tok", portal: URL(string: "https://portal.example.edu")!).absoluteString,
                        "https://portal.example.edu/g/tok")
         XCTAssertEqual(ReviewLogic.reviewPath(projectId: "p1", mediaId: "m1", versionId: "v2"), "projects/p1/review/m1?version=v2")
-        XCTAssertEqual(ReviewMediaQuery(folderId: nil).items.first { $0.name == "folderId" }?.value, "all")
+        XCTAssertEqual(ReviewMediaQuery(folderId: nil).items.first { $0.name == "folderId" }?.value, "root",
+                       "the top level only, in both scopes")
+        XCTAssertEqual(ReviewMediaQuery(scope: .deleted, folderId: nil).items.first { $0.name == "folderId" }?.value, "root")
         XCTAssertEqual(ReviewMediaQuery(filter: .inProgress).items.first { $0.name == "filter" }?.value, "in-progress")
     }
 
@@ -239,10 +241,13 @@ final class ReviewLogicTests: XCTestCase {
         XCTAssertEqual(workspaces.first?.projects.first?.id, "p1")
         let page = try await api.media("p1", ReviewMediaQuery())
         XCTAssertTrue(page.items.contains { $0.currentVersion?.isImage == true })
-        let found = try await ReviewMediaLookup.find("m-quad", projectId: "p1", folderId: "f-photos", api: api)
-        XCTAssertEqual(found?.title, "Quad at lunch")
-        let comments = try await api.earlierComments("m-booth")
-        XCTAssertEqual(comments?.count, 3)
+        let quad = try await api.review("m-quad", nil)
+        XCTAssertEqual(quad.title, "Quad at lunch")
+        XCTAssertEqual(quad.folderName, "Photos")
+        let booth = try await api.review("m-booth", nil)
+        XCTAssertEqual(booth.comments.count, 3)
+        XCTAssertEqual(booth.currentVersionId, "v-booth")
+        XCTAssertTrue(booth.allowComment)
         let image = try await api.image("m-booth", "v-booth")
         XCTAssertFalse(image.isEmpty)
     }

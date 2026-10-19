@@ -7,7 +7,8 @@ struct ReviewMediaQuery: Sendable, Hashable {
     enum Sort: String, Sendable, CaseIterable { case recent, name, status }
 
     var scope: Scope = .active
-    /// A folder id; nil is the project's top level ("all" on the Portal).
+    /// A folder id; nil is the project's top level. It's sent as "root": the Portal reads "all"
+    /// as every folder's deleted items, which isn't what the Top level chip says.
     var folderId: String?
     var filter: Filter = .all
     var sort: Sort = .recent
@@ -15,7 +16,7 @@ struct ReviewMediaQuery: Sendable, Hashable {
 
     var items: [URLQueryItem] {
         [URLQueryItem(name: "scope", value: scope.rawValue),
-         URLQueryItem(name: "folderId", value: folderId ?? "all"),
+         URLQueryItem(name: "folderId", value: folderId ?? "root"),
          URLQueryItem(name: "filter", value: filter.rawValue),
          URLQueryItem(name: "sort", value: sort.rawValue),
          URLQueryItem(name: "page", value: String(page))]
@@ -59,9 +60,11 @@ struct ReviewAPI: Sendable {
     var media: @Sendable (_ projectId: String, _ query: ReviewMediaQuery) async throws -> ReviewMediaPage
     var playback: @Sendable (_ mediaId: String, _ versionId: String) async throws -> ReviewPlaybackToken
     var image: @Sendable (_ mediaId: String, _ versionId: String) async throws -> Data
-    /// Comments already on a version. The Portal has no endpoint that lists them (the web page
-    /// renders them on the server), so the live API answers nil and the screen links to the Portal.
-    var earlierComments: @Sendable (_ mediaId: String) async throws -> [ReviewComment]?
+    /// One item's review: versions, every version's comments, package review and permissions.
+    /// `version` is a version id (or number); nil or unknown picks the current version.
+    var review: @Sendable (_ mediaId: String, _ version: String?) async throws -> ReviewDetail
+    /// A fresh poster URL for a version (video posters are signed and expire).
+    var poster: @Sendable (_ mediaId: String, _ versionId: String) async throws -> String?
     var comment: @Sendable (_ comment: NewReviewComment) async throws -> ReviewComment
     var reply: @Sendable (_ parentId: String, _ body: String) async throws -> ReviewComment
     var setResolved: @Sendable (_ commentId: String, _ resolved: Bool) async throws -> Void
@@ -98,7 +101,13 @@ extension ReviewAPI {
                                      query: [URLQueryItem(name: "mediaVersionId", value: versionId)])
             },
             image: { mediaId, versionId in try await client.send("GET", "api/media/\(mediaId)/versions/\(versionId)/image") },
-            earlierComments: { _ in nil },
+            review: { mediaId, version in
+                try await client.get("api/media/\(mediaId)/review",
+                                     query: version.map { [URLQueryItem(name: "version", value: $0)] } ?? [])
+            },
+            poster: { mediaId, versionId in
+                try await client.get("api/media/\(mediaId)/versions/\(versionId)/poster", as: ReviewPoster.self).thumbnailUrl
+            },
             comment: { comment in try await client.post("api/comments", body: comment) },
             reply: { parentId, body in try await client.post("api/comments/\(parentId)/replies", body: ["body": body]) },
             setResolved: { id, resolved in
@@ -141,6 +150,11 @@ extension ReviewAPI {
     static func resolve(_ client: PortalClient) -> ReviewAPI {
         SampleMode.isOn ? .stub : .live(client)
     }
+}
+
+/// `GET api/media/<id>/versions/<versionId>/poster`.
+private struct ReviewPoster: Decodable {
+    let thumbnailUrl: String?
 }
 
 /// `PATCH api/media/<id>/approval-status` (`airedAt` only with AIRED).

@@ -138,19 +138,38 @@ struct ReviewVersion: Decodable, Sendable, Hashable, Identifiable {
     let createdAt: Date
     let createdBy: ReviewPerson?
     let commentCount: Int
+    /// The poster the web tiles show: an absolute (often signed, expiring) URL for a ready video,
+    /// a relative `/api/media/…/image` path for an image, nil while a video processes.
+    let thumbnailUrl: String?
+    /// Initial Cuts: the approval stage (1–3) this version was approved in (review payload only).
+    let approvedInStage: Int?
 
     var isImage: Bool { sourceType == .image }
     var isReady: Bool { status == .ready }
 
+    /// A video's poster to load without the session (absolute http(s) URLs only).
+    var posterURL: URL? {
+        isImage ? nil : thumbnailUrl.flatMap(Self.posterURL(from:))
+    }
+
+    static func posterURL(from value: String) -> URL? {
+        guard let url = URL(string: value), let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else {
+            return nil
+        }
+        return url
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case id, versionNumber, sourceType, status, approvalStatus, airedAt, durationSeconds, createdAt, createdBy
+        case id, versionNumber, sourceType, status, approvalStatus, airedAt, durationSeconds, createdAt, createdBy, thumbnailUrl
+        case approvedInStage
         case count = "_count"
     }
 
     private struct Count: Decodable { let comments: Int? }
 
     init(id: String, versionNumber: Int, sourceType: ReviewSourceType, status: ReviewMediaStatus, approvalStatus: ReviewApproval,
-         airedAt: Date? = nil, durationSeconds: Double? = nil, createdAt: Date, createdBy: ReviewPerson? = nil, commentCount: Int = 0) {
+         airedAt: Date? = nil, durationSeconds: Double? = nil, createdAt: Date, createdBy: ReviewPerson? = nil, commentCount: Int = 0,
+         thumbnailUrl: String? = nil, approvedInStage: Int? = nil) {
         self.id = id
         self.versionNumber = versionNumber
         self.sourceType = sourceType
@@ -161,6 +180,8 @@ struct ReviewVersion: Decodable, Sendable, Hashable, Identifiable {
         self.createdAt = createdAt
         self.createdBy = createdBy
         self.commentCount = commentCount
+        self.thumbnailUrl = thumbnailUrl
+        self.approvedInStage = approvedInStage
     }
 
     init(from decoder: Decoder) throws {
@@ -175,6 +196,8 @@ struct ReviewVersion: Decodable, Sendable, Hashable, Identifiable {
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         createdBy = try container.decodeIfPresent(ReviewPerson.self, forKey: .createdBy)
         commentCount = try container.decodeIfPresent(Count.self, forKey: .count)?.comments ?? 0
+        thumbnailUrl = try container.decodeIfPresent(String.self, forKey: .thumbnailUrl)
+        approvedInStage = try? container.decodeIfPresent(Int.self, forKey: .approvedInStage)
     }
 }
 
@@ -184,7 +207,8 @@ struct ReviewPlaybackToken: Decodable, Sendable, Hashable {
     let provider: String?
 }
 
-/// A review comment as `POST api/comments` and the replies route return it (a `ReviewComment` row).
+/// A review comment as `POST api/comments` and the replies route return it (a `ReviewComment` row),
+/// or as `GET api/media/<id>/review` lists it (with `authorName`).
 struct ReviewComment: Decodable, Sendable, Hashable, Identifiable {
     enum Target: String, Codable, Sendable, Hashable {
         case timecode = "TIMECODE"
@@ -203,11 +227,34 @@ struct ReviewComment: Decodable, Sendable, Hashable, Identifiable {
     var body: String
     let createdAt: Date
     var resolvedAt: Date?
-    /// Not on the Portal's row; filled in for comments the app shows by name.
+    /// On the review payload; not on the POST answers, so the app fills it in for its own comments.
     var authorName: String?
 
     var isResolved: Bool { resolvedAt != nil }
     var isReply: Bool { parentCommentId != nil }
+}
+
+extension ReviewComment {
+    private enum CodingKeys: String, CodingKey {
+        case id, mediaVersionId, authorId, parentCommentId, targetType, timeSeconds, xPct, yPct, body, createdAt, resolvedAt, authorName
+    }
+
+    /// In an extension so the memberwise initializer stays. `timeSeconds` may come back null.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(id: try container.decode(String.self, forKey: .id),
+                  mediaVersionId: try container.decode(String.self, forKey: .mediaVersionId),
+                  authorId: try container.decodeIfPresent(String.self, forKey: .authorId),
+                  parentCommentId: try container.decodeIfPresent(String.self, forKey: .parentCommentId),
+                  targetType: (try? container.decode(Target.self, forKey: .targetType)) ?? .general,
+                  timeSeconds: try container.decodeIfPresent(Double.self, forKey: .timeSeconds) ?? 0,
+                  xPct: try container.decodeIfPresent(Double.self, forKey: .xPct),
+                  yPct: try container.decodeIfPresent(Double.self, forKey: .yPct),
+                  body: try container.decode(String.self, forKey: .body),
+                  createdAt: try container.decode(Date.self, forKey: .createdAt),
+                  resolvedAt: try container.decodeIfPresent(Date.self, forKey: .resolvedAt),
+                  authorName: try container.decodeIfPresent(String.self, forKey: .authorName))
+    }
 }
 
 /// A guest review link (a `GuestLink` row): anyone with it can view or comment without an account.

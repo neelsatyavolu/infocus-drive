@@ -125,6 +125,12 @@ struct StageMedia: Decodable, Sendable, Hashable, Identifiable {
     let isNew: Bool?
 
     var isReady: Bool { status == "READY" }
+
+    /// The native review of this cut or clip at this version (`stageReviewHref` on the web).
+    var reviewRoute: ReviewRoute? {
+        projectId.map { .media(projectId: $0, mediaId: id, versionId: versionId) }
+    }
+
     var rollLabel: String? {
         switch rollKind {
         case "a-roll": "A-roll"

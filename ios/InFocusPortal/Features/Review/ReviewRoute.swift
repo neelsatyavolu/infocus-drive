@@ -37,4 +37,30 @@ enum ReviewRoute: Hashable {
             return nil
         }
     }
+
+    /// A Portal review link (`/projects/<id>/review/<mediaId>?bare=1&version=<id>`, with or without
+    /// the leading slash or host) as the native review screen; nil for any other link.
+    static func review(href: String) -> ReviewRoute? {
+        let trimmed = href.trimmingCharacters(in: .whitespaces)
+        guard let parts = URLComponents(string: trimmed.hasPrefix("/") || trimmed.contains("://") ? trimmed : "/" + trimmed) else {
+            return nil
+        }
+        let path = parts.path.split(separator: "/").map(String.init)
+        guard path.first == "projects", path.count == 4,
+              case .review(let route)? = deepLink(path, parts.queryItems ?? [])?.route,
+              case .media = route else { return nil }
+        return route
+    }
+}
+
+extension Router {
+    /// A review link from a comment or notice: the native review screen, or the web page for
+    /// anything that isn't a review link.
+    func openReview(_ href: String) {
+        if let route = ReviewRoute.review(href: href) {
+            push(.review(route))
+        } else {
+            openPortal(href, title: "Review")
+        }
+    }
 }

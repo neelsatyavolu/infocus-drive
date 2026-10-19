@@ -136,8 +136,8 @@ struct InitialCutReviewSection: View {
                             if let stage = item.approvedInStage { StatusTag(text: "Approved in Stage \(stage)", tone: .success) }
                             if item.approvalStatus == "NEEDS_CHANGES" { StatusTag(text: "Needs revisions", tone: .danger) }
                             Spacer()
-                            if let path = GroupReviewLogic.reviewPath(item) {
-                                Button("Open review · v\(item.versionNumber)") { router.openPortal(path, title: item.title) }
+                            if let route = item.reviewRoute {
+                                Button("Open review · v\(item.versionNumber)") { router.push(.review(route)) }
                                     .font(.lexend(14, .medium))
                                     .foregroundStyle(Brand.green)
                                     .frame(minHeight: 44)

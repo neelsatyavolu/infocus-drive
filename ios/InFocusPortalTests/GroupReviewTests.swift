@@ -200,9 +200,9 @@ final class GroupReviewTests: XCTestCase {
         XCTAssertEqual(empty.map(\.state), [.upcoming, .upcoming, .upcoming])
     }
 
-    func testReviewPath() {
+    func testReviewRouteOpensTheNativeReview() {
         let clip = WorkStub.clip("m3", "Initial Cut Version 1", nil)
-        XCTAssertEqual(GroupReviewLogic.reviewPath(clip), "projects/p1/review/m3?version=v-m3")
+        XCTAssertEqual(clip.reviewRoute, .media(projectId: "p1", mediaId: "m3", versionId: "v-m3"))
     }
 
     // MARK: Request bodies

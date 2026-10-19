@@ -1,25 +1,15 @@
 import Foundation
 import Observation
 
-/// One item under review: its versions, the comments the app knows about, and every
-/// change (comment, reply, resolve, edit, delete, approval status).
+/// One item under review: its versions and every version's comments (one Portal call), and
+/// every change (comment, reply, resolve, edit, delete, approval status).
 @MainActor @Observable
 final class ReviewModel {
-    struct Loaded: Sendable {
-        let shell: ReviewProjectShell
-        let media: ReviewMedia
-    }
-
     let projectId: String
     let mediaId: String
-    private(set) var state: Loadable<Loaded> = .idle
-    private(set) var role: ReviewWorkspaceRole?
+    private(set) var state: Loadable<ReviewDetail> = .idle
     private(set) var versionId: String?
     private(set) var comments: [ReviewComment] = []
-    /// False when the Portal can't list a version's earlier comments to the app (live accounts).
-    private(set) var hasEarlierComments = false
-    /// Comments posted from this app, which are this person's own.
-    private(set) var ownIds: Set<String> = []
     private(set) var busy = false
     var actionError: String?
 
@@ -29,11 +19,19 @@ final class ReviewModel {
         self.versionId = versionId
     }
 
-    var media: ReviewMedia? { state.value?.media }
+    var detail: ReviewDetail? { state.value }
+    var role: ReviewWorkspaceRole? { detail?.workspaceRole }
+    var title: String? { detail.map { ReviewLogic.title($0, version: version) } }
 
     var version: ReviewVersion? {
-        guard let media else { return nil }
-        return media.versions.first { $0.id == versionId } ?? media.currentVersion
+        guard let detail else { return nil }
+        return detail.versions.first { $0.id == versionId }
+            ?? detail.versions.first { $0.id == detail.currentVersionId }
+            ?? detail.latestVersion
+    }
+
+    var permissions: ReviewLogic.CommentPermissions {
+        ReviewLogic.CommentPermissions(canComment: detail?.allowComment ?? false, role: role)
     }
 
     var threads: [ReviewLogic.Thread] {
@@ -41,29 +39,26 @@ final class ReviewModel {
         return ReviewLogic.threads(comments, versionId: version.id)
     }
 
-    func isOwn(_ comment: ReviewComment) -> Bool { ownIds.contains(comment.id) }
+    /// Written by the signed-in person (the Portal's `currentUserId`).
+    func isOwn(_ comment: ReviewComment) -> Bool {
+        guard let me = detail?.currentUserId, let author = comment.authorId else { return false }
+        return me == author
+    }
 
     func load(_ api: ReviewAPI) async {
         if state.value == nil { state = .loading }
         do {
-            async let roles = try? api.roles()
-            let shell = try await api.shell(projectId, mediaId)
-            guard let asset = shell.currentAsset,
-                  let media = try await ReviewMediaLookup.find(mediaId, projectId: projectId, folderId: asset.folderId, api: api) else {
-                throw PortalError.notFound
+            let detail = try await api.review(mediaId, versionId)
+            state = .loaded(detail)
+            comments = detail.comments
+            // A version number from a link, or a version that's gone: take the one the Portal picked.
+            if versionId == nil || !detail.versions.contains(where: { $0.id == versionId }) {
+                versionId = detail.currentVersionId.isEmpty ? detail.latestVersion?.id : detail.currentVersionId
             }
-            let access = await roles
-            role = access?.first { $0.id == shell.workspace.id }?.role
-            state = .loaded(Loaded(shell: shell, media: media))
-            if versionId == nil || !media.versions.contains(where: { $0.id == versionId }) { versionId = media.currentVersion?.id }
-            let earlier = try? await api.earlierComments(mediaId)
-            hasEarlierComments = earlier != nil
-            let known = Set(comments.map(\.id))
-            comments += (earlier ?? []).filter { !known.contains($0.id) }
         } catch PortalError.forbidden, PortalError.notFound {
             state = .failed("This item isn't available to you.")
         } catch {
-            if state.value == nil { state = .failed(Loadable<Loaded>.message(for: error)) }
+            if state.value == nil { state = .failed(Loadable<ReviewDetail>.message(for: error)) }
         }
     }
 
@@ -148,7 +143,6 @@ final class ReviewModel {
     // MARK: Plumbing
 
     private func add(_ comment: ReviewComment) {
-        ownIds.insert(comment.id)
         comments.append(comment)
     }
 

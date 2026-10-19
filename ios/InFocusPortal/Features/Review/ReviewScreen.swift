@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// Reviewing one video or image: play it, switch versions, set its approval status,
-/// and comment at a moment (video) or a spot (image). Tapping a comment seeks to it.
+/// Reviewing one video or image: play it, switch versions, see the package review, set its
+/// approval status, read every comment, and comment at a moment (video) or a spot (image).
+/// Tapping a comment seeks to it.
 struct ReviewScreen: View {
-    @Environment(SessionStore.self) private var session
     @Environment(Router.self) private var router
     @Environment(\.portalClient) private var client
     @State private var model: ReviewModel
@@ -23,11 +23,11 @@ struct ReviewScreen: View {
     private var api: ReviewAPI { .resolve(client) }
 
     var body: some View {
-        LoadableView(model.state, retry: { Task { await model.load(api) } }) { loaded in
-            content(loaded)
+        LoadableView(model.state, retry: { Task { await model.load(api) } }) { detail in
+            content(detail)
         }
         .brandBackground()
-        .navigationTitle(model.media?.title ?? "Review")
+        .navigationTitle(model.title ?? "Review")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .task { if model.state.value == nil { await model.load(api) } }
@@ -36,20 +36,20 @@ struct ReviewScreen: View {
         .modifier(ReviewDialogs(model: model, api: api, editing: $editing, editText: $editText, deleting: $deleting, airing: $airing))
     }
 
-    private func content(_ loaded: ReviewModel.Loaded) -> some View {
+    private func content(_ detail: ReviewDetail) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                media
-                header(loaded)
-                if let version = model.version {
-                    ReviewComposer(isImage: version.isImage, currentTime: playback.currentTime, draftPin: $draftPin, busy: model.busy) { body, atTime in
-                        let posted = await model.post(body, time: !version.isImage && atTime ? playback.currentTime : nil,
-                                                      pin: version.isImage ? draftPin : nil, api: api)
-                        if posted { draftPin = nil }
-                        return posted
+                media(detail)
+                header(detail)
+                if let packageReview = detail.packageReview {
+                    ReviewPackageCard(review: packageReview, latest: detail.latestVersion) {
+                        playback.pause()
+                        router.push(.work(.group(rowId: packageReview.rowId, stage: GroupStage.initialCut.rawValue)))
                     }
                     .padding(.horizontal, Brand.gutter)
                 }
+                composer(detail)
+                    .padding(.horizontal, Brand.gutter)
                 comments
                     .padding(.horizontal, Brand.gutter)
             }
@@ -58,25 +58,25 @@ struct ReviewScreen: View {
         .refreshable { await model.load(api) }
     }
 
-    @ViewBuilder private var media: some View {
+    @ViewBuilder private func media(_ detail: ReviewDetail) -> some View {
         if let version = model.version {
             if version.isImage {
                 ReviewImageView(data: imageData, pins: model.threads.map(\.root).filter { $0.targetType == .framePin },
-                                draftPin: $draftPin, selectedId: selectedId, canPin: true)
+                                draftPin: $draftPin, selectedId: selectedId, canPin: detail.allowComment)
             } else {
                 ReviewVideoView(playback: playback)
             }
         }
     }
 
-    private func header(_ loaded: ReviewModel.Loaded) -> some View {
+    private func header(_ detail: ReviewDetail) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Eyebrow(loaded.shell.projectName)
-            Text(loaded.media.title).headline(.h2)
+            Eyebrow(detail.folderName.map { "\(detail.projectName) / \($0)" } ?? detail.projectName)
+            Text(model.title ?? detail.title).headline(.h2)
             HStack(spacing: 8) {
-                if loaded.media.versions.count > 1 {
+                if detail.versions.count > 1 {
                     Menu {
-                        ForEach(loaded.media.versions) { version in
+                        ForEach(detail.versions) { version in
                             Button("Version \(version.versionNumber)") { model.select(version) }
                         }
                     } label: {
@@ -88,10 +88,16 @@ struct ReviewScreen: View {
                     Text("Version \(version.versionNumber)").font(.lexend(14, .medium)).foregroundStyle(Brand.secondary)
                 }
                 Spacer()
-                if let version = model.version { approval(version) }
+                if let version = model.version { approval(version, detail: detail) }
             }
-            if !loaded.media.assignees.isEmpty {
-                Label(loaded.media.assignees.joined(separator: ", "), systemImage: "person.2")
+            if let version = model.version, let latest = detail.latestVersion, latest.id != version.id {
+                Button("Go to the latest, version \(latest.versionNumber)") { model.select(latest) }
+                    .font(.lexend(14, .medium))
+                    .foregroundStyle(Brand.green)
+                    .frame(minHeight: 44)
+            }
+            if !detail.assignees.isEmpty {
+                Label(detail.assignees.joined(separator: ", "), systemImage: "person.2")
                     .font(.small)
                     .foregroundStyle(Brand.secondary)
             }
@@ -99,11 +105,12 @@ struct ReviewScreen: View {
         .padding(.horizontal, Brand.gutter)
     }
 
+    /// Package reviews are decided on Groups; other media get the status menu when the Portal allows it.
     @ViewBuilder
-    private func approval(_ version: ReviewVersion) -> some View {
+    private func approval(_ version: ReviewVersion, detail: ReviewDetail) -> some View {
         let tag = StatusTag(text: ReviewLogic.label(version.approvalStatus),
                             tone: version.approvalStatus == .needsChanges ? .warning : version.approvalStatus == .inReview ? .neutral : .success)
-        if session.user?.isProducer == true {
+        if detail.packageReview == nil && detail.canUpdateApprovalStatus {
             Menu {
                 ForEach(ReviewLogic.transitions(from: version.approvalStatus), id: \.self) { status in
                     Button(ReviewLogic.label(status)) {
@@ -120,21 +127,42 @@ struct ReviewScreen: View {
         }
     }
 
-    @ViewBuilder private var comments: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(title: "Comments")
-            if !model.hasEarlierComments {
-                earlierCommentsLink
+    @ViewBuilder private func composer(_ detail: ReviewDetail) -> some View {
+        if let version = model.version {
+            if detail.allowComment {
+                ReviewComposer(isImage: version.isImage, currentTime: playback.currentTime, draftPin: $draftPin, busy: model.busy) { body, atTime in
+                    let posted = await model.post(body, time: !version.isImage && atTime ? playback.currentTime : nil,
+                                                  pin: version.isImage ? draftPin : nil, api: api)
+                    if posted { draftPin = nil }
+                    return posted
+                }
+            } else {
+                Label("Commenting is closed on this review.", systemImage: "lock")
+                    .font(.small)
+                    .foregroundStyle(Brand.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .card(padding: 12)
             }
-            if model.threads.isEmpty && model.hasEarlierComments {
-                EmptyStateView(title: "No comments yet", message: "Be the first to leave a note on this version.")
+        }
+    }
+
+    @ViewBuilder private var comments: some View {
+        let permissions = model.permissions
+        let isImage = model.version?.isImage ?? false
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: model.threads.isEmpty ? "Comments" : "Comments · \(model.threads.count)")
+            if model.threads.isEmpty {
+                EmptyStateView(title: "No comments yet",
+                               message: permissions.canComment ? "Be the first to leave a note on this version." : "Nobody left a note on this version.")
             }
             ForEach(Array(model.threads.enumerated()), id: \.element.id) { index, thread in
                 ReviewThreadView(
                     thread: thread, number: pinNumber(thread, index: index), selected: selectedId == thread.id,
-                    canResolve: ReviewLogic.canResolve(role: model.role, own: model.isOwn(thread.root)),
-                    canDelete: { ReviewLogic.canDelete(role: model.role, own: model.isOwn($0)) },
-                    canEdit: { model.isOwn($0) },
+                    showsTime: !isImage,
+                    canReply: permissions.canComment,
+                    canResolve: permissions.canResolve(own: model.isOwn(thread.root)),
+                    canDelete: { permissions.canDelete(own: model.isOwn($0)) },
+                    canEdit: { permissions.canEdit($0, own: model.isOwn($0)) },
                     onSelect: { select(thread.root) },
                     onReply: { await model.reply(to: thread, $0, api: api) },
                     onResolve: { Task { await model.toggleResolved(thread.root, api: api) } },
@@ -148,29 +176,6 @@ struct ReviewScreen: View {
         }
     }
 
-    /// Live accounts: the Portal can't list earlier comments to the app, so they open on the website.
-    private var earlierCommentsLink: some View {
-        Button {
-            playback.pause()
-            router.openPortal(ReviewLogic.reviewPath(projectId: model.projectId, mediaId: model.mediaId, versionId: model.version?.id),
-                              title: model.media?.title)
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "text.bubble").foregroundStyle(Brand.green).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Earlier comments").font(.lexend(15, .medium)).foregroundStyle(Brand.foreground)
-                    Text("Comments from before you opened this are on the Portal page.").font(.small).foregroundStyle(Brand.muted)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").foregroundStyle(Brand.muted).accessibilityHidden(true)
-            }
-            .frame(minHeight: 44)
-            .card(padding: 12)
-        }
-        .buttonStyle(.plain)
-        .hiddenInSampleApp()
-    }
-
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
@@ -179,7 +184,7 @@ struct ReviewScreen: View {
                     Button {
                         playback.pause()
                         router.openPortal(ReviewLogic.reviewPath(projectId: model.projectId, mediaId: model.mediaId,
-                                                                 versionId: model.version?.id), title: model.media?.title)
+                                                                 versionId: model.version?.id), title: model.title)
                     } label: { Label("Open on the Portal", systemImage: "safari") }
                 } label: {
                     Image(systemName: "ellipsis.circle").frame(minWidth: 44, minHeight: 44)
@@ -196,7 +201,7 @@ struct ReviewScreen: View {
 
     private func select(_ comment: ReviewComment) {
         selectedId = comment.id
-        if comment.targetType == .timecode { playback.seek(to: comment.timeSeconds) }
+        if let time = ReviewLogic.seekTime(comment, isImage: model.version?.isImage ?? false) { playback.seek(to: time) }
     }
 
     private func loadVersion() async {

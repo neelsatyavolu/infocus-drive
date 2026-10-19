@@ -69,6 +69,21 @@ enum ReviewLogic {
         return versionId.map { "\(base)?version=\($0)" } ?? base
     }
 
+    /// The heading: Initial Cuts are titled by the version on screen (`initialCutVersionTitle`).
+    static func title(_ detail: ReviewDetail, version: ReviewVersion?) -> String {
+        guard detail.isInitialCut else { return detail.title }
+        return "Initial Cut Version \(max(1, version?.versionNumber ?? 1))"
+    }
+
+    /// Where tapping a comment moves the video: timecoded notes and pins on a video frame.
+    static func seekTime(_ comment: ReviewComment, isImage: Bool) -> Double? {
+        switch comment.targetType {
+        case .timecode: comment.timeSeconds
+        case .framePin: isImage ? nil : comment.timeSeconds
+        case .general: nil
+        }
+    }
+
     // MARK: Threads
 
     struct Thread: Identifiable, Hashable {
@@ -115,27 +130,19 @@ enum ReviewLogic {
         own || (role?.atLeast(.editor) ?? false)
     }
 
+    /// What this person may do with comments on the review page (`ThreadPermissions`): nothing
+    /// but edit their own replies once an Initial Cut's review is closed (`allowComment` false).
+    struct CommentPermissions: Hashable {
+        let canComment: Bool
+        let role: ReviewWorkspaceRole?
+
+        func canResolve(own: Bool) -> Bool { canComment && ReviewLogic.canResolve(role: role, own: own) }
+        func canDelete(own: Bool) -> Bool { canComment && ReviewLogic.canDelete(role: role, own: own) }
+        func canEdit(_ comment: ReviewComment, own: Bool) -> Bool { own && (canComment || comment.isReply) }
+    }
+
     /// Guest links: owners of the workspace, on projects they belong to directly.
     static func canShare(role: ReviewWorkspaceRole?, shell: ReviewProjectShell) -> Bool {
         role == .ownerAdmin && shell.canViewShareLinks
-    }
-}
-
-/// Finding one item for a deep link: the Portal lists media a page at a time per folder,
-/// so look in the item's folder (from the project shell), then among deleted items.
-enum ReviewMediaLookup {
-    static let maxPages = 10
-
-    static func find(_ mediaId: String, projectId: String, folderId: String?, api: ReviewAPI) async throws -> ReviewMedia? {
-        for scope in ReviewMediaQuery.Scope.allCases {
-            var query = ReviewMediaQuery(scope: scope, folderId: scope == .active ? folderId : nil)
-            while query.page <= maxPages {
-                let page = try await api.media(projectId, query)
-                if let item = page.items.first(where: { $0.id == mediaId }) { return item }
-                if page.page >= page.totalPages { break }
-                query.page += 1
-            }
-        }
-        return nil
     }
 }

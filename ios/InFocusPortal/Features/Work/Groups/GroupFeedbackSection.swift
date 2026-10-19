@@ -75,7 +75,7 @@ struct GroupFeedbackSection: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 16) {
                 if let href = note.reviewHref {
-                    Button("Open review") { router.openPortal(href, title: "Review") }
+                    Button("Open review") { router.openReview(href) }
                         .font(.lexend(14, .medium))
                         .foregroundStyle(Brand.green)
                         .frame(minHeight: 44)

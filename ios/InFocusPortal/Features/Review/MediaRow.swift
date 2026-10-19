@@ -54,26 +54,55 @@ struct MediaRow: View {
     }
 }
 
-/// An image's own picture (signed-in only, fetched with the session), or a film mark for video.
+/// An image's own picture (signed-in only, fetched with the session), or a video's poster
+/// (a Bunny or signed Drive URL; asked for again once if it has expired), else a film mark.
 struct MediaThumb: View {
     let item: ReviewMedia
     let api: ReviewAPI
     @State private var image: UIImage?
+    @State private var poster: URL?
+    @State private var refreshed = false
 
     var body: some View {
         ZStack {
             Brand.raised
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
+            } else if let poster {
+                AsyncImage(url: poster) { phase in
+                    switch phase {
+                    case .success(let picture): picture.resizable().scaledToFill()
+                    case .failure: placeholder.task { await refreshPoster() }
+                    default: placeholder
+                    }
+                }
             } else {
-                Image(systemName: item.currentVersion?.isImage == true ? "photo" : "film").foregroundStyle(Brand.muted)
+                placeholder
             }
         }
         .accessibilityHidden(true)
         .task(id: item.currentVersion?.id) {
-            guard let version = item.currentVersion, version.isImage, image == nil else { return }
-            if let data = try? await api.image(item.id, version.id) { image = UIImage(data: data) }
+            guard let version = item.currentVersion else { return }
+            if version.isImage {
+                guard image == nil else { return }
+                if let data = try? await api.image(item.id, version.id) { image = UIImage(data: data) }
+            } else {
+                poster = version.posterURL
+                refreshed = false
+            }
         }
+    }
+
+    private var placeholder: some View {
+        Image(systemName: item.currentVersion?.isImage == true ? "photo" : "film").foregroundStyle(Brand.muted)
+    }
+
+    /// A signed poster that stopped loading: one fresh URL from the Portal, then the film mark.
+    private func refreshPoster() async {
+        guard !refreshed, let version = item.currentVersion else { return }
+        refreshed = true
+        let fresh = try? await api.poster(item.id, version.id)
+        poster = fresh.flatMap { ReviewVersion.posterURL(from: $0) }
     }
 }
 

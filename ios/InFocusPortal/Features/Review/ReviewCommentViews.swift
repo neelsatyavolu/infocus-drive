@@ -59,6 +59,9 @@ struct ReviewThreadView: View {
     let thread: ReviewLogic.Thread
     let number: Int
     let selected: Bool
+    /// Videos: pins carry a moment too, so show their timecode.
+    var showsTime = false
+    var canReply = true
     let canResolve: Bool
     let canDelete: (ReviewComment) -> Bool
     let canEdit: (ReviewComment) -> Bool
@@ -81,7 +84,7 @@ struct ReviewThreadView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityHint(thread.root.targetType == .timecode ? "Plays the video from this moment" : "")
+            .accessibilityHint(showsTime && thread.root.targetType != .general ? "Plays the video from this moment" : "")
             ForEach(thread.replies) { reply in
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -96,14 +99,14 @@ struct ReviewThreadView: View {
                 .overlay(alignment: .leading) { Rectangle().fill(Brand.line).frame(width: 2) }
             }
             HStack(spacing: 16) {
-                Button("Reply") { replying.toggle() }
+                if canReply { Button("Reply") { replying.toggle() } }
                 if canResolve { Button(thread.root.isResolved ? "Reopen" : "Resolve", action: onResolve) }
                 Spacer()
             }
             .font(.lexend(14, .medium))
             .foregroundStyle(Brand.green)
             .frame(minHeight: 44)
-            if replying {
+            if replying && canReply {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField("Reply", text: $replyText, axis: .vertical)
                         .lineLimit(1...4)
@@ -135,6 +138,9 @@ struct ReviewThreadView: View {
                 Text(ReviewLogic.timecode(comment.timeSeconds)).font(.mono(13, .medium)).foregroundStyle(Brand.green)
             case .framePin:
                 PinMark(text: "\(number)", selected: selected)
+                if showsTime {
+                    Text(ReviewLogic.timecode(comment.timeSeconds)).font(.mono(13, .medium)).foregroundStyle(Brand.green)
+                }
             case .general:
                 EmptyView()
             }
