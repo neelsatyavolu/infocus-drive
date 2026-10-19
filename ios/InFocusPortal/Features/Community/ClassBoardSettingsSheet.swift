@@ -1,18 +1,16 @@
 import SwiftUI
 
 /// Class Board settings: which cycle it shows (Admin → Package Cycles on the web; producers see it,
-/// executives change it) and the PIN that opens it signed out (Settings → PINs; super admins).
+/// executives change it). The PIN that opens the board signed out is in Settings → PINs, as on the web.
 struct ClassBoardSettingsSheet: View {
     @Environment(\.portalClient) private var client
     @Environment(\.dismiss) private var dismiss
     @State private var model = ClassBoardSettingsModel()
-    @State private var confirmReplace = false
 
     var body: some View {
         NavigationStack {
             Form {
                 cycleSection
-                pinSection
             }
             .font(.bodyText)
             .scrollContentBackground(.hidden)
@@ -24,13 +22,6 @@ struct ClassBoardSettingsSheet: View {
             }
             .task { await model.load(api: api) }
             .refreshable { await model.load(api: api) }
-            .confirmationDialog("Replace the current Class Board PIN?", isPresented: $confirmReplace,
-                                titleVisibility: .visible) {
-                Button("Replace PIN") { Task { await model.renewPin(api: api) } }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("Devices using the old one will need the new PIN.")
-            }
             .alert("Couldn't save", isPresented: errorShown) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -68,37 +59,6 @@ struct ClassBoardSettingsSheet: View {
             Text(model.cycle.value?.canEdit == false
                  ? "Which cycle's packages the board shows. Executive producers can change it."
                  : "Which cycle's packages the board shows. Current cycle moves on after each Final Cut deadline.")
-        }
-    }
-
-    @ViewBuilder
-    private var pinSection: some View {
-        if let pin = model.pin {
-            Section {
-                HStack {
-                    Text(pin.display)
-                        .font(pin.pin == nil ? .bodyText : .mono(24, .medium))
-                        .tracking(pin.pin == nil ? 0 : 4)
-                        .foregroundStyle(pin.pin == nil ? Brand.muted : Brand.foreground)
-                        .accessibilityLabel(pin.pin.map { "PIN \($0.map(String.init).joined(separator: " "))" } ?? "Not set")
-                    Spacer()
-                    Button(model.renewingPin ? "Saving…" : pin.pin == nil ? "Create PIN" : "New PIN") {
-                        if pin.pin == nil {
-                            Task { await model.renewPin(api: api) }
-                        } else {
-                            confirmReplace = true
-                        }
-                    }
-                    .buttonStyle(.brandSecondary)
-                    .fixedSize()
-                    .disabled(model.renewingPin)
-                }
-                .frame(minHeight: 44)
-            } header: {
-                Text("Class Board PIN")
-            } footer: {
-                Text("Opens /class-board only, on that browser for 30 days. A PIN never signs anyone into Portal.")
-            }
         }
     }
 

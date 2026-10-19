@@ -68,12 +68,6 @@ final class CommunityModelTests: XCTestCase {
         XCTAssertEqual(try decode(ClassBoardCycleSaved.self, #"{"data":{"cycleNumber":3}}"#).cycleNumber, 3)
     }
 
-    func testDecodesPin() throws {
-        let pin = try decode(ClassBoardPin.self, #"{"data":{"pin":"123456"}}"#)
-        XCTAssertEqual(pin.display, "123 456")
-        XCTAssertEqual(try decode(ClassBoardPin.self, #"{"data":{"pin":null}}"#).display, "Not set")
-    }
-
     func testCycleBodySendsNullToFollowTheCurrentCycle() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubProtocol.self]
@@ -96,13 +90,11 @@ final class CommunityModelTests: XCTestCase {
 
 @MainActor
 final class ClassBoardSettingsModelTests: XCTestCase {
-    func testLoadHidesPinWhenRefusedAndSavesCycle() async {
+    func testLoadsAndSavesCycle() async {
         var api = CommunityAPI.stub
-        api.classBoardPin = { throw PortalError.forbidden("Forbidden") }
         api.setClassBoardCycle = { ClassBoardCycleSaved(cycleNumber: $0) }
         let model = ClassBoardSettingsModel()
         await model.load(api: api)
-        XCTAssertNil(model.pin)
         XCTAssertEqual(model.cycle.value?.cycles.count, 2)
         let saved = await model.setCycle(2, api: api)
         XCTAssertTrue(saved)
@@ -117,15 +109,6 @@ final class ClassBoardSettingsModelTests: XCTestCase {
         await model.load(api: api)
         let saved = await model.setCycle(1, api: api)
         XCTAssertFalse(saved)
-    }
-
-    func testRenewPinShowsTheNewPin() async {
-        var api = CommunityAPI.stub
-        api.newClassBoardPin = { ClassBoardPin(pin: "654321") }
-        let model = ClassBoardSettingsModel()
-        let renewed = await model.renewPin(api: api)
-        XCTAssertTrue(renewed)
-        XCTAssertEqual(model.pin?.display, "654 321")
     }
 }
 

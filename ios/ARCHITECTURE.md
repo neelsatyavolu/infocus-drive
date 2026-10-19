@@ -26,7 +26,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Features/Review/` | `WorkspacesScreen`, `ProjectScreen` (folders, media, uploads), `ReviewScreen` (AVKit player or image, versions, status, package review, every timecoded and pinned comment from `GET api/media/<id>/review`; "Open review" on stages and review notices opens it), `ReviewPackageCard` (Initial Cut approval path; decisions open the Groups stage), `ShareLinksScreen`, `ReviewAPI` (+ `ReviewStub` for the sample app), `ReviewRoute` | **Review agent** (workspaces, projects, media review, guest links) |
 | `Features/More/` | `MoreTab`, `SettingsScreen` (+ profile, email notifications, PINs, signature), `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
 | `Features/Admin/` | `AdminRoute`, Admin dashboard (access requests, people, producer team, backups, View as), Managers, `Vault/` (Passwords) | **Admin and tools** |
-| `Features/Community/` | `CommunityRoute`, `CommunityDestination`, Class Board and story ideas (web views with native routes), `ClassBoardSettingsSheet` (board cycle and PIN) | **Community** (class pages) |
+| `Features/Community/` | `CommunityRoute`, `CommunityDestination`, `IdeasScreen` (story ideas by run date, `GET api/ideas`), `ClassBoardScreen` and `ClassBoardSections` (lanes, gates, due next, livestreams, calendar; `GET api/class-board`, refreshed every 30 s), `ClassBoardSettingsSheet` (board cycle; the PIN is in Settings → PINs), `CommunityStubs` (sample data) | **Community** (class pages) |
 | `Web/` | `PortalWebController` (one WKWebView), `PortalWebView`, `PortalPageScreen` (fallback page), `PortalNavigation` (link policy), `PortalBridge` (JS bridge), downloads, offline view | shell |
 | `Push/` | `PushRegistrar` (APNs token → `POST /api/push/native-device` with `platform: "ios"`), `NotificationRouter` (taps → deep links), `NotificationOfferView` | shell |
 | `SignIn/` | PKCE hand-off (`PortalSignIn`, `/app-sign-in` → `infocus://signed-in`), `PortalAPI`/`PortalCookies`, `WelcomeView`, `EmailSignInScreen` | shell |
@@ -65,7 +65,6 @@ Every signed-in Portal page has a native screen; `PortalParityTests` checks that
 
 - On the web review and project pages: quick grades, transcripts, comment import, member assignment, moving media, project download, new versions of an item and legacy Bunny uploads.
 - `/g/<token>` guest review pages, for people without a Portal account.
-- The Class Board display and story ideas (`/class-board`, `/ideas`): native routes that wrap the web page, because no JSON API returns them. The board's cycle and PIN settings are native.
 - The equipment checkout kiosk and equipment passkeys (the Equipment toolbar menu).
 - Admin > School year and Admin > System (integrations and reset), the Instagram Post Maker, the password vault's CSV import, and the browser- or Mac-only Settings sections.
 - Package of the Cycle certificate downloads, and Publishing Queue final-cut downloads.
