@@ -117,10 +117,9 @@ struct PublishingScreen: View {
                 Menu {
                     Button("Add package", systemImage: "plus") { showAdd = true }
                     Button("Website managers", systemImage: "person.2") { router.push(.publishing(.managers)) }
-                    Button("Upload a whole show on the web", systemImage: "film.stack") {
-                        router.openPortal("show-roles", title: "The Show")
+                    Button("Upload a whole show", systemImage: "film.stack") {
+                        router.push(.calendar(.theShow))
                     }
-                    .hiddenInSampleApp()
                 } label: {
                     Image(systemName: "plus.circle")
                 }

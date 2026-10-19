@@ -19,11 +19,10 @@ struct ShowUploadScreen: View {
                     Nameplate(eyebrow: "Whole show", title: QueueLogic.showLabel(date),
                               subtitle: show.publication?.title)
                     status(show)
-                    Button("Upload or edit in The Show", systemImage: "arrow.up.forward.app") {
-                        router.openPortal("show-roles", title: "The Show")
+                    Button("Upload or edit the show", systemImage: "arrow.up.forward.app") {
+                        router.push(.calendar(.showUpload(date: date)))
                     }
                     .buttonStyle(.brandSecondary)
-                    .hiddenInSampleApp()
                 }
                 .padding(Brand.gutter)
             }

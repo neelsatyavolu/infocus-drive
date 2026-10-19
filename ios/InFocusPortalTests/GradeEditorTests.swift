@@ -126,7 +126,7 @@ final class GradeEditorLogicTests: XCTestCase {
     func testDeepLinks() {
         XCTAssertEqual(GradeEditorRoute.deepLink(["grade-editor"], []), DeepLinkMatch(tab: .more, route: .gradeEditor(.home)))
         XCTAssertEqual(GradeEditorRoute.deepLink(["grades", "grade-editor"], []), DeepLinkMatch(tab: .more, route: .gradeEditor(.home)))
-        XCTAssertNil(GradeEditorRoute.deepLink(["participation"], []), "APs use Participation too; it stays on the web")
+        XCTAssertNil(GradeEditorRoute.deepLink(["participation"], []), "APs use Participation too; GradesRoute opens it")
     }
 }
 

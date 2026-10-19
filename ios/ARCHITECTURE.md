@@ -14,11 +14,11 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Networking/` | `PortalClient`, `PortalError`, `PortalJSON`, `Loadable`, `PortalUpload` | shell |
 | `Session/` | `PortalUser` (roles and flags), `SessionStore`, `Preferences` (appearance) | shell |
 | `Navigation/` | `AppTab`, `Route`, `DeepLink`, `Router`, `BadgeCenter`, `RouteDestination`, `MainTabView` | shell |
-| `Features/Work/` | `HomeTab`, `WorkTab`, `WorkRoute`, `WorkDestination` | **Work agent** (Home, my packages and stages, Groups review) |
-| `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination` | **Calendar agent** (Master Calendar, The Show, announcements) |
+| `Features/Work/` | `HomeTab`, `WorkTab`, `WorkRoute`, `WorkDestination`; `Packages/` (student stages: cycle guide, brainstorming, A-roll/B-roll, Initial Cut, Final Cut, uploads), `Groups/` (producer review of every stage, Final Cut grading, Package of the Cycle), `Shared/` (stage feedback thread, media views) | **Work agent** (Home, my packages and stages, Groups review) |
+| `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination`, `DayNotesEditor` (notes, package pills, scenic image), `ShowUploadView` (whole-show upload to Drive and YouTube), `TeleprompterScreen` and `TeleprompterRunView` (scripts and the full-screen prompter) | **Calendar agent** (Master Calendar, The Show, show upload, teleprompter) |
 | `Features/Grades/` | `GradesScreen`, `ExtensionsScreen`, `GrantExtensionSheet`, `Members/`, `ParticipationScreen` (reuses the Grade Editor's `ParticipationEntryView`), `GradesRoute`, `GradesDestination` | **Grades agent** (grades, extension requests and exec grants, Members notes, Participation) |
-| `Features/Messages/` | `MessagesTab`, `MessagesRoute`, `MessagesDestination`, `Equipment/EquipmentScreen`, `Livestreams/LivestreamsScreen` | **Messages agent** (chats, equipment checkout, livestream sign-ups) |
-| `Features/Announcements/` | `AnnouncementsRoute`, `AnnouncementsDestination`, feed/detail/compose views | **Announcements agent** (class feed, submitted announcements, PA script) |
+| `Features/Messages/` | `MessagesTab`, `MessagesRoute`, `MessagesDestination`, `Equipment/` (checkout requests, my gear, Manage: requests, out, inventory, managers), `Livestreams/` (sign-ups, event editor, credit, managers), `Shared/` (`PortalFileSheet`, person picker) | **Messages agent** (chats, equipment, livestreams) |
+| `Features/Announcements/` | `AnnouncementsRoute`, `AnnouncementsDestination`, feed/detail/compose views, `SubmitAnnouncementView`, `SlackPostCard` (attachments open in Quick Look) | **Announcements agent** (class feed, submit form, submitted announcements, PA script) |
 | `Features/PackageCycles/` | `PackageCyclesRoute`, `PackageCyclesDestination` | **Package Cycles agent** (roster: topic, members, producer; cycle dates) |
 | `Features/Publishing/` | `PublishingRoute`, `PublishingDestination` | **Publishing agent** (Publishing Queue, YouTube publication status) |
 | `Features/GradeEditor/` | `GradeEditorRoute`, `GradeEditorDestination` | **Grade Editor agent** (execs: gradebook editing) |
@@ -26,6 +26,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Features/Review/` | `WorkspacesScreen`, `ProjectScreen` (folders, media, uploads), `ReviewScreen` (AVKit player or image, versions, status, timecoded and pinned comments), `ShareLinksScreen`, `ReviewAPI` (+ `ReviewStub` for the sample app), `ReviewRoute` | **Review agent** (workspaces, projects, media review, guest links) |
 | `Features/More/` | `MoreTab`, `SettingsScreen` (+ profile, email notifications, PINs, signature), `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
 | `Features/Admin/` | `AdminRoute`, Admin dashboard (access requests, people, producer team, backups, View as), Managers, `Vault/` (Passwords) | **Admin and tools** |
+| `Features/Community/` | `CommunityRoute`, `CommunityDestination`, Class Board and story ideas (web views with native routes), `ClassBoardSettingsSheet` (board cycle and PIN) | **Community** (class pages) |
 | `Web/` | `PortalWebController` (one WKWebView), `PortalWebView`, `PortalPageScreen` (fallback page), `PortalNavigation` (link policy), `PortalBridge` (JS bridge), downloads, offline view | shell |
 | `Push/` | `PushRegistrar` (APNs token → `POST /api/push/native-device` with `platform: "ios"`), `NotificationRouter` (taps → deep links), `NotificationOfferView` | shell |
 | `SignIn/` | PKCE hand-off (`PortalSignIn`, `/app-sign-in` → `infocus://signed-in`), `PortalAPI`/`PortalCookies`, `WelcomeView`, `EmailSignInScreen` | shell |
@@ -40,7 +41,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 4. If a Portal URL should open it (from a notification or a link), parse that path in your enum's `static func deepLink(_ path: [String], _ query: [URLQueryItem]) -> DeepLinkMatch?`. `path` is the URL path split on `/` (`["groups", "row1", "initial-cut"]`); a subdomain becomes the first component (`equipment.` → `["equipment", …]`). Return the tab to switch to and the route to push (nil means the tab's root). Return nil to fall through: the page then opens in the web view.
 5. Add an XCTest for the decoding and for any deep link you parse (see `InFocusPortalTests/`, which has a `StubProtocol` for network tests).
 
-The reserved cases, wired today to placeholders that show the Portal page:
+The route enums and the Portal links each one opens:
 
 | Enum | Cases | Deep links parsed today |
 |---|---|---|
@@ -48,16 +49,28 @@ The reserved cases, wired today to placeholders that show the Portal page:
 | `CalendarRoute` | `day(date:)`, `theShow`, `showUpload(date:)`, `teleprompter(showDate:docId:)` | `/master-calendar[?date=]`, `/show-roles`, `/teleprompter[?showDate=&doc=]` (and `teleprompter.` host) |
 | `GradesRoute` | `grades`, `extensions`, `extensionRequest(id:)`, `members`, `participation` | `/grades` (and `grades.` host), `/extensions[/<id>]`, `/extension-requests[/<id>]`, `/members`, `/participation` (and `grades.` host) (all on More) |
 | `MessagesRoute` | `conversation(id:)`, `equipment`, `equipmentAt(EquipmentSection)`, `livestreams`, `livestream(id:)` | `/equipment` (and `equipment.` host), `/equipment/request`, `/equipment/manage`, `/livestreams[/<id>]` (on More) |
-| `AnnouncementsRoute` | `feed`, `announcement(id:)`, `submitted`, `pa` | `/announcements` (Calendar tab), `/announcements/submitted`, `/announcements/pa` (More) |
+| `AnnouncementsRoute` | `feed`, `announcement(id:)`, `submitted`, `pa`, `submit` | `/announcements` (Calendar tab), `/announcements/submitted`, `/announcements/pa`, `/submit-announcement` (More) |
 | `PackageCyclesRoute` | `home` | `/package-progress`, `/package-cycles` (More) |
 | `PublishingRoute` | `home` | `/publishing-queue` (More) |
 | `GradeEditorRoute` | `home` | `/grade-editor` (and `grades.` host) (More) |
 | `MeetingsRoute` | `home`, `call(id:)`, `notes(id:)` | `/meetings` (More), `/meet/<id>` (the call: `Router.joinMeeting` presents it full screen over the tabs instead of pushing; meeting pushes carry this path), `/meetings/<id>` (notes, More) |
 | `ReviewRoute` | `workspaces`, `project(id:folderId:)`, `media(projectId:mediaId:versionId:)`, `shareLinks(projectId:)` | `/workspaces`, `/projects/<id>[?folderId=]`, `/projects/<id>/review/<mediaId>[?version=]` (Home). `/g/<token>` guest pages stay web pages |
 | `AdminRoute` | `home`, `accessRequests`, `people`, `producerTeam`, `backups`, `viewAs`, `managers`, `socialMedia`, `passwords`, `vaultEntry(id:)` | `/admin`, `/managers`, `/managers/social-media`, `/passwords` (all More) |
+| `CommunityRoute` | `ideas(date:)`, `classBoard` | `/ideas[?date=]`, `/class-board` (More); `/activity` opens Settings |
 | `MoreRoute` | `settings`, `portalPages` | `/settings` |
 
 `/` and `/dashboard` go to Home. Anything else becomes `.portal(PortalPage(url:))` on the current tab.
+
+Every signed-in Portal page has a native screen; `PortalParityTests` checks that each one resolves to a native route. These parts stay on the web on purpose:
+
+- The timecoded review notes on a media version (`/projects/<id>/review/<mediaId>`, "Open review" on stages and review notices). No API lists review comments yet, so the native review screen shows the player and the comments posted from the app, and opens the web page for earlier comments.
+- On the web review and project pages: package review decisions, quick grades, transcripts, comment import, member assignment, moving media, project download, new versions of an item and legacy Bunny uploads.
+- `/g/<token>` guest review pages, for people without a Portal account.
+- The Class Board display and story ideas (`/class-board`, `/ideas`): native routes that wrap the web page, because no JSON API returns them. The board's cycle and PIN settings are native.
+- The equipment checkout kiosk and equipment passkeys (the Equipment toolbar menu).
+- Admin > School year and Admin > System (integrations and reset), the Instagram Post Maker, the password vault's CSV import, and the browser- or Mac-only Settings sections.
+- Package of the Cycle certificate downloads, and Publishing Queue final-cut downloads.
+- Rich text in Master Calendar notes: the native editor saves plain text and a pill list.
 
 ## Talking to the Portal
 
@@ -139,4 +152,4 @@ Follow the Portal's `DESIGN.md` §10/§13:
 
 ## Placeholder screens
 
-`PortalFallback(path:title:)` (Web/) shows a Portal page in the in-app web view. New areas start with it in their `…Destination` and swap in native views case by case. More → **Producer tools** (producers only; Grade Editor needs `canManageGrades`) links Package Cycles, Publishing Queue, Grade Editor, Submitted announcements and PA.
+`PortalFallback(path:title:)` (Web/) shows a Portal page in the in-app web view. New areas start with it in their `…Destination` and swap in native views case by case. More → **Producer tools** (producers only; Grade Editor needs `canManageGrades`) links Meetings, Package Cycles, Members, Participation, Publishing Queue, Grade Editor and Submitted announcements. **Class** links story ideas, the submit form and the Class Board; **Admin and tools** links Admin (`canManageAccounts`), Managers and Passwords (producers). Both are hidden for the sample account.

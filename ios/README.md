@@ -4,6 +4,7 @@ A native SwiftUI app for the program's Portal: a role-aware tab bar (Home · Pac
 
 - **Browser sign-in hand-off.** Google refuses to run inside an app's web view, so sign-in goes through `ASWebAuthenticationSession` → the Portal's `/app-sign-in` page → `infocus://signed-in?code=…` → `POST /api/auth/app/token` (PKCE, same protocol as the Mac app). Signing in with an emailed code runs on the Portal's own page.
 - **Notifications.** The app registers its APNs token with `POST /api/push/native-device` (`platform: "ios"`) under the signed-in account, every launch and whenever the session changes. Tapping a notification opens its Portal page, even from a cold launch. The Portal's Sign out button runs natively, so the device is unregistered before the session ends. One native pre-prompt is shown after the first sign-in.
+- **Native screens for every signed-in Portal page**: Home, student stages and the cycle guide, Groups review and Final Cut grading, Package Cycles, Members, Participation, grades and extensions, Master Calendar, The Show, show upload, teleprompter, announcements (feed, submit, submitted, PA), equipment and livestreams (with their manager tools), Publishing Queue, Grade Editor, meetings and meeting notes, workspaces, projects and media review, Admin, Managers, Passwords and Settings. A few parts stay on the web on purpose; ARCHITECTURE.md lists them.
 - **Portal pages without a native screen** open in a signed-in web view inside the tab: pull to refresh, a green progress line, downloads to the share sheet, uploads from the camera or library, Safari sheets for other sites, mailto/tel to the system, and a native offline screen instead of a blank page.
 - **The Portal Settings bridge** (`window.webkit.messageHandlers.infocus`): `notificationStatus`, `requestNotifications`, `openNotificationSettings`, the same replies as the Mac app. The user agent ends in `InFocusiOSApp/<version>` so the Portal can tell it apart.
 
@@ -19,7 +20,8 @@ InFocusPortal/Design       Colors, Lexend + Geist Mono, buttons, cards, nameplat
 InFocusPortal/Networking   PortalClient (signed-in JSON API), errors, dates, Loadable, streamed uploads
 InFocusPortal/Session      Signed-in person and role flags (SessionStore), appearance preference
 InFocusPortal/Navigation   Tabs, typed routes, deep links, router, badges
-InFocusPortal/Features     One folder per area: Work (Home, Packages/Groups), Calendar, Grades, Messages, More
+InFocusPortal/Features     One folder per area: Work (Home, Packages/Groups), Calendar, Grades, Messages, Announcements,
+                           PackageCycles, Publishing, GradeEditor, Meetings, Review, Community, Admin, More
 InFocusPortal/Web          Signed-in Portal pages (fallback), navigation policy, JS bridge, downloads
 InFocusPortal/SignIn       PKCE hand-off, Portal cookies, welcome and email sign-in screens
 InFocusPortal/Push         APNs registration with the Portal, notification taps, the notifications offer
