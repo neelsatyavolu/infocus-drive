@@ -26,14 +26,3 @@ struct ClassBoardCycleSetting: Decodable, Sendable, Equatable {
 struct ClassBoardCycleSaved: Decodable, Sendable, Equatable {
     let cycleNumber: Int?
 }
-
-/// `GET|POST api/class-board/pin` (super admins): the six-digit PIN that opens the board signed out.
-struct ClassBoardPin: Decodable, Sendable, Equatable {
-    let pin: String?
-
-    /// "123 456", as Settings shows it; "Not set" without one.
-    var display: String {
-        guard let pin, pin.count == 6 else { return pin ?? "Not set" }
-        return "\(pin.prefix(3)) \(pin.suffix(3))"
-    }
-}

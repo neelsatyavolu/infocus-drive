@@ -5,8 +5,9 @@ import Foundation
 struct CommunityAPI: Sendable {
     var classBoardCycle: @Sendable () async throws -> ClassBoardCycleSetting
     var setClassBoardCycle: @Sendable (_ cycleNumber: Int?) async throws -> ClassBoardCycleSaved
-    var classBoardPin: @Sendable () async throws -> ClassBoardPin
-    var newClassBoardPin: @Sendable () async throws -> ClassBoardPin
+    /// The set for `date` (nil is the newest) and every set's run date.
+    var ideas: @Sendable (_ date: String?) async throws -> IdeasPayload
+    var classBoard: @Sendable () async throws -> ClassBoard
 
     static func live(_ client: PortalClient) -> CommunityAPI {
         struct Cycle: Encodable {
@@ -25,8 +26,11 @@ struct CommunityAPI: Sendable {
             setClassBoardCycle: { number in
                 try await client.post("api/platform/class-board-cycle", body: Cycle(cycleNumber: number))
             },
-            classBoardPin: { try await client.get("api/class-board/pin") },
-            newClassBoardPin: { try await client.post("api/class-board/pin", body: PortalJSON.EmptyBody()) }
+            ideas: { date in
+                let query = IdeasPage.validDate(date).map { [URLQueryItem(name: "date", value: $0)] } ?? []
+                return try await client.get("api/ideas", query: query)
+            },
+            classBoard: { try await client.get("api/class-board") }
         )
     }
 
@@ -36,7 +40,7 @@ struct CommunityAPI: Sendable {
         return .live(client)
     }
 
-    /// Fictional settings. No real people or PINs.
+    /// Fictional settings, ideas and board. No real people.
     static let stub = CommunityAPI(
         classBoardCycle: {
             ClassBoardCycleSetting(cycleNumber: nil, cycles: [.init(cycleNumber: 1, focus: "Profiles"),
@@ -47,10 +51,7 @@ struct CommunityAPI: Sendable {
             SampleMode.notSaved()
             return ClassBoardCycleSaved(cycleNumber: number)
         },
-        classBoardPin: { ClassBoardPin(pin: "000000") },
-        newClassBoardPin: {
-            SampleMode.notSaved()
-            return ClassBoardPin(pin: "000000")
-        }
+        ideas: { date in CommunityStubs.ideas(date: date) },
+        classBoard: { CommunityStubs.classBoard(now: Date()) }
     )
 }
