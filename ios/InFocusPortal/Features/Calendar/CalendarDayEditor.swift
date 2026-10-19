@@ -60,31 +60,35 @@ final class CalendarDayEditor {
         }
     }
 
-    /// A class day's or a holiday's text and package pills (show and PA cells keep their structure).
-    /// The image switch is read from the Portal's current cell, so a save never undoes it.
-    func setNotes(_ text: String, pills: [CalendarNotes.Pill]) async {
+    /// A class day's or a holiday's notes body (`CalendarNotesDocument.body()`), which was edited
+    /// from `base`. The image switch is read from the Portal's current cell, so a save never undoes
+    /// it. If the notes changed on the Portal since `base`, nothing is saved, so nobody's edit
+    /// (or formatting) is overwritten.
+    func setNotes(_ body: String, basedOn base: String) async {
         await saveNotes { current in
-            CalendarNotes(text: text, pills: pills, imageHidden: current.imageHidden)
+            guard CalendarNotes.stripToken(current) == CalendarNotes.stripToken(base) else {
+                throw EditError("These notes changed on the Portal while you were editing. Discard your changes to see the new notes, then edit again.")
+            }
+            return CalendarNotes.isImageHidden(current) ? CalendarNotes.withImageHidden(body) : body
         }
     }
 
-    /// A class day's scenic image on or off (the Portal's Delete image / Restore image).
+    /// A class day's scenic image on or off (the Portal's Delete image / Restore image). Only the
+    /// token changes; the notes stay byte for byte.
     func toggleImage() async {
         await saveNotes { current in
-            var next = current
-            next.imageHidden.toggle()
-            return next
+            CalendarNotes.isImageHidden(current) ? CalendarNotes.stripToken(current) : CalendarNotes.withImageHidden(current)
         }
     }
 
     // MARK: -
 
-    /// Saves the notes built from the fresh cell, then marks added pills aired and puts removed
+    /// Saves the cell built from the fresh one, then marks added pills aired and puts removed
     /// ones back, as the Portal's calendar does after each save.
-    private func saveNotes(_ build: @escaping (CalendarNotes) -> CalendarNotes) async {
+    private func saveNotes(_ build: @escaping (String) throws -> String) async {
         await saveCell {
             let before = try await self.freshContent()
-            let saved = try await self.edit.saveCell(self.date, build(CalendarNotes.parse(before)).html())
+            let saved = try await self.edit.saveCell(self.date, try build(before))
             try await self.syncAired(before: before, after: saved)
             return saved
         }

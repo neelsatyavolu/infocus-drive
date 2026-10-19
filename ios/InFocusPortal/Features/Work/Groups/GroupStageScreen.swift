@@ -75,7 +75,7 @@ struct GroupStageScreen: View {
         }
         .sheet(item: $viewingProof) { proof in ProofSheet(proof: proof, api: api) }
         .sheet(isPresented: $approving) {
-            DecisionSheet(mode: .approve, stageTitle: stage.title) { feedback in
+            DecisionSheet(stageTitle: stage.title) { feedback in
                 try await setApproved(true, feedback: feedback)
             }
         }

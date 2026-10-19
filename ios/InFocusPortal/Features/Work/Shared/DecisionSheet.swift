@@ -2,11 +2,8 @@ import SwiftUI
 
 /// "Any feedback to add?" before approving a stage (the website's approve
 /// dialog): Skip approves with no note; Approve with feedback sends the note
-/// with the approval email. Sending back asks for the note the group will see.
+/// with the approval email.
 struct DecisionSheet: View {
-    enum Mode { case approve, sendBack }
-
-    let mode: Mode
     let stageTitle: String
     let submit: (_ feedback: String) async throws -> Void
 
@@ -18,15 +15,12 @@ struct DecisionSheet: View {
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 16) {
-                Text(mode == .approve ? "Any feedback to add?" : "What needs to change?")
+                Text("Any feedback to add?")
                     .headline(.h2)
-                Text(mode == .approve
-                     ? "Optional. The group gets it with the approval."
-                     : "The group sees this note and uploads a new version.")
+                Text("Optional. The group gets it with the approval.")
                     .font(.small)
                     .foregroundStyle(Brand.secondary)
-                TextField(mode == .approve ? "Nice work. One thing for next time…" : "Feedback for the group",
-                          text: $feedback, axis: .vertical)
+                TextField("Nice work. One thing for next time…", text: $feedback, axis: .vertical)
                     .font(.bodyText)
                     .lineLimit(4...10)
                     .padding(12)
@@ -36,18 +30,12 @@ struct DecisionSheet: View {
                     Label(error, systemImage: "exclamationmark.circle").font(.small).foregroundStyle(Brand.danger)
                 }
                 Spacer()
-                if mode == .approve {
-                    Button(busy ? "Approving…" : "Approve with feedback") { run(feedback) }
-                        .buttonStyle(.brandPrimary)
-                        .disabled(busy || trimmed.isEmpty)
-                    Button("Skip and approve") { run("") }
-                        .buttonStyle(.brandSecondary)
-                        .disabled(busy)
-                } else {
-                    Button(busy ? "Sending…" : "Send back") { run(feedback) }
-                        .buttonStyle(.brandPrimary)
-                        .disabled(busy || trimmed.isEmpty)
-                }
+                Button(busy ? "Approving…" : "Approve with feedback") { run(feedback) }
+                    .buttonStyle(.brandPrimary)
+                    .disabled(busy || trimmed.isEmpty)
+                Button("Skip and approve") { run("") }
+                    .buttonStyle(.brandSecondary)
+                    .disabled(busy)
             }
             .padding(Brand.gutter)
             .brandBackground()

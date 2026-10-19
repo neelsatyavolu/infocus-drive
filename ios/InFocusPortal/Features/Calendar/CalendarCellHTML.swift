@@ -35,11 +35,6 @@ enum CalendarCellHTML {
                        inner: nameParagraph(names), fallback: showTemplate)
     }
 
-    /// A class day's or a holiday's free text: one paragraph per line.
-    static func notes(_ lines: [String]) -> String {
-        lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }.map { "<p>\(escape($0))</p>" }.joined()
-    }
-
     static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")

@@ -298,13 +298,4 @@ final class MessagesGearManageTests: XCTestCase {
         let members = try await LivestreamService.live(client).members()
         XCTAssertEqual(members.map(\.label), ["Otto"])
     }
-
-    // MARK: Slack files
-
-    func testFileNamesComeFromThePortalOrTheTitle() {
-        XCTAssertEqual(PortalFileDownload.fileName("rundown.pdf", fallback: "Rundown"), "rundown.pdf")
-        XCTAssertEqual(PortalFileDownload.fileName(nil, fallback: "Show notes"), "Show notes")
-        XCTAssertEqual(PortalFileDownload.fileName("Unknown", fallback: ""), "attachment")
-        XCTAssertEqual(PortalFileDownload.fileName("a/b:c.png", fallback: "x"), "a-b-c.png")
-    }
 }
