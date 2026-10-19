@@ -42,6 +42,17 @@ struct MoreTab: View {
                         row("Equipment", "camera", .messages(.equipment))
                         row("Livestreams", "dot.radiowaves.left.and.right", .messages(.livestreams))
                     }
+                    if !user.sampleOnly { // class tools; the sample account has none of them
+                        Section("Admin and tools") {
+                            if user.canManageAccounts {
+                                row("Admin", "shield", .admin(.home))
+                            }
+                            row("Managers", "person.2.badge.gearshape", .admin(.managers))
+                            if user.isProducer {
+                                row("Passwords", "key", .admin(.passwords))
+                            }
+                        }
+                    }
                     if !user.sampleOnly { // the sample app has no Portal web pages
                         Section("Portal") {
                             row("All Portal pages", "square.grid.2x2", .more(.portalPages))

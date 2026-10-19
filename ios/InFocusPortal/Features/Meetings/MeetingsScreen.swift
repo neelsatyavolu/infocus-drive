@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// More → Meetings (producers): the live meeting with a big Join, upcoming meetings
-/// by Pacific day, and past meetings (their notes open in the Portal page).
+/// by Pacific day, and past meetings (each opens its notes).
 struct MeetingsScreen: View {
     @Environment(\.portalClient) private var client
     @Environment(Router.self) private var router
@@ -49,7 +49,7 @@ struct MeetingsScreen: View {
                         SectionHeader(title: "Past meetings").padding(.top, 8)
                         ForEach(list.past) { meeting in
                             PastMeetingRow(meeting: meeting) {
-                                router.openPortal("meetings/\(meeting.id)", title: meeting.title)
+                                router.push(.meetings(.notes(id: meeting.id)))
                             }
                         }
                     }

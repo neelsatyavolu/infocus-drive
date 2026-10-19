@@ -1,16 +1,18 @@
 import SwiftUI
 
-/// App settings: account, notifications on this iPhone, appearance, about, sign out.
+/// Settings, the native `/settings`: profile (nickname), notifications on this iPhone and
+/// by email, kiosk PINs and signature (for those who have them), appearance, about, sign out.
 struct SettingsScreen: View {
     @EnvironmentObject private var model: AppModel
     @Environment(SessionStore.self) private var session
     @Environment(Preferences.self) private var preferences
-    @Environment(Router.self) private var router
     @Environment(\.portalClient) private var client
     @State private var notifications: PushRegistrar.Status?
     @State private var testResult: String?
     @State private var confirmingSignOut = false
     @State private var confirmingDelete = false
+    @State private var pins: [AccessPinKind: AccessPin] = [:]
+    @State private var signature: SignatureInfo?
 
     /// Deletion requests go to InFocus (the adviser manages accounts).
     static let deletionRequestURL = URL(string: "https://infocusnews.tv/contact-us/")!
@@ -18,23 +20,21 @@ struct SettingsScreen: View {
     var body: some View {
         @Bindable var preferences = preferences
         List {
-            if let user = session.user {
-                Section("Account") {
-                    LabeledContent("Name", value: user.name)
-                    LabeledContent("Email", value: user.email)
-                    LabeledContent("Role", value: user.roleLabel)
-                    if !user.sampleOnly {
-                        Button("Profile and email settings") { router.openPortal("settings", title: "Portal settings") }
-                    }
-                }
+            if session.user != nil {
+                ProfileSection()
             }
             Section {
                 NotificationRows(status: notifications, testResult: testResult,
                                  turnOn: turnOnNotifications, sendTest: sendTest)
+                NavigationLink("Email notifications") { EmailNotificationsScreen() }
             } header: {
                 Text("Notifications")
             } footer: {
-                Text("You get a notification for every email the Portal sends you. Which emails you get is set in Portal settings.")
+                Text("You get a notification for every email the Portal sends you. Email notifications sets which emails you get.")
+            }
+            if session.user?.sampleOnly == false {
+                AccessPinsSection(pins: $pins)
+                SignatureSection(signature: $signature)
             }
             Section {
                 NavigationLink("Blocked people") { BlockedPeopleScreen() }
@@ -73,10 +73,14 @@ struct SettingsScreen: View {
         .brandBackground()
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
-        .task { notifications = await PushRegistrar.shared.status() }
+        .task {
+            notifications = await PushRegistrar.shared.status()
+            await loadExtras()
+        }
         .refreshable {
             await session.load(using: client)
             notifications = await PushRegistrar.shared.status()
+            await loadExtras()
         }
         .confirmationDialog("Sign out of InFocus Portal?", isPresented: $confirmingSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { model.signOut() }
@@ -88,6 +92,14 @@ struct SettingsScreen: View {
         } message: {
             Text("The InFocus adviser deletes your Portal account and its data (uploads, comments, grades and messages). Send the request from the InFocus contact page.")
         }
+    }
+
+    /// PINs and signature: only for the people the Portal shows them to.
+    private func loadExtras() async {
+        guard session.user?.sampleOnly == false else { return }
+        let service = SettingsService(client: client)
+        pins = await AccessPinsSection.load(service)
+        signature = await service.signature()
     }
 
     private static var build: String {
