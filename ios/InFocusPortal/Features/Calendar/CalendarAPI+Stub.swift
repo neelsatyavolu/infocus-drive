@@ -20,6 +20,11 @@ enum CalendarStubData {
     private static let packages = ["Club Fair", "Gas Prices", "Puppy Yoga"]
     static let members = ["Abby", "Juno", "Kai", "Mira", "Otto", "Rio", "Sage", "Tess"]
     static let managerPool = ["Rio", "Sage", "Tess"]
+    static let packageOptions = [
+        CalendarPackageOption(id: "m-club", title: "Club Fair", projectName: "Cycle 2", approvalStatus: "APPROVED", airedAt: nil),
+        CalendarPackageOption(id: "m-gas", title: "Gas Prices", projectName: "Cycle 2", approvalStatus: "IN_REVIEW", airedAt: nil),
+        CalendarPackageOption(id: "m-yoga", title: "Puppy Yoga", projectName: "Cycle 1", approvalStatus: "AIRED", airedAt: nil),
+    ]
     static let headings = ["Anchors", "Package", "Show Director", "Show Manager", "PA Announcers",
                            "Filmers", "Brunch Filmers", "Lunch Filmers", "Night Rally Filmers", "Editors"]
 

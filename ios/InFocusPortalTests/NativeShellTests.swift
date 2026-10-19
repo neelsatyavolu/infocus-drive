@@ -57,7 +57,7 @@ final class DeepLinkTests: XCTestCase {
     }
 
     func testEverythingElseOpensThePortalPage() {
-        let url = URL(string: "https://portal.example.edu/teleprompter")!
+        let url = URL(string: "https://portal.example.edu/not-a-native-page")!
         XCTAssertEqual(DeepLink.resolve(url, portal: portal), DeepLinkMatch(tab: nil, route: .portal(PortalPage(url: url))))
         let submitted = URL(string: "https://portal.example.edu/admin/people")!
         XCTAssertEqual(DeepLink.resolve(submitted, portal: portal).route, .portal(PortalPage(url: submitted)))
@@ -160,7 +160,7 @@ final class SampleAccountTests: XCTestCase {
         XCTAssertEqual(router.selectedTab, .work)
         router.openPortal("teleprompter")
         XCTAssertEqual(refused, 1)
-        router.open(URL(string: "https://portal.example.edu/teleprompter")!)
+        router.open(URL(string: "https://portal.example.edu/not-a-native-page")!)
         XCTAssertEqual(router.selectedTab, .home)
         XCTAssertEqual(refused, 2)
         router.reset()
