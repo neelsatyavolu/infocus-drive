@@ -7,6 +7,7 @@ struct MeetingsDestination: View {
         switch route {
         case .home: MeetingsScreen()
         case .call(let id): MeetingCallScreen(meetingId: id) // normally presented full screen by Router
+        case .notes(let id): MeetingNotesScreen(meetingId: id)
         }
     }
 }

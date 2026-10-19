@@ -5,13 +5,17 @@ enum MeetingsRoute: Hashable {
     case home
     /// The call for one meeting. `Router` presents it full screen instead of pushing it.
     case call(id: String)
+    /// One meeting's notes: summary, transcript, details and who's invited (`/meetings/<id>`).
+    case notes(id: String)
 
     /// `/meetings` → the list (More). `/meet/<id>` (meeting pushes) → the call.
-    /// `/meetings/<id>` (a meeting's notes page) falls through to the web view.
+    /// `/meetings/<id>` → that meeting's notes (More).
     static func deepLink(_ path: [String], _ query: [URLQueryItem]) -> DeepLinkMatch? {
         switch path.count {
         case 1 where path[0] == "meetings":
             return DeepLinkMatch(tab: .more, route: .meetings(.home))
+        case 2 where path[0] == "meetings" && isMeetingId(path[1]) && path[1] != "producers":
+            return DeepLinkMatch(tab: .more, route: .meetings(.notes(id: path[1])))
         case 2 where path[0] == "meet" && isMeetingId(path[1]):
             return DeepLinkMatch(tab: nil, route: .meetings(.call(id: path[1])))
         default:

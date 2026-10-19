@@ -24,7 +24,8 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Features/GradeEditor/` | `GradeEditorRoute`, `GradeEditorDestination` | **Grade Editor agent** (execs: gradebook editing) |
 | `Features/Meetings/` | `MeetingsScreen` (More → Producer tools → Meetings), `MeetingCallScreen` (full-screen call), `MeetingsService` (+ sample meetings), `MeetingsRoute` | **Meetings** (producer meetings: list, join, call) |
 | `Features/Review/` | `WorkspacesScreen`, `ProjectScreen` (folders, media, uploads), `ReviewScreen` (AVKit player or image, versions, status, timecoded and pinned comments), `ShareLinksScreen`, `ReviewAPI` (+ `ReviewStub` for the sample app), `ReviewRoute` | **Review agent** (workspaces, projects, media review, guest links) |
-| `Features/More/` | `MoreTab`, `SettingsScreen`, `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
+| `Features/More/` | `MoreTab`, `SettingsScreen` (+ profile, email notifications, PINs, signature), `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
+| `Features/Admin/` | `AdminRoute`, Admin dashboard (access requests, people, producer team, backups, View as), Managers, `Vault/` (Passwords) | **Admin and tools** |
 | `Web/` | `PortalWebController` (one WKWebView), `PortalWebView`, `PortalPageScreen` (fallback page), `PortalNavigation` (link policy), `PortalBridge` (JS bridge), downloads, offline view | shell |
 | `Push/` | `PushRegistrar` (APNs token → `POST /api/push/native-device` with `platform: "ios"`), `NotificationRouter` (taps → deep links), `NotificationOfferView` | shell |
 | `SignIn/` | PKCE hand-off (`PortalSignIn`, `/app-sign-in` → `infocus://signed-in`), `PortalAPI`/`PortalCookies`, `WelcomeView`, `EmailSignInScreen` | shell |
@@ -51,8 +52,9 @@ The reserved cases, wired today to placeholders that show the Portal page:
 | `PackageCyclesRoute` | `home` | `/package-progress`, `/package-cycles` (More) |
 | `PublishingRoute` | `home` | `/publishing-queue` (More) |
 | `GradeEditorRoute` | `home` | `/grade-editor` (and `grades.` host) (More) |
-| `MeetingsRoute` | `home`, `call(id:)` | `/meetings` (More), `/meet/<id>` (the call: `Router.joinMeeting` presents it full screen over the tabs instead of pushing; meeting pushes carry this path). `/meetings/<id>` (notes) stays a web page |
+| `MeetingsRoute` | `home`, `call(id:)`, `notes(id:)` | `/meetings` (More), `/meet/<id>` (the call: `Router.joinMeeting` presents it full screen over the tabs instead of pushing; meeting pushes carry this path), `/meetings/<id>` (notes, More) |
 | `ReviewRoute` | `workspaces`, `project(id:folderId:)`, `media(projectId:mediaId:versionId:)`, `shareLinks(projectId:)` | `/workspaces`, `/projects/<id>[?folderId=]`, `/projects/<id>/review/<mediaId>[?version=]` (Home). `/g/<token>` guest pages stay web pages |
+| `AdminRoute` | `home`, `accessRequests`, `people`, `producerTeam`, `backups`, `viewAs`, `managers`, `socialMedia`, `passwords`, `vaultEntry(id:)` | `/admin`, `/managers`, `/managers/social-media`, `/passwords` (all More) |
 | `MoreRoute` | `settings`, `portalPages` | `/settings` |
 
 `/` and `/dashboard` go to Home. Anything else becomes `.portal(PortalPage(url:))` on the current tab.

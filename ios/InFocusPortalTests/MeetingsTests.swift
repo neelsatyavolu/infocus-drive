@@ -78,8 +78,8 @@ final class MeetingsDeepLinkTests: XCTestCase {
     func testMeetLinksOpenTheCallAndTheListOpensInMore() {
         XCTAssertEqual(resolve("https://portal.example.edu/meet/cmeet123"), DeepLinkMatch(tab: nil, route: .meetings(.call(id: "cmeet123"))))
         XCTAssertEqual(resolve("https://portal.example.edu/meetings"), DeepLinkMatch(tab: .more, route: .meetings(.home)))
-        let notes = URL(string: "https://portal.example.edu/meetings/cmeet123")!
-        XCTAssertEqual(resolve(notes.absoluteString).route, .portal(PortalPage(url: notes))) // notes page: web view
+        XCTAssertEqual(resolve("https://portal.example.edu/meetings/cmeet123"),
+                       DeepLinkMatch(tab: .more, route: .meetings(.notes(id: "cmeet123")))) // notes page: native
         XCTAssertEqual(resolve("https://portal.example.edu/meet").route,
                        .portal(PortalPage(url: URL(string: "https://portal.example.edu/meet")!)))
     }
