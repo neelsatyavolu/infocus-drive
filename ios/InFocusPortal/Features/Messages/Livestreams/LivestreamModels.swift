@@ -14,6 +14,13 @@ struct LivestreamSchedule: Decodable, Sendable {
     /// Everyone's pending requests (managers only; empty otherwise).
     let pendingSignups: [LivestreamSignup]
     let events: [LivestreamEvent]
+    /// Producers only: appoint and remove livestream managers.
+    var canAppointManagers = false
+    /// Managers: the credit roster (Completion).
+    var canViewCompletion = false
+    /// Appointed livestream managers (managers only; empty otherwise).
+    var managers: [LivestreamPerson] = []
+    var defaultCapacity = 4
 
     func event(_ id: String) -> LivestreamEvent? { events.first { $0.id == id } }
 }
@@ -21,13 +28,21 @@ struct LivestreamSchedule: Decodable, Sendable {
 struct LivestreamPerson: Decodable, Hashable, Sendable {
     let id: String
     let name: String?
+    var email: String?
+    /// Crew only: this person's own credit hours for the event (nil: the event's hours).
+    var creditHours: Double?
+
+    var label: String {
+        if let name = name?.trimmingCharacters(in: .whitespaces), !name.isEmpty { return name }
+        return email ?? "Member"
+    }
 
     var firstName: String { name?.split(separator: " ").first.map(String.init) ?? "Member" }
 }
 
 struct LivestreamEvent: Decodable, Hashable, Identifiable, Sendable {
-    enum Status: String, Decodable, Sendable { case scheduled = "SCHEDULED", completed = "COMPLETED", cancelled = "CANCELLED" }
-    enum Availability: String, Decodable, Sendable { case `public` = "PUBLIC", unlisted = "UNLISTED", unconfirmed = "UNCONFIRMED" }
+    enum Status: String, Codable, CaseIterable, Sendable { case scheduled = "SCHEDULED", completed = "COMPLETED", cancelled = "CANCELLED" }
+    enum Availability: String, Codable, CaseIterable, Sendable { case `public` = "PUBLIC", unlisted = "UNLISTED", unconfirmed = "UNCONFIRMED" }
     /// Crew space left: full, one spot, or two or more.
     enum CapacityTone: String, Decodable, Sendable { case full, one, open }
 
@@ -52,6 +67,8 @@ struct LivestreamEvent: Decodable, Hashable, Identifiable, Sendable {
     let capacityTone: CapacityTone
     let mySignup: MySignup?
     let pendingSignupCount: Int
+    /// When the crew arrives (set on every event saved from the editor).
+    var arrivesAt: Date?
 
     func isOnCrew(_ userId: String) -> Bool { attendees.contains { $0.id == userId } }
 }

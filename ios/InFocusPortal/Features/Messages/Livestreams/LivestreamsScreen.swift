@@ -3,11 +3,13 @@ import SwiftUI
 /// Livestreams (More → Livestreams): this semester's schedule, my sign-up requests, and for
 /// managers the requests waiting on them.
 struct LivestreamsScreen: View {
-    enum Section: Hashable { case schedule, mine, review }
+    enum Section: Hashable { case schedule, mine, review, completion }
 
     @Environment(\.portalClient) private var client
     @State private var model: LivestreamsModel?
     @State private var section: Section = .schedule
+    @State private var adding = false
+    @State private var managing = false
 
     var body: some View {
         Group {
@@ -23,6 +25,28 @@ struct LivestreamsScreen: View {
         .navigationTitle("Livestreams")
         .navigationBarTitleDisplayMode(.inline)
         .livestreamAlerts(model)
+        .toolbar {
+            if let model, let schedule = model.state.value, schedule.canManage {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { managing = true } label: { Image(systemName: "person.2.badge.gearshape") }
+                        .accessibilityLabel("Livestream managers")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { adding = true } label: { Image(systemName: "plus") }
+                        .accessibilityLabel("Add livestream")
+                }
+            }
+        }
+        .sheet(isPresented: $adding) {
+            if let model {
+                LivestreamEditorSheet(model: model, event: nil, defaultCapacity: model.state.value?.defaultCapacity ?? 4)
+            }
+        }
+        .sheet(isPresented: $managing) {
+            if let model {
+                LivestreamManagersSheet(model: model, canAppoint: model.state.value?.canAppointManagers == true)
+            }
+        }
         .task {
             let model = self.model ?? LivestreamsModel(service: .resolve(client))
             self.model = model
@@ -37,10 +61,13 @@ struct LivestreamsScreen: View {
                           subtitle: "Crew a game or event: \(Self.hours(schedule.requiredHours)) hours a semester.")
                 Picker("Show", selection: $section) {
                     Text("Schedule").tag(Section.schedule)
-                    Text("My requests").tag(Section.mine)
+                    Text(schedule.canManage ? "Mine" : "My requests").tag(Section.mine)
                     if schedule.canManage {
                         Text(schedule.pendingSignups.isEmpty ? "Review" : "Review (\(schedule.pendingSignups.count))")
                             .tag(Section.review)
+                    }
+                    if schedule.canViewCompletion {
+                        Text("Credit").tag(Section.completion)
                     }
                 }
                 .pickerStyle(.segmented)
@@ -49,11 +76,15 @@ struct LivestreamsScreen: View {
                 case .schedule: ScheduleList(schedule: schedule)
                 case .mine: MyRequestsList(schedule: schedule)
                 case .review: ReviewQueue(schedule: schedule, model: model)
+                case .completion: CompletionView(model: model)
                 }
             }
             .padding(Brand.gutter)
         }
-        .refreshable { await model.load() }
+        .refreshable {
+            await model.load()
+            if section == .completion { await model.loadCompletion() }
+        }
     }
 
     static func hours(_ value: Double) -> String {

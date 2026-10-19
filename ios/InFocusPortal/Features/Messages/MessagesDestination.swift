@@ -10,6 +10,8 @@ struct MessagesDestination: View {
             ChatScreen(chatId: id)
         case .equipment:
             EquipmentScreen()
+        case .equipmentAt(let section):
+            EquipmentScreen(initial: section)
         case .livestreams:
             LivestreamsScreen()
         case .livestream(let id):

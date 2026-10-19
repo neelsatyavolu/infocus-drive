@@ -1,7 +1,7 @@
 import Foundation
 
 /// Equipment checkout (`src/server/equipment*.ts`). Borrowers are matched by email; the
-/// checkout kiosk and Inventory stay on the web.
+/// checkout kiosk (a station unlocked with a separate Google sign-in) stays on the web.
 
 struct GearItem: Decodable, Hashable, Identifiable, Sendable {
     let id: String
@@ -94,13 +94,27 @@ struct ManagedRequests: Decodable, Sendable {
 
         /// Approve holds the items: only while every one is in, unheld and not archived.
         var canApprove: Bool {
-            status == .pending && items.allSatisfy { !$0.item.checkedOut && $0.item.onHoldForStudentId == nil && $0.item.archivedAt == nil }
+            status == .pending && !items.isEmpty
+                && items.allSatisfy { !$0.item.checkedOut && $0.item.onHoldForStudentId == nil && $0.item.archivedAt == nil }
         }
 
-        /// Deny a pending request, or an approved one while none of its items is out (releases holds).
+        /// Items still held for this request (checked out ones no longer are).
+        var remainingHolds: Int { items.filter { $0.item.holdRequestId == id }.count }
+
+        /// Deny a pending request, or an approved one while none of its items is out and some
+        /// are still held for it (denying releases those holds). `src/lib/equipment-requests.ts`.
         var canDeny: Bool {
-            status == .pending || (status == .approved && items.allSatisfy { !$0.item.checkedOut })
+            switch status {
+            case .pending: true
+            case .denied: false
+            case .approved: !items.contains { $0.item.checkedOut } && remainingHolds > 0
+            }
         }
+
+        /// Approved and every hold picked up.
+        var fulfilled: Bool { status == .approved && remainingHolds == 0 }
+
+        var word: String { fulfilled ? "Fulfilled" : status.word }
     }
 
     let requests: [Request]
@@ -114,11 +128,15 @@ struct ManagedItem: Decodable, Hashable, Identifiable, Sendable {
     let checkedOutAt: Date?
     let onHoldForStudentId: String?
     let archivedAt: Date?
+    var holdRequestId: String? = nil
 }
 
-/// `GET api/equipment/manage/out`: every item out or on hold.
+/// `GET api/equipment/manage/out` (every item out or on hold) and `GET api/equipment/manage/items`
+/// (the whole inventory, not archived).
 struct ManagedOut: Decodable, Sendable {
     struct Item: Decodable, Hashable, Identifiable, Sendable {
+        enum State: Sendable { case `in`, out, held }
+
         let id: String
         let name: String
         let barcode: String
@@ -127,6 +145,13 @@ struct ManagedOut: Decodable, Sendable {
         let checkedOutBy: GearBorrower?
         let onHoldForStudent: GearBorrower?
         let tookSdCard: Bool?
+        var onHoldForStudentId: String? = nil
+
+        var state: State {
+            if checkedOut { return .out }
+            if onHoldForStudentId != nil || onHoldForStudent != nil { return .held }
+            return .in
+        }
 
         func isOverdue(now: Date = Date(), afterHours: Int = 72) -> Bool {
             guard checkedOut, let checkedOutAt else { return false }
@@ -145,4 +170,36 @@ struct ManageDecision: Encodable, Sendable {
 struct OutAction: Encodable, Sendable {
     let action: String
     let itemId: String
+}
+
+// MARK: Inventory
+
+/// `POST api/equipment/manage/items`.
+struct NewGearBody: Encodable, Sendable {
+    let name: String
+    let barcode: String
+}
+
+/// `PATCH api/equipment/manage/items`: rename/recode, or `archived: true`.
+struct GearPatchBody: Encodable, Sendable {
+    let id: String
+    var name: String?
+    var barcode: String?
+    var archived: Bool?
+}
+
+/// The Out tab's filters (the web's All / Out / Held / Overdue chips).
+enum OutFilter: String, CaseIterable, Hashable, Sendable {
+    case all, out, held, overdue
+
+    var title: String { rawValue.capitalized }
+
+    func includes(_ item: ManagedOut.Item, now: Date = Date()) -> Bool {
+        switch self {
+        case .all: true
+        case .out: item.state == .out
+        case .held: item.state == .held
+        case .overdue: item.isOverdue(now: now)
+        }
+    }
 }

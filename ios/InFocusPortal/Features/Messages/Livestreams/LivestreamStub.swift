@@ -36,10 +36,26 @@ extension LivestreamService {
                                               note: "Can run camera 2 for the first half", createdAt: now.addingTimeInterval(-3600),
                                               user: sage, event: .init(id: "football", title: "Varsity Football vs Burlingame",
                                                                        startsAt: now.addingTimeInterval(2 * day)))],
-            events: events)
+            events: events, canAppointManagers: true, canViewCompletion: true, managers: [sage])
+        func row(_ person: LivestreamPerson, hours: Double, events: Int, scheduled: Double = 0) -> LivestreamCompletion.Row {
+            let percent = min(100, Int(hours / 8 * 100))
+            return LivestreamCompletion.Row(
+                userId: person.id, name: person.name, email: nil, completedHours: hours, completedEvents: events, requiredHours: 8,
+                isManager: false, managedEvents: 0, requiredManagedEvents: 2, creditPercent: percent, scheduledHours: scheduled,
+                projectedPercent: min(100, Int((hours + scheduled) / 8 * 100)), points: Double(percent) / 10)
+        }
+        let completion = LivestreamCompletion(rows: [row(abby, hours: 3, events: 1, scheduled: 3), row(otto, hours: 9, events: 3)],
+                                              completedEventCount: 1)
+        let members = [abby, otto, sage].map { PortalMember(id: $0.id, name: $0.name, nickname: nil, email: nil) }
         return LivestreamService(
             schedule: { await FeatureStub.delay(); return schedule },
             requestSignup: { _, _ in await FeatureStub.delay(); SampleMode.notSaved() },
-            review: { _, _ in await FeatureStub.delay(); SampleMode.notSaved() })
+            review: { _, _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            saveEvent: { _, _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            deleteEvent: { _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            completion: { await FeatureStub.delay(); return completion },
+            members: { await FeatureStub.delay(); return members },
+            addManager: { _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            removeManager: { _ in await FeatureStub.delay(); SampleMode.notSaved() })
     }()
 }

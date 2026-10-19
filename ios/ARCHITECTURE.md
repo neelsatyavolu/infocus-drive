@@ -46,7 +46,7 @@ The reserved cases, wired today to placeholders that show the Portal page:
 | `WorkRoute` | `group(rowId:stage:)`, `studentStage(StudentStage)` | `/groups` (Work root), `/groups/<rowId>[/<stage>]`, `/information`, `/brainstorming`, `/a-roll`, `/initial-cut`, `/final-cut` |
 | `CalendarRoute` | `day(date:)`, `theShow`, `showUpload(date:)`, `teleprompter(showDate:docId:)` | `/master-calendar[?date=]`, `/show-roles`, `/teleprompter[?showDate=&doc=]` (and `teleprompter.` host) |
 | `GradesRoute` | `grades`, `extensions`, `extensionRequest(id:)`, `members`, `participation` | `/grades` (and `grades.` host), `/extensions[/<id>]`, `/extension-requests[/<id>]`, `/members`, `/participation` (and `grades.` host) (all on More) |
-| `MessagesRoute` | `conversation(id:)`, `equipment`, `livestreams`, `livestream(id:)` | `/equipment` (and `equipment.` host), `/livestreams[/<id>]` (on More) |
+| `MessagesRoute` | `conversation(id:)`, `equipment`, `equipmentAt(EquipmentSection)`, `livestreams`, `livestream(id:)` | `/equipment` (and `equipment.` host), `/equipment/request`, `/equipment/manage`, `/livestreams[/<id>]` (on More) |
 | `AnnouncementsRoute` | `feed`, `announcement(id:)`, `submitted`, `pa` | `/announcements` (Calendar tab), `/announcements/submitted`, `/announcements/pa` (More) |
 | `PackageCyclesRoute` | `home` | `/package-progress`, `/package-cycles` (More) |
 | `PublishingRoute` | `home` | `/publishing-queue` (More) |

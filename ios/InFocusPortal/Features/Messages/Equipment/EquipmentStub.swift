@@ -39,8 +39,16 @@ extension EquipmentService {
             ManagedOut.Item(id: "cam", name: camera.name, barcode: camera.barcode, checkedOut: true,
                             checkedOutAt: now.addingTimeInterval(-80 * hour), checkedOutBy: borrower, onHoldForStudent: nil, tookSdCard: true),
             ManagedOut.Item(id: "tri", name: tripod.name, barcode: tripod.barcode, checkedOut: false, checkedOutAt: nil,
-                            checkedOutBy: nil, onHoldForStudent: borrower, tookSdCard: nil),
+                            checkedOutBy: nil, onHoldForStudent: borrower, tookSdCard: nil, onHoldForStudentId: "s1"),
         ]
+        let inventory = out + available.map {
+            ManagedOut.Item(id: $0.id, name: $0.name, barcode: $0.barcode, checkedOut: false, checkedOutAt: nil,
+                            checkedOutBy: nil, onHoldForStudent: nil, tookSdCard: nil)
+        }
+        let sage = PortalMember(id: "sage", name: "Sage Example", nickname: nil, email: "sage@example.edu")
+        let managers = [ManagerRow(id: "mgr1", userId: sage.id, createdAt: now.addingTimeInterval(-30 * 24 * hour), user: sage)]
+        let members = [sage, PortalMember(id: "otto", name: "Otto Example", nickname: nil, email: "otto@example.edu"),
+                       PortalMember(id: "abby", name: "Abby Example", nickname: "Abs", email: "abby@example.edu")]
         return EquipmentService(
             access: { EquipmentAccess(signedIn: true, canManage: true) },
             mine: { await FeatureStub.delay(); return mine },
@@ -49,6 +57,13 @@ extension EquipmentService {
             managedRequests: { await FeatureStub.delay(); return requests },
             decide: { _, _ in await FeatureStub.delay() },
             out: { await FeatureStub.delay(); return out },
-            outAction: { _, _ in await FeatureStub.delay() })
+            outAction: { _, _ in await FeatureStub.delay() },
+            inventory: { await FeatureStub.delay(); return inventory.sorted { $0.name < $1.name } },
+            addItem: { _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            updateItem: { _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            managers: { await FeatureStub.delay(); return managers },
+            members: { await FeatureStub.delay(); return members },
+            addManager: { _ in await FeatureStub.delay(); SampleMode.notSaved() },
+            removeManager: { _ in await FeatureStub.delay(); SampleMode.notSaved() })
     }()
 }

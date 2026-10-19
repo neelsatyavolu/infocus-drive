@@ -6,6 +6,8 @@ enum MessagesRoute: Hashable {
     /// A group or direct chat.
     case conversation(id: String)
     case equipment
+    /// Equipment opened on Request or Manage (`/equipment/request`, `/equipment/manage`).
+    case equipmentAt(EquipmentSection)
     case livestreams
     case livestream(id: String)
 
@@ -15,7 +17,11 @@ enum MessagesRoute: Hashable {
     static func deepLink(_ path: [String], _ query: [URLQueryItem]) -> DeepLinkMatch? {
         switch path.first {
         case "equipment":
-            return DeepLinkMatch(tab: .more, route: .messages(.equipment))
+            switch path.dropFirst().first {
+            case "request": return DeepLinkMatch(tab: .more, route: .messages(.equipmentAt(.request)))
+            case "manage": return DeepLinkMatch(tab: .more, route: .messages(.equipmentAt(.manage)))
+            default: return DeepLinkMatch(tab: .more, route: .messages(.equipment))
+            }
         case "livestreams":
             let route: MessagesRoute = path.count >= 2 ? .livestream(id: path[1]) : .livestreams
             return DeepLinkMatch(tab: .more, route: .messages(route))
