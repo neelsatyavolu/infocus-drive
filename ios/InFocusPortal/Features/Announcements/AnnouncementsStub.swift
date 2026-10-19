@@ -15,6 +15,14 @@ extension AnnouncementsAPI {
         },
         regeneratePA: { date, version in
             AnnouncementsStubData.pa(date: date, content: AnnouncementsStubData.paScript, version: version + 1)
+        },
+        submit: { _ in
+            SampleMode.notSaved()
+            return AnnouncementReceipt(id: "sample")
+        },
+        slackFile: { _, title in
+            try SlackFiles.save(Data(AnnouncementsStubData.attachmentText.utf8),
+                                named: SlackFiles.filename(suggested: nil, title: title, mimeType: "text/plain"))
         }
     )
 }
@@ -47,6 +55,13 @@ enum AnnouncementsStubData {
             .init(id: "ended", title: "Ended", defaultOpen: false, copyText: "Spirit Week starts Monday.",
                   entries: [entry("e1", "Spirit Week starts Monday.", start: "2026-09-21", end: "2026-09-23")]),
         ])
+
+    static let attachmentText = """
+    Initial Cut rubric (sample)
+
+    Story: a clear angle in the first ten seconds.
+    Sound: levels even between interviews and B-roll.
+    """
 
     static let paScript = """
     Good morning, Paly! I'm Abby.

@@ -13,6 +13,7 @@ enum Route: Hashable {
     case gradeEditor(GradeEditorRoute)
     case meetings(MeetingsRoute)
     case review(ReviewRoute)
+    case community(CommunityRoute)
     case more(MoreRoute)
     /// Any Portal page without a native screen, shown in the signed-in web view.
     case portal(PortalPage)

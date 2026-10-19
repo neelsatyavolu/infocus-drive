@@ -10,6 +10,10 @@ struct AnnouncementsAPI: Sendable {
     var pa: @Sendable () async throws -> PAPage
     var savePA: @Sendable (_ date: String, _ content: String, _ version: Int) async throws -> PAPage
     var regeneratePA: @Sendable (_ date: String, _ version: Int) async throws -> PAPage
+    /// The public announcement request form (`/submit-announcement`).
+    var submit: @Sendable (_ submission: AnnouncementSubmission) async throws -> AnnouncementReceipt
+    /// A Slack attachment saved to a local file, ready for Quick Look.
+    var slackFile: @Sendable (_ id: String, _ title: String) async throws -> URL
 
     static func live(_ client: PortalClient) -> AnnouncementsAPI {
         struct ID: Encodable { let id: String }
@@ -30,7 +34,9 @@ struct AnnouncementsAPI: Sendable {
             },
             regeneratePA: { date, version in
                 try await client.post("api/announcements/pa", body: Regenerate(date: date, version: version))
-            }
+            },
+            submit: { submission in try await client.post("api/announcements/submit", body: submission) },
+            slackFile: { id, title in try await SlackFiles.download(id: id, title: title, client: client) }
         )
     }
 

@@ -40,6 +40,13 @@ struct MoreTab: View {
                             row("Submitted announcements", "tray.full", .announcements(.submitted))
                         }
                     }
+                    if !user.sampleOnly {
+                        Section("Class") {
+                            row("Story ideas", "lightbulb", .community(.ideas(date: nil)))
+                            row("Submit an announcement", "megaphone", .announcements(.submit))
+                            row("Class Board", "rectangle.split.3x1", .community(.classBoard))
+                        }
+                    }
                     Section("Production") {
                         row("Equipment", "camera", .messages(.equipment))
                         row("Livestreams", "dot.radiowaves.left.and.right", .messages(.livestreams))
