@@ -120,7 +120,7 @@ final class WorkDecisionTests: XCTestCase {
 
     func testPitchApprovalWithFeedback() async throws {
         StubProtocol.handler = { _ in (200, Data(#"{"data":{"ok":true}}"#.utf8)) }
-        try await WorkDecisions.send(StageDecision(rowId: "r1", stage: .pitching, approved: true, feedback: "  Great angle. "), client: client())
+        try await GroupReviewService(client: client()).setStageApproved(.pitching, rowId: "r1", approved: true, feedback: "  Great angle. ")
         XCTAssertEqual(StubProtocol.lastRequest?.httpMethod, "PATCH")
         XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/package-cycle/stage")
         let sent = try body()
@@ -130,7 +130,7 @@ final class WorkDecisionTests: XCTestCase {
 
     func testBrainstormSkipSendsNoFeedback() async throws {
         StubProtocol.handler = { _ in (200, Data(#"{"data":{}}"#.utf8)) }
-        try await WorkDecisions.send(StageDecision(rowId: "r1", stage: .brainstorming, approved: true), client: client())
+        try await GroupReviewService(client: client()).setStageApproved(.brainstorming, rowId: "r1", approved: true, feedback: "")
         XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/brainstorming")
         let sent = try body()
         XCTAssertEqual(sent["kind"] as? String, "approve")
@@ -139,21 +139,18 @@ final class WorkDecisionTests: XCTestCase {
 
     func testInitialCutSendBack() async throws {
         StubProtocol.handler = { _ in (200, Data(#"{"data":{}}"#.utf8)) }
-        try await WorkDecisions.send(StageDecision(rowId: "r1", stage: .initialCut, approved: false, feedback: "Trim the open",
-                                                   mediaVersionId: "v2"), client: client())
+        try await GroupReviewService(client: client()).decideCut(rowId: "r1", .needsRevisions(versionId: "v2"))
         XCTAssertEqual(StubProtocol.lastRequest?.httpMethod, "POST")
         XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/package-progress/r1/approval")
         let sent = try body()
-        XCTAssertEqual(sent["action"] as? String, "DECIDE")
-        XCTAssertEqual(sent["approved"] as? Bool, false)
+        XCTAssertEqual(sent["action"] as? String, "SUBMIT_REVIEW")
         XCTAssertEqual(sent["mediaVersionId"] as? String, "v2")
-        XCTAssertEqual(sent["note"] as? String, "Trim the open")
     }
 
     func testServerRefusalSurfacesItsMessage() async {
         StubProtocol.handler = { _ in (403, Data(#"{"error":{"message":"Only the assigned producer can approve."}}"#.utf8)) }
         do {
-            try await WorkDecisions.send(StageDecision(rowId: "r1", stage: .aRoll, approved: true), client: client())
+            try await GroupReviewService(client: client()).setStageApproved(.aRoll, rowId: "r1", approved: true, feedback: "")
             XCTFail("expected a refusal")
         } catch {
             XCTAssertEqual(error.localizedDescription, "Only the assigned producer can approve.")

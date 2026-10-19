@@ -12,22 +12,11 @@ struct WorkAPI: Sendable {
     var brainstorm: @Sendable (_ cycle: Int?) async throws -> BrainstormPayload
     var comments: @Sendable (_ rowId: String, _ stage: String) async throws -> StageComments
     var postComment: @Sendable (_ rowId: String, _ stage: String, _ body: String) async throws -> Void
-    var decide: @Sendable (_ decision: StageDecision) async throws -> Void
     var saveDocLink: @Sendable (_ rowId: String, _ url: String) async throws -> Void
     var uploadProof: @Sendable (_ rowId: String, _ slot: Int, _ image: Data) async throws -> Void
     var startUpload: @Sendable (_ request: StageUploadRequest) async throws -> StageUploadTicket
     var finishUpload: @Sendable (_ request: StageUploadRequest, _ ticket: StageUploadTicket) async throws -> Void
     var data: @Sendable (_ path: String) async throws -> Data
-}
-
-/// An approve / send-back decision on a group stage, with the optional feedback note.
-struct StageDecision: Sendable, Hashable {
-    let rowId: String
-    let stage: GroupStage
-    let approved: Bool
-    var feedback: String = ""
-    /// Initial Cut: the version being decided.
-    var mediaVersionId: String?
 }
 
 /// What a student is uploading to a stage.
@@ -67,7 +56,6 @@ extension WorkAPI {
             postComment: { rowId, stage, body in
                 try await client.post("api/package-cycle/comments", body: ["rowId": rowId, "stage": stage, "body": body])
             },
-            decide: { decision in try await WorkDecisions.send(decision, client: client) },
             saveDocLink: { rowId, url in
                 _ = try await client.send("PATCH", "api/brainstorming",
                                           body: try PortalJSON.encoder().encode(["kind": "doc", "rowId": rowId, "url": url]))

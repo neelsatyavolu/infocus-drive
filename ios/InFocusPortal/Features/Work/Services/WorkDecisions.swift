@@ -1,46 +1,6 @@
 import Foundation
 import UIKit
 
-/// Approve / send back on a group stage, through the same Portal routes as the
-/// website's Groups pages. The server decides who may act; the app only shows
-/// the buttons the stage view allows.
-enum WorkDecisions {
-    private struct StageApproval: Encodable {
-        let kind: String
-        let rowId: String
-        let approved: Bool
-        let feedback: String?
-    }
-
-    private struct CutDecision: Encodable {
-        let action = "DECIDE"
-        let approved: Bool
-        let mediaVersionId: String?
-        let note: String?
-    }
-
-    static func send(_ decision: StageDecision, client: PortalClient) async throws {
-        let feedback = decision.feedback.trimmingCharacters(in: .whitespacesAndNewlines)
-        let note = feedback.isEmpty ? nil : feedback
-        switch decision.stage {
-        case .pitching, .aRoll:
-            let body = StageApproval(kind: decision.stage == .pitching ? "approve-pitching" : "approve-aroll",
-                                     rowId: decision.rowId, approved: decision.approved, feedback: note)
-            _ = try await client.send("PATCH", "api/package-cycle/stage", body: try PortalJSON.encoder().encode(body))
-        case .brainstorming:
-            let body = StageApproval(kind: "approve", rowId: decision.rowId, approved: decision.approved, feedback: note)
-            _ = try await client.send("PATCH", "api/brainstorming", body: try PortalJSON.encoder().encode(body))
-        case .initialCut:
-            let body = CutDecision(approved: decision.approved, mediaVersionId: decision.mediaVersionId, note: note)
-            _ = try await client.send("POST", "api/package-progress/\(decision.rowId)/approval",
-                                      body: try PortalJSON.encoder().encode(body))
-        case .finalCut:
-            // Final Cut grading stays on the Portal page (a full grade panel).
-            throw PortalError.server(status: 400, message: "Grade Final Cuts on the Portal page.")
-        }
-    }
-}
-
 /// Proof of contact: one image per slot (1–3), as a multipart POST to
 /// `api/brainstorming/proofs`. The Portal takes images up to 3.5 MB.
 enum ProofUpload {

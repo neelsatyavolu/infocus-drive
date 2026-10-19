@@ -22,7 +22,9 @@ struct GroupDetailScreen: View {
 
     @Environment(\.portalClient) private var client
     @Environment(Router.self) private var router
+    @Environment(SessionStore.self) private var session
     @State private var state: Loadable<GroupRow> = .idle
+    @State private var editingNotes = false
 
     var body: some View {
         ScrollView {
@@ -33,6 +35,10 @@ struct GroupDetailScreen: View {
                               subtitle: row.memberNames.isEmpty ? nil : row.memberNames)
                     StatusTag(text: status.label, tone: status.tone)
                     people(row)
+                    if GroupReviewLogic.mayAct(session.user, on: row) {
+                        Button { editingNotes = true } label: { Label("Group notes", systemImage: "note.text") }
+                            .buttonStyle(.brandSecondary)
+                    }
                     VStack(alignment: .leading, spacing: 10) {
                         SectionHeader(title: "Stages")
                         let current = GroupStage.current(for: row)
@@ -71,6 +77,7 @@ struct GroupDetailScreen: View {
             }
         }
         .task { if state.value == nil { await load() } }
+        .sheet(isPresented: $editingNotes) { GroupRosterNotesSheet(rowId: rowId, service: GroupReviewService(client: client)) }
     }
 
     private func people(_ row: GroupRow) -> some View {
