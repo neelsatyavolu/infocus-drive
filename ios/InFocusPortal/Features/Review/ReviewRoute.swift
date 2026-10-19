@@ -24,7 +24,9 @@ enum ReviewRoute: Hashable {
             guard path.count >= 2, !path[1].isEmpty else { return nil }
             let projectId = path[1]
             if path.count == 2 {
-                return DeepLinkMatch(tab: .home, route: .review(.project(id: projectId, folderId: value("folderId"))))
+                // "all" and "root" are the web's top-level views, not folder ids (an upload would send them as one).
+                let folderId = value("folderId").flatMap { ["all", "root"].contains($0) ? nil : $0 }
+                return DeepLinkMatch(tab: .home, route: .review(.project(id: projectId, folderId: folderId)))
             }
             if path.count == 4, path[2] == "review", !path[3].isEmpty {
                 return DeepLinkMatch(tab: .home, route: .review(.media(projectId: projectId, mediaId: path[3],

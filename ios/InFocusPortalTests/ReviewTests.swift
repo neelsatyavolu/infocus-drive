@@ -137,6 +137,10 @@ final class ReviewDeepLinkTests: XCTestCase {
         XCTAssertEqual(resolve("/projects/p1"), DeepLinkMatch(tab: .home, route: .review(.project(id: "p1"))))
         XCTAssertEqual(resolve("/projects/p1?folderId=f1&view=grid"),
                        DeepLinkMatch(tab: .home, route: .review(.project(id: "p1", folderId: "f1"))))
+        XCTAssertEqual(resolve("/projects/p1?scope=active&folderId=all"),
+                       DeepLinkMatch(tab: .home, route: .review(.project(id: "p1", folderId: nil))))
+        XCTAssertEqual(resolve("/projects/p1?folderId=root"),
+                       DeepLinkMatch(tab: .home, route: .review(.project(id: "p1", folderId: nil))))
     }
 
     func testReviewLinks() {
