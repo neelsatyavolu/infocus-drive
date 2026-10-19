@@ -65,7 +65,7 @@ private struct CycleGradeCard: View {
             }
             if cycle.published, let project = cycle.reviewProjectId, let media = cycle.reviewMediaId {
                 Button("Open the graded cut") {
-                    router.openPortal("projects/\(project)/review/\(media)", title: "Final cut")
+                    router.push(.review(.media(projectId: project, mediaId: media)))
                 }
                 .buttonStyle(.brandSecondary)
             }
