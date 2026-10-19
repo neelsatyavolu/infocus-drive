@@ -10,7 +10,6 @@ extension WorkAPI {
         brainstorm: { _ in WorkStub.brainstorm },
         comments: { _, _ in StageComments(comments: WorkStub.comments, unread: 0) },
         postComment: { _, _, _ in SampleMode.notSaved() },
-        decide: { _ in SampleMode.notSaved() },
         saveDocLink: { _, _ in SampleMode.notSaved() },
         uploadProof: { _, _, _ in SampleMode.notSaved() },
         startUpload: { _ in throw PortalError.sampleApp },
