@@ -30,21 +30,21 @@ final class CalendarNotesTests: XCTestCase {
         + "<p><span class=\"package-pill\" data-package-id=\"m1\" data-display-label=\"Gas &amp; Prices\">Gas &amp; Prices</span></p>"
         + "<p>Bring <strong>IDs</strong></p><p><span class=\"package-pill\" data-package-id=\"m2\">Puppy Yoga</span></p>"
 
-    func testParseSplitsTextPillsAndImageToken() {
-        let notes = CalendarNotes.parse(cell)
-        XCTAssertTrue(notes.imageHidden)
-        XCTAssertEqual(notes.text, "Club Fair at lunch\nBring IDs")
-        XCTAssertEqual(notes.pills, [.init(id: "m1", label: "Gas & Prices"), .init(id: "m2", label: "Puppy Yoga")],
+    func testPillsAndImageTokenHelpers() {
+        XCTAssertTrue(CalendarNotes.isImageHidden(cell))
+        XCTAssertEqual(CalendarNotes.pills(in: cell), [.init(id: "m1", label: "Gas & Prices"), .init(id: "m2", label: "Puppy Yoga")],
                        "an older pill without a display label keeps its text")
+        XCTAssertEqual(CalendarNotes.withImageHidden("<p>Hi</p>"), "[[NO_MONDAY_IMAGE]]<p>Hi</p>")
+        XCTAssertEqual(CalendarNotes.withImageHidden("[[NO_MONDAY_IMAGE]]<p>Hi</p>"), "[[NO_MONDAY_IMAGE]]<p>Hi</p>", "never twice")
+        XCTAssertEqual(CalendarNotes.withImageHidden(""), "[[NO_MONDAY_IMAGE]]", "image off on an empty day")
     }
 
-    func testHtmlRebuildsTheCellLikeThePortal() {
-        let notes = CalendarNotes(text: "Assembly\n\n  Rally <7th> ", pills: [.init(id: "m1", label: "Club \"Fair\"")], imageHidden: true)
-        XCTAssertEqual(notes.html(), "[[NO_MONDAY_IMAGE]]<p>Assembly</p><p>Rally &lt;7th&gt;</p>"
-                       + "<p><span class=\"package-pill\" data-package-id=\"m1\" data-display-label=\"Club &quot;Fair&quot;\">Club &quot;Fair&quot;</span></p>")
-        XCTAssertEqual(CalendarNotes(text: "", pills: [], imageHidden: true).html(), "[[NO_MONDAY_IMAGE]]", "image off on an empty day")
-        XCTAssertEqual(CalendarNotes(text: "", pills: [], imageHidden: false).html(), "", "an empty cell is removed")
-        XCTAssertEqual(CalendarNotes.parse(notes.html()), CalendarNotes(text: "Assembly\nRally <7th>", pills: notes.pills, imageHidden: true))
+    func testPillEditsMatchThePortal() {
+        let html = "<p>Air <span class=\"package-pill\" data-package-id=\"m1\" data-display-label=\"Old\">Old</span> <em>today</em></p>"
+        XCTAssertEqual(CalendarNotes.renamePill(in: html, id: "m1", label: "$1 \"Fair\""),
+                       "<p>Air <span class=\"package-pill\" data-package-id=\"m1\" data-display-label=\"$1 &quot;Fair&quot;\">$1 &quot;Fair&quot;</span> <em>today</em></p>")
+        XCTAssertEqual(CalendarNotes.renamePill(in: html, id: "m9", label: "x"), html, "another id is left alone")
+        XCTAssertEqual(CalendarNotes.removePill(from: html, id: "m1"), "<p>Air  <em>today</em></p>")
     }
 
     func testAiredChangesAndTokenStripping() {
@@ -117,8 +117,12 @@ final class CalendarNotesEditorTests: XCTestCase {
     func testNotesKeepTheImageTokenAndSyncAiredPills() async {
         let calls = Calls()
         let before = "[[NO_MONDAY_IMAGE]]<p>Old</p><p>" + CalendarNotes.pillHTML(id: "m1", label: "Club Fair") + "</p>"
+        var doc = CalendarNotesDocument.parse(before)
+        doc.setText("New", at: 0)
+        doc.removePill(id: "m1")
+        doc.addPill(id: "m2", label: "Gas Prices")
         let editor = CalendarDayEditor(date: "2026-10-06", edit: edit(calls), read: read(before), store: CalendarStore())
-        await editor.setNotes("New", pills: [.init(id: "m2", label: "Gas Prices")])
+        await editor.setNotes(doc.body(), basedOn: before)
         let cells = await calls.cells
         let marked = await calls.marked
         let unmarked = await calls.unmarked
@@ -126,6 +130,16 @@ final class CalendarNotesEditorTests: XCTestCase {
         XCTAssertEqual(marked, ["m2"])
         XCTAssertEqual(unmarked, ["m1"])
         XCTAssertNil(editor.error)
+    }
+
+    func testNotesAreNotSavedOverAChangeMadeOnThePortal() async {
+        let calls = Calls()
+        let editor = CalendarDayEditor(date: "2026-10-06", edit: edit(calls), read: read("<p><strong>Changed</strong> on the web</p>"),
+                                       store: CalendarStore())
+        await editor.setNotes("<p>Mine</p>", basedOn: "<p>Old</p>")
+        let cells = await calls.cells
+        XCTAssertEqual(cells, [], "nothing saved")
+        XCTAssertNotNil(editor.error)
     }
 
     func testToggleImageKeepsTheNotes() async {
@@ -136,6 +150,15 @@ final class CalendarNotesEditorTests: XCTestCase {
         let marked = await calls.marked
         XCTAssertEqual(cells, ["[[NO_MONDAY_IMAGE]]<p>Assembly</p>"])
         XCTAssertEqual(marked, [], "no pills changed")
+    }
+
+    func testToggleImageKeepsFormattingByteForByte() async {
+        let calls = Calls()
+        let rich = "<p><strong>No School</strong></p><ul><li><em>Rally</em> at <u>noon</u></li></ul>"
+        let editor = CalendarDayEditor(date: "2026-10-06", edit: edit(calls), read: read("[[NO_MONDAY_IMAGE]]" + rich), store: CalendarStore())
+        await editor.toggleImage()
+        let cells = await calls.cells
+        XCTAssertEqual(cells, [rich])
     }
 }
 

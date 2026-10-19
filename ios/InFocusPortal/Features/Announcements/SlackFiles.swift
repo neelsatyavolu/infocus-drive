@@ -22,25 +22,11 @@ enum SlackFiles {
         return "\(base).\(ext)"
     }
 
-    /// Downloads one attachment to a fresh temporary folder and returns the file.
-    static func download(id: String, title: String, client: PortalClient,
-                         session: URLSession = PortalClient.urlSession) async throws -> URL {
+    /// Downloads one attachment to a fresh temporary folder and returns the file. The shared client
+    /// sends the session and handles a 401 (back to sign-in) like every other Portal call.
+    static func download(id: String, title: String, client: PortalClient) async throws -> URL {
         guard isFileID(id) else { throw PortalError.notFound }
-        var request = await client.request("GET", "api/slack/files/\(id)")
-        request.setValue("*/*", forHTTPHeaderField: "Accept")
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch let error as URLError {
-            throw PortalError.from(error)
-        }
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            let error = PortalError.from(status: status, message: PortalJSON.errorMessage(data))
-            if error == .unauthorized { await AppModel.shared.sessionEnded() }
-            throw error
-        }
+        let (data, response) = try await client.download("api/slack/files/\(id)")
         let name = filename(suggested: response.suggestedFilename, title: title, mimeType: response.mimeType)
         return try save(data, named: name)
     }

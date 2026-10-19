@@ -212,7 +212,7 @@ final class SlackFilesTests: XCTestCase {
         let session = URLSession(configuration: config)
         let client = PortalClient(portal: URL(string: "https://portal.example.edu")!, session: session, cookies: { [] })
         StubProtocol.handler = { _ in (200, Data("hello".utf8)) }
-        let url = try await SlackFiles.download(id: "F01EXAMPLE", title: "Rubric", client: client, session: session)
+        let url = try await SlackFiles.download(id: "F01EXAMPLE", title: "Rubric", client: client)
         XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/slack/files/F01EXAMPLE")
         XCTAssertEqual(try String(contentsOf: url, encoding: .utf8), "hello")
         try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
@@ -225,10 +225,29 @@ final class SlackFilesTests: XCTestCase {
         let client = PortalClient(portal: URL(string: "https://portal.example.edu")!, session: session, cookies: { [] })
         StubProtocol.handler = { _ in (413, Data(#"{"error":{"message":"That file is too large to open here."}}"#.utf8)) }
         do {
-            _ = try await SlackFiles.download(id: "F01EXAMPLE", title: "Big", client: client, session: session)
+            _ = try await SlackFiles.download(id: "F01EXAMPLE", title: "Big", client: client)
             XCTFail("expected an error")
         } catch {
             XCTAssertEqual(error as? PortalError, .server(status: 413, message: "That file is too large to open here."))
         }
+    }
+
+    func testDownload401EndsTheSessionThroughTheSharedClient() async {
+        actor Count { var value = 0; func bump() { value += 1 } }
+        let ended = Count()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubProtocol.self]
+        let client = PortalClient(portal: URL(string: "https://portal.example.edu")!, session: URLSession(configuration: config),
+                                  cookies: { [] }, onUnauthorized: { await ended.bump() })
+        StubProtocol.handler = { _ in (401, Data(#"{"error":{"message":"Sign in."}}"#.utf8)) }
+        do {
+            _ = try await SlackFiles.download(id: "F01EXAMPLE", title: "Rubric", client: client)
+            XCTFail("expected an error")
+        } catch {
+            XCTAssertEqual(error as? PortalError, .unauthorized)
+        }
+        let count = await ended.value
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(StubProtocol.lastRequest?.value(forHTTPHeaderField: "Accept"), "*/*")
     }
 }

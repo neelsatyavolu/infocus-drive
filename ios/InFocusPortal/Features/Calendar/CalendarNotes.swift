@@ -1,9 +1,10 @@
 import Foundation
 
-/// A class day's or a holiday's cell, the way the Portal's Master Calendar edits it: free text,
-/// package pills (`<span class="package-pill" data-package-id=…>`, which mark the package aired)
-/// and, on a class day, the token that hides the day's scenic image (src/lib/master-calendar-cells.ts).
-struct CalendarNotes: Equatable, Sendable {
+/// Helpers for a class day's or a holiday's cell, matching the Portal's Master Calendar: package
+/// pills (`<span class="package-pill" data-package-id=…>`, which mark the package aired) and, on a
+/// class day, the token that hides the day's scenic image (src/lib/master-calendar-cells.ts).
+/// `CalendarNotesDocument` edits the notes themselves.
+enum CalendarNotes {
     struct Pill: Equatable, Sendable, Identifiable {
         let id: String
         var label: String
@@ -12,20 +13,15 @@ struct CalendarNotes: Equatable, Sendable {
     /// The Portal's hide-image token (kept for existing Monday rows).
     static let hideImageToken = "[[NO_MONDAY_IMAGE]]"
 
-    var text: String
-    var pills: [Pill]
-    var imageHidden: Bool
-
     private static let pillPattern = #/<span class="package-pill"[^>]*>[^<]*</span>/#
     private static let idPattern = #/data-package-id="([^"]+)"/#
     private static let labelPattern = #/data-display-label="([^"]*)"/#
 
-    /// Reads a stored cell: pills come out in order, the rest becomes lines of text.
-    static func parse(_ html: String) -> CalendarNotes {
-        let imageHidden = html.contains(hideImageToken)
-        let clean = stripToken(html)
+    /// The pills in some HTML, in order, without repeats (an older pill without a display label
+    /// keeps its text).
+    static func pills(in html: String) -> [Pill] {
         var pills: [Pill] = []
-        for match in clean.matches(of: pillPattern) {
+        for match in html.matches(of: pillPattern) {
             let span = String(match.output)
             guard let id = span.firstMatch(of: idPattern).map({ String($0.output.1) }),
                   !pills.contains(where: { $0.id == id }) else { continue }
@@ -33,17 +29,38 @@ struct CalendarNotes: Equatable, Sendable {
             let inner = span.replacing(#/<[^>]+>/#, with: "")
             pills.append(Pill(id: id, label: DayContent.decodeEntities(attribute ?? inner)))
         }
-        let text = DayContent.lines(of: clean.replacing(pillPattern, with: "")).joined(separator: "\n")
-        return CalendarNotes(text: text, pills: pills, imageHidden: imageHidden)
+        return pills
     }
 
-    /// The cell to store: one paragraph per line, then one per pill, with the image token in front
-    /// when the image is off (the Portal's `withImageHidden`).
-    func html() -> String {
-        let body = CalendarCellHTML.notes(text.components(separatedBy: .newlines))
-            + pills.map { "<p>\(Self.pillHTML(id: $0.id, label: $0.label))</p>" }.joined()
-        guard imageHidden else { return body }
-        return Self.hideImageToken + body
+    /// The Portal's `renamePillInHtml`: the label attribute and text change; the package stays.
+    static func renamePill(in html: String, id: String, label: String) -> String {
+        let pattern = #"(<span class="package-pill"[^>]*data-package-id=""# + NSRegularExpression.escapedPattern(for: id)
+            + #""[^>]*data-display-label=")[^"]*("[^>]*>)[^<]*(</span>)"#
+        guard let regex = try? Regex(pattern) else { return html }
+        let safe = CalendarCellHTML.escape(label)
+        return html.replacing(regex) { match in
+            let open = match.output[1].substring ?? ""
+            let middle = match.output[2].substring ?? ""
+            let close = match.output[3].substring ?? ""
+            return "\(open)\(safe)\(middle)\(safe)\(close)"
+        }
+    }
+
+    /// The Portal's `removePillFromHtml`.
+    static func removePill(from html: String, id: String) -> String {
+        let pattern = #"<span class="package-pill"[^>]*data-package-id=""# + NSRegularExpression.escapedPattern(for: id)
+            + #""[^>]*>[^<]*</span>"#
+        guard let regex = try? Regex(pattern) else { return html }
+        return html.replacing(regex, with: "")
+    }
+
+    /// The Portal's `hasImageHidden`.
+    static func isImageHidden(_ html: String) -> Bool { html.contains(hideImageToken) }
+
+    /// The Portal's `withImageHidden`: the token in front of the cell, nothing else changed.
+    static func withImageHidden(_ html: String) -> String {
+        let clean = stripToken(html)
+        return clean.isEmpty ? hideImageToken : hideImageToken + clean
     }
 
     /// The Portal's `buildPillHtml`.

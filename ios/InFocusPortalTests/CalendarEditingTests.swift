@@ -31,7 +31,9 @@ final class CalendarCellHTMLTests: XCTestCase {
     func testNamesAndNotesAreEscaped() {
         XCTAssertEqual(CalendarCellHTML.nameParagraph(["Abby", " Otto ", "Sage"]), "<p>Abby &amp; Otto</p>", "pairs keep two names")
         XCTAssertEqual(CalendarCellHTML.nameParagraph([]), "<p><br></p>")
-        XCTAssertEqual(CalendarCellHTML.notes(["Spirit rally <7th>", "", "  Bring IDs "]), "<p>Spirit rally &lt;7th&gt;</p><p>Bring IDs</p>")
+        XCTAssertEqual(CalendarNotesDocument.paragraphs("Spirit rally <7th>\n\n  Bring IDs "),
+                       "<p>Spirit rally &lt;7th&gt;</p><p><br></p><p>Bring IDs</p>", "a blank line stays as the Portal writes one")
+        XCTAssertEqual(CalendarNotesDocument.paragraphs(" \n "), "")
     }
 }
 

@@ -40,7 +40,7 @@ struct InitialCutReviewSection: View {
             }
         }
         .sheet(isPresented: $approving) {
-            DecisionSheet(mode: .approve, stageTitle: "Initial Cut · Stage \(reviewStage)") { note in
+            DecisionSheet(stageTitle: "Initial Cut · Stage \(reviewStage)") { note in
                 try await decide(.approve(note: note, versionId: media.first?.versionId))
             }
         }

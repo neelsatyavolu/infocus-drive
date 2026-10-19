@@ -111,14 +111,30 @@ struct PortalClient: Sendable {
     /// Sends one request and returns the body of a 2xx answer. The App Review
     /// sample app only reaches the few Portal paths its account may use.
     func send(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
-        if SampleMode.isOn && !SampleMode.allows(path) {
-            SampleMode.recordBlocked(path)
-            throw PortalError.sampleApp
-        }
+        try checkSampleMode(path)
         return try await perform(await request(method, path, query: query, body: body))
     }
 
+    /// GETs a file rather than JSON (a Slack attachment, say), with the same sample-app limits,
+    /// errors and 401 handling as every other call. The response carries the file's name and type.
+    func download(_ path: String, accept: String = "*/*") async throws -> (Data, URLResponse) {
+        try checkSampleMode(path)
+        var request = await request("GET", path)
+        request.setValue(accept, forHTTPHeaderField: "Accept")
+        return try await fetch(request)
+    }
+
     func perform(_ request: URLRequest) async throws -> Data {
+        try await fetch(request).0
+    }
+
+    private func checkSampleMode(_ path: String) throws {
+        guard SampleMode.isOn && !SampleMode.allows(path) else { return }
+        SampleMode.recordBlocked(path)
+        throw PortalError.sampleApp
+    }
+
+    private func fetch(_ request: URLRequest) async throws -> (Data, URLResponse) {
         let data: Data
         let response: URLResponse
         do {
@@ -132,7 +148,7 @@ struct PortalClient: Sendable {
             if error == .unauthorized { await onUnauthorized() }
             throw error
         }
-        return data
+        return (data, response)
     }
 
     func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {

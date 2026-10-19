@@ -15,10 +15,10 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Session/` | `PortalUser` (roles and flags), `SessionStore`, `Preferences` (appearance) | shell |
 | `Navigation/` | `AppTab`, `Route`, `DeepLink`, `Router`, `BadgeCenter`, `RouteDestination`, `MainTabView` | shell |
 | `Features/Work/` | `HomeTab`, `WorkTab`, `WorkRoute`, `WorkDestination`; `Packages/` (student stages: cycle guide, brainstorming, A-roll/B-roll, Initial Cut, Final Cut, uploads), `Groups/` (producer review of every stage, Final Cut grading, Package of the Cycle), `Shared/` (stage feedback thread, media views) | **Work agent** (Home, my packages and stages, Groups review) |
-| `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination`, `DayNotesEditor` (notes, package pills, scenic image), `ShowUploadView` (whole-show upload to Drive and YouTube), `TeleprompterScreen` and `TeleprompterRunView` (scripts and the full-screen prompter) | **Calendar agent** (Master Calendar, The Show, show upload, teleprompter) |
+| `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination`, `DayNotesEditor` and `CalendarNotesDocument` (notes, package pills, scenic image; formatted notes kept byte for byte), `ShowUploadView` (whole-show upload to Drive and YouTube), `TeleprompterScreen` and `TeleprompterRunView` (scripts and the full-screen prompter) | **Calendar agent** (Master Calendar, The Show, show upload, teleprompter) |
 | `Features/Grades/` | `GradesScreen`, `ExtensionsScreen`, `GrantExtensionSheet`, `Members/`, `ParticipationScreen` (reuses the Grade Editor's `ParticipationEntryView`), `GradesRoute`, `GradesDestination` | **Grades agent** (grades, extension requests and exec grants, Members notes, Participation) |
-| `Features/Messages/` | `MessagesTab`, `MessagesRoute`, `MessagesDestination`, `Equipment/` (checkout requests, my gear, Manage: requests, out, inventory, managers), `Livestreams/` (sign-ups, event editor, credit, managers), `Shared/` (`PortalFileSheet`, person picker) | **Messages agent** (chats, equipment, livestreams) |
-| `Features/Announcements/` | `AnnouncementsRoute`, `AnnouncementsDestination`, feed/detail/compose views, `SubmitAnnouncementView`, `SlackPostCard` (attachments open in Quick Look) | **Announcements agent** (class feed, submit form, submitted announcements, PA script) |
+| `Features/Messages/` | `MessagesTab`, `MessagesRoute`, `MessagesDestination`, `Equipment/` (checkout requests, my gear, Manage: requests, out, inventory, managers), `Livestreams/` (sign-ups, event editor, credit, managers), `Shared/` (person picker, avatars) | **Messages agent** (chats, equipment, livestreams) |
+| `Features/Announcements/` | `AnnouncementsRoute`, `AnnouncementsDestination`, feed/detail/compose views, `SubmitAnnouncementView`, `SlackPostCard` (attachments open in Quick Look; `SlackFiles` downloads them with `PortalClient.download`) | **Announcements agent** (class feed, submit form, submitted announcements, PA script) |
 | `Features/PackageCycles/` | `PackageCyclesRoute`, `PackageCyclesDestination` | **Package Cycles agent** (roster: topic, members, producer; cycle dates) |
 | `Features/Publishing/` | `PublishingRoute`, `PublishingDestination` | **Publishing agent** (Publishing Queue, YouTube publication status) |
 | `Features/GradeEditor/` | `GradeEditorRoute`, `GradeEditorDestination` | **Grade Editor agent** (execs: gradebook editing) |
@@ -68,7 +68,7 @@ Every signed-in Portal page has a native screen; `PortalParityTests` checks that
 - The equipment checkout kiosk and equipment passkeys (the Equipment toolbar menu).
 - Admin > School year and Admin > System (integrations and reset), the Instagram Post Maker, the password vault's CSV import, and the browser- or Mac-only Settings sections.
 - Package of the Cycle certificate downloads, and Publishing Queue final-cut downloads.
-- Rich text in Master Calendar notes: the native editor saves plain text and a pill list.
+- Formatting in Master Calendar notes (bold, italics, underline, lists): the native editor shows it and keeps it exactly, edits only plain paragraphs and pills, and links to the Portal to change formatted parts.
 
 ## Talking to the Portal
 
@@ -91,6 +91,7 @@ try await client.patch(…); try await client.put(…); try await client.delete(
   - `.decoding`.
   - `.unauthorized` (401) is handled for you: the app goes back to sign-in.
 - Find the API you need by reading the Portal repo: routes live in `app/api/**/route.ts` and logic in `src/server/`. Match the web client's calls, which are in the page's `*-client.tsx`. Don't invent endpoints. If one is missing, say so in your report.
+- Files (not JSON): `let (data, response) = try await client.download("api/slack/files/\(id)")`. Same session, errors and 401 handling as the JSON calls; don't call `URLSession` yourself.
 - Uploads: ask the Portal's upload route for a destination, then `PortalUpload.file(at:to:method:headers:progress:)` streams the file from disk with progress. See the Portal's `docs/NAS-STORAGE.md` for the Drive/NAS flow the web uses.
 - Load state: hold a `Loadable<T>`. Render it with `LoadableView(state, retry:) { value in … }`, or by hand with `SkeletonList` / `ErrorStateView` / `EmptyStateView`. Use `.refreshable` for pull-to-refresh.
 

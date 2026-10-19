@@ -2,7 +2,8 @@ import SwiftUI
 
 /// A class day's or a holiday's notes, like the Portal's Master Calendar cell: the text, package
 /// pills (each one marks its package aired on that day; rename or remove it), and on a class day
-/// the scenic image switch.
+/// the scenic image switch. Plain paragraphs are edited here; formatted parts (bold, lists…) show
+/// as the Portal shows them and are kept exactly, with a link to edit them on the Portal.
 struct DayNotesEditor: View {
     let date: String
     let kind: DayKind
@@ -10,20 +11,15 @@ struct DayNotesEditor: View {
     let busy: Bool
     let editor: CalendarDayEditor?
 
-    @State private var text = ""
-    @State private var pills: [CalendarNotes.Pill] = []
-    @State private var loadedFrom: String?
+    @Environment(Router.self) private var router
+    @State private var doc = CalendarNotesDocument.parse("")
+    /// The cell `doc` was read from; a save checks the Portal still has it.
+    @State private var base = ""
     @State private var addingPackage = false
     @State private var renaming: CalendarNotes.Pill?
     @State private var renameText = ""
 
-    private var stored: CalendarNotes { CalendarNotes.parse(content) }
-    /// Edits not saved yet, against the cell this editor last loaded.
-    private var dirty: Bool {
-        guard let loadedFrom else { return false }
-        let base = CalendarNotes.parse(loadedFrom)
-        return text != base.text || pills != base.pills
-    }
+    private var imageHidden: Bool { CalendarNotes.isImageHidden(content) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -31,10 +27,10 @@ struct DayNotesEditor: View {
             notes
         }
         .onAppear(perform: syncFromStore)
-        .onChange(of: content) { _, _ in if !dirty { syncFromStore() } }
+        .onChange(of: content) { _, _ in if !doc.isDirty { syncFromStore() } }
         .sheet(isPresented: $addingPackage) {
-            PackagePickerSheet(taken: Set(pills.map(\.id))) { option in
-                pills.append(.init(id: option.id, label: option.title))
+            PackagePickerSheet(taken: Set(doc.pills.map(\.id))) { option in
+                doc.addPill(id: option.id, label: option.title)
             }
         }
         .alert("Rename package", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -47,10 +43,8 @@ struct DayNotesEditor: View {
     }
 
     private func syncFromStore() {
-        let parsed = stored
-        text = parsed.text
-        pills = parsed.pills
-        loadedFrom = content
+        doc = CalendarNotesDocument.parse(content)
+        base = content
     }
 
     // MARK: Scenic image
@@ -59,9 +53,9 @@ struct DayNotesEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 CastSectionHeader(title: "Scenic image", detail: "Shown on class days in the calendar")
-                if stored.imageHidden { StatusTag(text: "Image off") }
+                if imageHidden { StatusTag(text: "Image off") }
             }
-            if !stored.imageHidden, let url = CalendarNotes.scenicImage(for: date) {
+            if !imageHidden, let url = CalendarNotes.scenicImage(for: date) {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
@@ -75,8 +69,8 @@ struct DayNotesEditor: View {
             Button {
                 Task { await editor?.toggleImage() }
             } label: {
-                Label(stored.imageHidden ? "Restore image" : "Delete image",
-                      systemImage: stored.imageHidden ? "photo" : "photo.badge.minus")
+                Label(imageHidden ? "Restore image" : "Delete image",
+                      systemImage: imageHidden ? "photo" : "photo.badge.minus")
             }
             .buttonStyle(.brandSecondary)
             .disabled(busy)
@@ -90,27 +84,65 @@ struct DayNotesEditor: View {
         VStack(alignment: .leading, spacing: 10) {
             CastSectionHeader(title: "Notes", detail: "What's happening this day",
                               action: ("Add package", "plus", { addingPackage = true }), disabled: busy)
-            TextEditor(text: $text)
-                .font(.bodyText)
-                .frame(minHeight: 140)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(Brand.raised, in: RoundedRectangle(cornerRadius: Brand.radius))
-                .accessibilityLabel("Notes")
-            if !pills.isEmpty {
+            ForEach(Array(doc.blocks.enumerated()), id: \.offset) { index, block in
+                switch block {
+                case .text: textField(at: index)
+                case .rich(let html): formatted(html)
+                case .pill: EmptyView() // listed under Packages
+                }
+            }
+            if doc.hasFormatting {
+                Button("Edit formatting on the Portal") {
+                    router.openPortal("master-calendar?date=\(date)", title: "Master Calendar")
+                }
+                .font(.small)
+                .tint(Brand.green)
+            }
+            if !doc.pills.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Eyebrow("Packages", color: Brand.muted)
-                    ForEach(pills) { pill in pillRow(pill) }
+                    ForEach(doc.pills) { pill in pillRow(pill) }
                 }
             }
             Button("Save notes") { Task { await save() } }
                 .buttonStyle(.brandPrimary)
-                .disabled(busy || !dirty)
+                .disabled(busy || !doc.isDirty)
+            if doc.isDirty {
+                Button("Discard changes", role: .destructive) { syncFromStore() }
+                    .buttonStyle(.brandSecondary)
+                    .disabled(busy)
+            }
             Text("Adding a package marks it aired on this day. Removing it puts it back.")
                 .font(.small)
                 .foregroundStyle(Brand.muted)
         }
         .card()
+    }
+
+    private func textField(at index: Int) -> some View {
+        TextField("Notes", text: Binding(get: { doc.text(at: index) }, set: { doc.setText($0, at: index) }), axis: .vertical)
+            .font(.bodyText)
+            .lineLimit(3...)
+            .padding(12)
+            .background(Brand.raised, in: RoundedRectangle(cornerRadius: Brand.radius))
+            .accessibilityLabel("Notes")
+            .disabled(busy)
+    }
+
+    /// Formatted text from the Portal: shown as it looks there, kept exactly as stored.
+    private func formatted(_ html: String) -> some View {
+        let text = CalendarRichText.attributed(html)
+        return Group {
+            if !text.characters.isEmpty {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(text).font(.bodyText).frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "lock").font(.small).foregroundStyle(Brand.muted)
+                        .accessibilityLabel("Formatted on the Portal; edit it there")
+                }
+                .padding(12)
+                .overlay(RoundedRectangle(cornerRadius: Brand.radius).strokeBorder(Brand.control))
+            }
+        }
     }
 
     private func pillRow(_ pill: CalendarNotes.Pill) -> some View {
@@ -122,7 +154,7 @@ struct DayNotesEditor: View {
             Spacer(minLength: 0)
             Menu {
                 Button { renameText = pill.label; renaming = pill } label: { Label("Rename", systemImage: "pencil") }
-                Button(role: .destructive) { pills.removeAll { $0.id == pill.id } } label: { Label("Remove", systemImage: "trash") }
+                Button(role: .destructive) { doc.removePill(id: pill.id) } label: { Label("Remove", systemImage: "trash") }
             } label: {
                 Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle())
             }
@@ -135,15 +167,20 @@ struct DayNotesEditor: View {
 
     private func save() async {
         guard let editor else { return }
-        await editor.setNotes(text, pills: pills)
-        if editor.error == nil { syncFromStore() }
+        let body = doc.body()
+        await editor.setNotes(body, basedOn: base)
+        // Saved: what was sent is the new base, so the store's fresh copy replaces it on arrival.
+        if editor.error == nil {
+            doc = CalendarNotesDocument.parse(body)
+            base = body
+        }
     }
 
     private func rename() {
         defer { renaming = nil }
         let label = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let target = renaming, !label.isEmpty else { return }
-        pills = pills.map { $0.id == target.id ? CalendarNotes.Pill(id: $0.id, label: label) : $0 }
+        doc.renamePill(id: target.id, label: label)
     }
 }
 
