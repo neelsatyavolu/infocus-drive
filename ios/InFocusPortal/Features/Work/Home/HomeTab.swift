@@ -52,6 +52,7 @@ struct HomeTab: View {
             }
         }
         QuickActions()
+        if !home.workspaces.isEmpty { WorkspacesHomeSection(workspaces: home.workspaces) }
         if !home.activity.isEmpty {
             ActivitySection(entries: home.activity)
         }

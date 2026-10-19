@@ -29,7 +29,8 @@ enum PortalPagesCatalog {
         let producer = user.isProducer
 
         var main = [page("Announcements", "megaphone", "announcements"),
-                    page(producer ? "Packages" : "Dashboard", "square.grid.2x2", "dashboard")]
+                    page(producer ? "Packages" : "Dashboard", "square.grid.2x2", "dashboard"),
+                    page("Workspaces", "folder", "workspaces")]
         if user.seesStudentGrades { main.append(page("Grades", "chart.bar", "grades")) }
 
         var production = [page("Master Calendar", "calendar", "master-calendar"),
