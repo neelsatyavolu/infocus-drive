@@ -2,17 +2,14 @@ import SwiftUI
 
 /// A producer's editor for one day, like the Portal's Master Calendar cell: anchors and the
 /// show manager (with Randomize and the rotation), show director, PA announcers, Spirit Week
-/// crews, and a class day's notes. Every change saves on its own.
+/// crews, and a class day's or holiday's notes, package pills and scenic image. Every change saves on its own.
 struct DayEditorView: View {
     let date: String
 
     @Environment(\.portalClient) private var client
     @Environment(\.dismiss) private var dismiss
-    @Environment(Router.self) private var router
     @State private var editor: CalendarDayEditor?
     @State private var picker: NamePickerRequest?
-    @State private var notes = ""
-    @State private var notesLoaded = false
     private let store = CalendarStore.shared
 
     var body: some View {
@@ -25,7 +22,6 @@ struct DayEditorView: View {
                     } else {
                         SkeletonList(rows: 3)
                     }
-                    fullCellLink
                 }
                 .padding(Brand.gutter)
             }
@@ -62,7 +58,7 @@ struct DayEditorView: View {
         case .pa:
             paAnnouncers(day, members: members)
         case .none, .holiday:
-            notesEditor(month)
+            notesEditor(month, kind: day.kind)
         }
         if let spirit = month.spiritWeek?[date], day.kind == .show || day.kind == .pa {
             SpiritWeekCrewCard(day: day, spirit: spirit, members: members, busy: busy, picker: $picker) { role, names in
@@ -152,36 +148,7 @@ struct DayEditorView: View {
 
     // MARK: Other days
 
-    private func notesEditor(_ month: CalendarMonth) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            CastSectionHeader(title: "Notes", detail: "What's happening this day")
-            TextEditor(text: $notes)
-                .font(.bodyText)
-                .frame(minHeight: 140)
-                .scrollContentBackground(.hidden)
-                .padding(8)
-                .background(Brand.raised, in: RoundedRectangle(cornerRadius: Brand.radius))
-                .accessibilityLabel("Notes")
-            Button("Save notes") { Task { await editor?.setNotes(notes) } }
-                .buttonStyle(.brandPrimary)
-                .disabled(busy || notes == DayContent.lines(of: month.content(of: date)).joined(separator: "\n"))
-        }
-        .card()
-        .onAppear {
-            guard !notesLoaded else { return }
-            notesLoaded = true
-            notes = DayContent.lines(of: month.content(of: date)).joined(separator: "\n")
-        }
-    }
-
-    private var fullCellLink: some View {
-        Button {
-            dismiss()
-            router.openPortal("master-calendar?date=\(date)", title: "Master Calendar")
-        } label: {
-            Label("Edit packages and other text in the Portal", systemImage: "square.and.pencil")
-        }
-        .buttonStyle(.brandQuiet)
-        .hiddenInSampleApp()
+    private func notesEditor(_ month: CalendarMonth, kind: DayKind) -> some View {
+        DayNotesEditor(date: date, kind: kind, content: month.content(of: date), busy: busy, editor: editor)
     }
 }

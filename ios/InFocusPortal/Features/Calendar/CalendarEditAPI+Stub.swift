@@ -20,7 +20,12 @@ extension CalendarEditAPI {
             CalendarStubData.members.enumerated().map { index, name in CastCount(name: name, anchors: index % 3, pa: index % 2) }
         },
         syncDoc: { _ in 18 },
-        showOverview: { date in CalendarStubData.overview(date) }
+        showOverview: { date in CalendarStubData.overview(date) },
+        searchPackages: { query in
+            CalendarStubData.packageOptions.filter { $0.title.localizedCaseInsensitiveContains(query) }
+        },
+        markAired: { _, _ in },
+        unmarkAired: { _ in }
     )
 }
 

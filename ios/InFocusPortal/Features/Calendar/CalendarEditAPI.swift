@@ -21,6 +21,12 @@ struct CalendarEditAPI: Sendable {
     var syncDoc: @Sendable (_ month: String) async throws -> Int
     /// `GET api/show-roles/overview[?date=]`: The Show for producers.
     var showOverview: @Sendable (_ date: String?) async throws -> ShowOverview
+    /// `GET api/master-calendar/packages?q=`: media to add as a package pill.
+    var searchPackages: @Sendable (_ query: String) async throws -> [CalendarPackageOption]
+    /// `POST api/master-calendar/mark-aired`: a pill was added to a day.
+    var markAired: @Sendable (_ mediaItemId: String, _ date: String) async throws -> Void
+    /// `POST api/master-calendar/unmark-aired`: a pill was removed (the Portal decides whether to revert).
+    var unmarkAired: @Sendable (_ mediaItemId: String) async throws -> Void
 
     static func live(_ client: PortalClient) -> CalendarEditAPI {
         struct Cell: Encodable { let date: String; let content: String }
@@ -35,6 +41,9 @@ struct CalendarEditAPI: Sendable {
         struct Wiped: Decodable { let entries: [CalendarMonth.Entry]? }
         struct Counts: Decodable { let people: [CastCount] }
         struct Synced: Decodable { let entryCount: Int }
+        struct Results: Decodable { let results: [CalendarPackageOption] }
+        struct Aired: Encodable { let mediaItemId: String; let date: String }
+        struct Unaired: Encodable { let mediaItemId: String }
         return CalendarEditAPI(
             saveCell: { day, content in
                 let saved: Saved = try await client.post("api/master-calendar", body: Cell(date: day, content: content))
@@ -61,7 +70,12 @@ struct CalendarEditAPI: Sendable {
             },
             castCounts: { try await client.get("api/master-calendar/cast-counts", as: Counts.self).people },
             syncDoc: { month in try await client.post("api/master-calendar/sync-doc", body: Month(month: month), as: Synced.self).entryCount },
-            showOverview: { day in try await client.get("api/show-roles/overview", query: day.map(dateQuery) ?? []) }
+            showOverview: { day in try await client.get("api/show-roles/overview", query: day.map(dateQuery) ?? []) },
+            searchPackages: { query in
+                try await client.get("api/master-calendar/packages", query: [URLQueryItem(name: "q", value: query)], as: Results.self).results
+            },
+            markAired: { id, day in try await client.post("api/master-calendar/mark-aired", body: Aired(mediaItemId: id, date: day)) },
+            unmarkAired: { id in try await client.post("api/master-calendar/unmark-aired", body: Unaired(mediaItemId: id)) }
         )
     }
 

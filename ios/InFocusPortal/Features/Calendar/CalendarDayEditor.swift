@@ -60,12 +60,41 @@ final class CalendarDayEditor {
         }
     }
 
-    /// A class day's or a holiday's free text (show and PA cells keep their structure).
-    func setNotes(_ text: String) async {
-        await saveCell { try await self.edit.saveCell(self.date, CalendarCellHTML.notes(text.components(separatedBy: .newlines))) }
+    /// A class day's or a holiday's text and package pills (show and PA cells keep their structure).
+    /// The image switch is read from the Portal's current cell, so a save never undoes it.
+    func setNotes(_ text: String, pills: [CalendarNotes.Pill]) async {
+        await saveNotes { current in
+            CalendarNotes(text: text, pills: pills, imageHidden: current.imageHidden)
+        }
+    }
+
+    /// A class day's scenic image on or off (the Portal's Delete image / Restore image).
+    func toggleImage() async {
+        await saveNotes { current in
+            var next = current
+            next.imageHidden.toggle()
+            return next
+        }
     }
 
     // MARK: -
+
+    /// Saves the notes built from the fresh cell, then marks added pills aired and puts removed
+    /// ones back, as the Portal's calendar does after each save.
+    private func saveNotes(_ build: @escaping (CalendarNotes) -> CalendarNotes) async {
+        await saveCell {
+            let before = try await self.freshContent()
+            let saved = try await self.edit.saveCell(self.date, build(CalendarNotes.parse(before)).html())
+            try await self.syncAired(before: before, after: saved)
+            return saved
+        }
+    }
+
+    private func syncAired(before: String, after: String) async throws {
+        let changes = CalendarNotes.airedChanges(before: before, after: after)
+        for id in changes.added { try await edit.markAired(id, date) }
+        for id in changes.removed { try await edit.unmarkAired(id) }
+    }
 
     /// The cell as the Portal has it now, so a section edit never undoes someone else's change.
     private func freshContent() async throws -> String {

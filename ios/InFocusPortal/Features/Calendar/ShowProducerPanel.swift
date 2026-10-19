@@ -157,12 +157,11 @@ struct ShowProducerPanel: View {
     private func actions(_ show: ShowOverview) -> some View {
         HStack(spacing: 8) {
             Button(show.teleprompterDocId == nil ? "Create script" : "Open script") {
-                router.openPortal(show.teleprompterHref, title: "Teleprompter")
+                router.push(.calendar(CalendarRoute.teleprompter(href: show.teleprompterHref)))
             }
             .buttonStyle(.brandSecondary)
-            Button("Upload show") { router.openPortal("show-roles?date=\(show.date)", title: "The Show") }
+            Button("Upload show") { router.push(.calendar(.showUpload(date: show.date))) }
                 .buttonStyle(.brandSecondary)
         }
-        .hiddenInSampleApp() // the script and the upload are Portal pages
     }
 }

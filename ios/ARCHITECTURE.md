@@ -43,7 +43,7 @@ The reserved cases, wired today to placeholders that show the Portal page:
 | Enum | Cases | Deep links parsed today |
 |---|---|---|
 | `WorkRoute` | `group(rowId:stage:)`, `studentStage(StudentStage)` | `/groups` (Work root), `/groups/<rowId>[/<stage>]`, `/information`, `/brainstorming`, `/a-roll`, `/initial-cut`, `/final-cut` |
-| `CalendarRoute` | `day(date:)`, `theShow` | `/master-calendar[?date=]`, `/show-roles` |
+| `CalendarRoute` | `day(date:)`, `theShow`, `showUpload(date:)`, `teleprompter(showDate:docId:)` | `/master-calendar[?date=]`, `/show-roles`, `/teleprompter[?showDate=&doc=]` (and `teleprompter.` host) |
 | `GradesRoute` | `grades`, `extensions`, `extensionRequest(id:)` | `/grades` (and `grades.` host), `/extensions[/<id>]`, `/extension-requests[/<id>]` (all on More) |
 | `MessagesRoute` | `conversation(id:)`, `equipment`, `livestreams`, `livestream(id:)` | `/equipment` (and `equipment.` host), `/livestreams[/<id>]` (on More) |
 | `AnnouncementsRoute` | `feed`, `announcement(id:)`, `submitted`, `pa` | `/announcements` (Calendar tab), `/announcements/submitted`, `/announcements/pa` (More) |

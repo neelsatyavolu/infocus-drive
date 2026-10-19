@@ -74,7 +74,7 @@ final class CalendarStore {
     nonisolated static func days(from month: CalendarMonth) -> [CalendarDay] {
         let entries = Dictionary(month.entries.map { ($0.date, $0.content) }, uniquingKeysWith: { first, _ in first })
         return month.schedule.map { day in
-            let parsed = DayContent.parse(entries[day.date] ?? "")
+            let parsed = DayContent.parse(CalendarNotes.stripToken(entries[day.date] ?? ""))
             var roles = parsed.sections.filter { !$0.lines.isEmpty }
             if day.kind == .show, let manager = month.showManagers[day.date]?.name, !manager.isEmpty,
                !roles.contains(where: { $0.heading == "Show Manager" }) {
