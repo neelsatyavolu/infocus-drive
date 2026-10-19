@@ -61,7 +61,7 @@ The route enums and the Portal links each one opens:
 
 `/` and `/dashboard` go to Home. Anything else becomes `.portal(PortalPage(url:))` on the current tab.
 
-Every signed-in Portal page has a native screen; `PortalParityTests` checks that each one resolves to a native route. These parts stay on the web on purpose:
+Every signed-in Portal page has a native screen; `PortalParityTests` checks that each one resolves to a native route. The review screen, story ideas, the Class Board, Managers, View as and Passwords read Portal APIs added for the app (`GET api/media/<id>/review`, `api/media/<id>/versions/<versionId>/poster`, `api/ideas`, `api/class-board`, `api/managers`, `api/auth/view-as/status`, `api/vault/access`); a Portal without them answers 404 and those screens can't load, so deploy the Portal first. These parts stay on the web on purpose:
 
 - On the web review and project pages: quick grades, transcripts, comment import, member assignment, moving media, project download, new versions of an item and legacy Bunny uploads.
 - `/g/<token>` guest review pages, for people without a Portal account.
@@ -151,4 +151,4 @@ Follow the Portal's `DESIGN.md` §10/§13:
 
 ## Placeholder screens
 
-`PortalFallback(path:title:)` (Web/) shows a Portal page in the in-app web view. New areas start with it in their `…Destination` and swap in native views case by case. More → **Producer tools** (producers only; Grade Editor needs `canManageGrades`) links Meetings, Package Cycles, Members, Participation, Publishing Queue, Grade Editor and Submitted announcements. **Class** links story ideas, the submit form and the Class Board; **Admin and tools** links Admin (`canManageAccounts`), Managers and Passwords (producers). Both are hidden for the sample account.
+`PortalFallback(path:title:)` (Web/) shows a Portal page in the in-app web view. New areas start with it in their `…Destination` and swap in native views case by case. More → **Producer tools** (producers only; Grade Editor needs `canManageGrades`) links Meetings, Package Cycles, Members, Participation, Publishing Queue, Grade Editor and Submitted announcements. **Class** links story ideas, the submit form and the Class Board; **Admin and tools** links Admin (`canManageAccounts`), Managers and Passwords (producers, and anyone a producer shared a login with, from `api/vault/access`). Both are hidden for the sample account.
