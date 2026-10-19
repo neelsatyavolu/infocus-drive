@@ -1,28 +1,45 @@
 import SwiftUI
 
-/// More → Managers, the native `/managers`: each manager area and the tool it opens.
-/// Producers also see who's appointed (each tool's own Managers list appoints them).
-/// The Portal has no API that says which areas a student is appointed to, so every
-/// tool is listed and the tool itself says if it isn't available.
+/// More → Managers, the native `/managers` (`GET api/managers`): each manager area, who
+/// manages it, and whether this person can open its tool. Areas this person manages come
+/// first with a "Your role" tag; tools they can't open are listed as locked.
 struct ManagersScreen: View {
     @Environment(\.portalClient) private var client
-    @Environment(SessionStore.self) private var session
-    @State private var rosters: [ManagerArea: ManagerRoster] = [:]
-
-    private var isProducer: Bool { session.user?.isProducer == true }
+    @State private var state: Loadable<ManagersOverview> = .idle
+    @State private var notAvailable = false
 
     var body: some View {
+        Group {
+            if notAvailable {
+                NotAvailableView(message: "Managers isn't available for this account.")
+            } else {
+                LoadableView(state, retry: { Task { await load() } }) { overview in
+                    content(overview)
+                }
+            }
+        }
+        .brandBackground()
+        .navigationTitle("Managers")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+    }
+
+    private func content(_ overview: ManagersOverview) -> some View {
         List {
             Section {
-                Nameplate(eyebrow: "Managers", title: "Manager tools",
-                          subtitle: isProducer ? "You can open every tool and appoint managers." : "Producers appoint managers from each tool.")
+                Nameplate(eyebrow: "Managers", title: "Manager tools", subtitle: overview.summary)
                     .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                RoleTags(overview: overview)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
             }
             Section("Areas") {
-                ForEach(ManagerArea.allCases) { area in
-                    NavigationLink(value: area.route) {
-                        AreaRow(area: area, roster: isProducer ? rosters[area] : nil)
+                ForEach(overview.ordered) { area in
+                    if area.canOpen {
+                        NavigationLink(value: area.area.route) { AreaRow(area: area) }
+                    } else {
+                        AreaRow(area: area)
                     }
                 }
             }
@@ -36,45 +53,49 @@ struct ManagersScreen: View {
             }
         }
         .toolsList()
-        .navigationTitle("Managers")
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await loadRosters() }
-        .refreshable { await loadRosters() }
+        .refreshable { await load() }
     }
 
-    /// Best effort: a roster that fails to load just shows no names.
-    private func loadRosters() async {
-        guard isProducer else { return }
-        let service = ManagersService(client: client)
-        await withTaskGroup(of: (ManagerArea, ManagerRoster?).self) { group in
-            for area in ManagerArea.allCases {
-                group.addTask { (area, try? await service.roster(area)) }
+    private func load() async {
+        await ToolLoad.run($state, notAvailable: $notAvailable) { try await ManagersService(client: client).overview() }
+    }
+}
+
+/// "Producer", or one tag per area this person manages (none for everyone else).
+private struct RoleTags: View {
+    let overview: ManagersOverview
+
+    var body: some View {
+        let tags = overview.isProducer ? ["Producer"] : overview.yourAreas.map(\.roleName)
+        if !tags.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(tags, id: \.self) { StatusTag(text: $0, tone: .success) }
             }
-            for await (area, roster) in group {
-                if let roster { rosters[area] = roster }
-            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Your role: \(tags.joined(separator: ", "))")
         }
     }
 }
 
 private struct AreaRow: View {
-    let area: ManagerArea
-    let roster: ManagerRoster?
+    let area: ManagersOverview.Area
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: area.systemImage)
-                .foregroundStyle(Brand.green)
+            Image(systemName: area.canOpen ? area.area.systemImage : "lock")
+                .foregroundStyle(area.canOpen ? Brand.green : Brand.muted)
                 .frame(width: 28, height: 28)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
-                Eyebrow(area.title, color: Brand.muted, size: 11)
-                Text(area.tool).font(.h3).foregroundStyle(Brand.foreground)
-                Text(area.summary).font(.small).foregroundStyle(Brand.secondary)
-                if let roster {
-                    Text("Managers: \(roster.namesLine)").font(.small).foregroundStyle(Brand.muted)
+                HStack(spacing: 6) {
+                    Eyebrow(area.title, color: area.canOpen ? Brand.green : Brand.muted, size: 11)
+                    if area.yours { StatusTag(text: "Your role", tone: .success) }
+                    if !area.canOpen { StatusTag(text: "Locked") }
                 }
-                Text(area.access).font(.small).foregroundStyle(Brand.muted)
+                Text(area.tool).font(.h3).foregroundStyle(Brand.foreground)
+                Text(area.description).font(.small).foregroundStyle(Brand.secondary)
+                Text("Managers: \(area.namesLine)").font(.small).foregroundStyle(Brand.muted)
+                Text(area.accessLine).font(.small).foregroundStyle(Brand.muted)
             }
         }
         .padding(.vertical, 6)

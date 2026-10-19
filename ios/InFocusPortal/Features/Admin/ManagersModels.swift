@@ -7,39 +7,13 @@ enum ManagerArea: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 
-    var title: String {
+    /// The role tag the web shows on `/managers` ("Your role").
+    var roleName: String {
         switch self {
-        case .equipment: "Equipment"
-        case .livestreams: "Livestream"
-        case .website: "Website"
-        case .socialMedia: "Social media"
-        }
-    }
-
-    var tool: String {
-        switch self {
-        case .equipment: "Equipment Dashboard"
-        case .livestreams: "Livestream Tracker"
-        case .website: "Publishing Queue"
-        case .socialMedia: "Instagram Post Maker"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .equipment: "Check gear in and out, review requests, and keep the inventory current."
-        case .livestreams: "Schedule livestreams, assign crews and managers, and approve sign-ups."
-        case .website: "See which packages air on each show and copy their YouTube embed codes for the site."
-        case .socialMedia: "Make on-brand Instagram stories from your photos and download them as PNGs."
-        }
-    }
-
-    var access: String {
-        switch self {
-        case .equipment: "Producers and appointed equipment managers"
-        case .livestreams: "Everyone can view. Producers and livestream managers edit."
-        case .website: "Producers and appointed website managers (view only)"
-        case .socialMedia: "Producers and appointed social media managers"
+        case .equipment: "Equipment manager"
+        case .livestreams: "Livestream manager"
+        case .website: "Website manager"
+        case .socialMedia: "Social media manager"
         }
     }
 
@@ -131,18 +105,120 @@ struct ManagerRoster: Decodable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey { case managers, candidates }
 
-    /// "Abby, Otto, Sage, Rio +2 more", like the web (never more than four names).
-    var namesLine: String {
-        guard !managers.isEmpty else { return "No one appointed yet" }
-        // Names only, never emails (the web's Managers tab shows these to every member).
-        let shown = managers.prefix(4).map { $0.name?.isEmpty == false ? $0.name! : "A member" }.joined(separator: ", ")
-        return managers.count > 4 ? "\(shown) +\(managers.count - 4) more" : shown
+}
+
+/// `GET api/managers`: the Managers tab as JSON, checked for the effective (View as) user.
+/// `areas` comes in a fixed order; `ordered` sorts it like the web page.
+struct ManagersOverview: Decodable, Sendable, Equatable {
+    struct Person: Decodable, Sendable, Equatable, Identifiable {
+        let userId: String
+        /// Nickname, then name, else "A member". Never an email.
+        let name: String
+        var id: String { userId }
+    }
+
+    struct Area: Decodable, Sendable, Equatable, Identifiable {
+        let area: ManagerArea
+        let title: String
+        let tool: String
+        let description: String
+        let access: String
+        let canOpen: Bool
+        let yours: Bool
+        let people: [Person]
+
+        var id: String { area.id }
+
+        /// The web's Access line; a locked area says who to ask.
+        var accessLine: String { canOpen ? access : "\(access). Ask a producer if you need it." }
+
+        /// "Abby, Otto, Sage, Rio +2 more", like the web (never more than four names).
+        var namesLine: String {
+            guard !people.isEmpty else { return "No one appointed yet" }
+            let shown = people.prefix(4).map(\.name).joined(separator: ", ")
+            return people.count > 4 ? "\(shown) +\(people.count - 4) more" : shown
+        }
+
+        init(area: ManagerArea, title: String, tool: String, description: String, access: String,
+             canOpen: Bool, yours: Bool, people: [Person]) {
+            self.area = area
+            self.title = title
+            self.tool = tool
+            self.description = description
+            self.access = access
+            self.canOpen = canOpen
+            self.yours = yours
+            self.people = people
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            let id = try c.decode(String.self, forKey: .id)
+            guard let area = ManagerArea(rawValue: id) else {
+                throw DecodingError.dataCorruptedError(forKey: .id, in: c, debugDescription: "Unknown manager area \(id)")
+            }
+            self.area = area
+            title = try c.decode(String.self, forKey: .title)
+            tool = try c.decode(String.self, forKey: .tool)
+            description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+            access = try c.decodeIfPresent(String.self, forKey: .access) ?? ""
+            canOpen = try c.decodeIfPresent(Bool.self, forKey: .canOpen) ?? false
+            yours = try c.decodeIfPresent(Bool.self, forKey: .yours) ?? false
+            people = try c.decodeIfPresent([Person].self, forKey: .people) ?? []
+        }
+
+        private enum CodingKeys: String, CodingKey { case id, title, tool, description, access, canOpen, yours, people }
+    }
+
+    let isProducer: Bool
+    let yourAreas: [ManagerArea]
+    let areas: [Area]
+
+    init(isProducer: Bool, yourAreas: [ManagerArea], areas: [Area]) {
+        self.isProducer = isProducer
+        self.yourAreas = yourAreas
+        self.areas = areas
+    }
+
+    /// An area id this app doesn't know yet (a newer Portal) is skipped, not a failure.
+    init(from decoder: Decoder) throws {
+        struct Lossy<T: Decodable>: Decodable {
+            let value: T?
+            init(from decoder: Decoder) throws { value = try? T(from: decoder) }
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        isProducer = try c.decodeIfPresent(Bool.self, forKey: .isProducer) ?? false
+        yourAreas = (try c.decodeIfPresent([String].self, forKey: .yourAreas) ?? []).compactMap(ManagerArea.init(rawValue:))
+        areas = (try c.decodeIfPresent([Lossy<Area>].self, forKey: .areas) ?? []).compactMap(\.value)
+    }
+
+    private enum CodingKeys: String, CodingKey { case isProducer, yourAreas, areas }
+
+    /// Yours first, then the other tools you can open, then locked ones; the Portal's order
+    /// within each (`orderManagerAreas` in the web's `manager-area-row.tsx`).
+    var ordered: [Area] {
+        func rank(_ area: Area) -> Int { area.yours ? 0 : area.canOpen ? 1 : 2 }
+        return areas.enumerated()
+            .sorted { (rank($0.element), $0.offset) < (rank($1.element), $1.offset) }
+            .map(\.element)
+    }
+
+    /// The line under the title (`roleSummary` on the web page).
+    var summary: String {
+        if isProducer { return "You're a producer: you can open every tool and appoint managers from each one." }
+        if yourAreas.isEmpty { return "You're not a manager yet. Producers appoint managers from each tool." }
+        return "Each manager role has its own tool. Choose yours to open it."
     }
 }
 
 /// Manager rosters and the social media roster's changes. Stubbed in the sample app.
 struct ManagersService {
     let client: PortalClient
+
+    func overview() async throws -> ManagersOverview {
+        if SampleMode.isOn { return try ManagersFixtures.overview() }
+        return try await client.get("api/managers")
+    }
 
     func roster(_ area: ManagerArea) async throws -> ManagerRoster {
         if SampleMode.isOn { return ManagersFixtures.roster(area) }
@@ -162,6 +238,25 @@ struct ManagersService {
 }
 
 enum ManagersFixtures {
+    static func overview() throws -> ManagersOverview {
+        try AdminFixtures.decode(ManagersOverview.self, overviewJSON)
+    }
+
+    /// A student who manages equipment, in the Portal's fixed area order.
+    static let overviewJSON = #"""
+    {"data":{"isProducer":false,"yourAreas":["equipment"],"areas":[
+      {"id":"equipment","title":"Equipment","tool":"Equipment Dashboard","description":"Check gear in and out.",
+       "href":"/equipment/manage","access":"Producers and appointed equipment managers","canOpen":true,"yours":true,
+       "people":[{"userId":"u-rio","name":"Rio"}]},
+      {"id":"livestreams","title":"Livestream","tool":"Livestream Tracker","description":"Schedule livestreams.",
+       "href":"/livestreams","access":"Everyone can view. Producers and livestream managers edit.","canOpen":true,"yours":false,"people":[]},
+      {"id":"website","title":"Website","tool":"Publishing Queue","description":"Packages on each show.",
+       "href":"/publishing-queue","access":"Producers and appointed website managers (view only)","canOpen":false,"yours":false,"people":[]},
+      {"id":"social-media","title":"Social media","tool":"Instagram Post Maker","description":"On-brand Instagram stories.",
+       "href":"/managers/social-media","access":"Producers and appointed social media managers","canOpen":false,"yours":false,
+       "people":[{"userId":"u-juno","name":"Juno"}]}]}}
+    """#
+
     static func roster(_ area: ManagerArea) -> ManagerRoster {
         switch area {
         case .equipment:

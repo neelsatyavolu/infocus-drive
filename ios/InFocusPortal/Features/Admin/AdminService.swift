@@ -126,6 +126,12 @@ struct AdminService {
 
     // MARK: View as
 
+    /// Whether View as is on and allowed for this session. The sample app never views as anyone.
+    func viewAsStatus() async throws -> ViewAsStatus {
+        if Self.stubbed { return .off }
+        return try await client.get("api/auth/view-as/status")
+    }
+
     func viewAsPeople() async throws -> [ViewAsPerson] {
         if Self.stubbed { return try AdminFixtures.viewAsPeople() }
         return try await client.get("api/auth/view-as/users")

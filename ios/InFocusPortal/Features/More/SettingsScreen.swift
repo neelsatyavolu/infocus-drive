@@ -13,6 +13,7 @@ struct SettingsScreen: View {
     @State private var confirmingDelete = false
     @State private var pins: [AccessPinKind: AccessPin] = [:]
     @State private var signature: SignatureInfo?
+    @State private var viewAs: ViewAsStatus?
 
     /// Deletion requests go to InFocus (the adviser manages accounts).
     static let deletionRequestURL = URL(string: "https://infocusnews.tv/contact-us/")!
@@ -21,6 +22,7 @@ struct SettingsScreen: View {
         @Bindable var preferences = preferences
         List {
             if session.user != nil {
+                ViewAsBanner(status: $viewAs) // only while View as is on: the way back to your own account
                 ProfileSection()
             }
             Section {
@@ -94,9 +96,10 @@ struct SettingsScreen: View {
         }
     }
 
-    /// PINs and signature: only for the people the Portal shows them to.
+    /// View as, PINs and signature: only for the people the Portal shows them to.
     private func loadExtras() async {
         guard session.user?.sampleOnly == false else { return }
+        viewAs = await ViewAsBanner.load(client: client, user: session.user)
         let service = SettingsService(client: client)
         pins = await AccessPinsSection.load(service)
         signature = await service.signature()

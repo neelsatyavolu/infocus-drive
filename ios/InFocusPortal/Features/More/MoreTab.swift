@@ -6,6 +6,9 @@ import SwiftUI
 struct MoreTab: View {
     @Environment(SessionStore.self) private var session
     @Environment(BadgeCenter.self) private var badges
+    @Environment(\.portalClient) private var client
+    /// `GET api/vault/access`: producers, and anyone a producer shared a login with.
+    @State private var vaultAccess: VaultAccess?
 
     var body: some View {
         List {
@@ -57,7 +60,7 @@ struct MoreTab: View {
                                 row("Admin", "shield", .admin(.home))
                             }
                             row("Managers", "person.2.badge.gearshape", .admin(.managers))
-                            if user.isProducer {
+                            if vaultAccess?.canOpen ?? user.isProducer {
                                 row("Passwords", "key", .admin(.passwords))
                             }
                         }
@@ -77,6 +80,14 @@ struct MoreTab: View {
         .scrollContentBackground(.hidden)
         .brandBackground()
         .navigationTitle("More")
+        .task(id: session.user) { await loadVaultAccess() }
+    }
+
+    /// Best effort: until it loads (or if it fails), Passwords shows for producers.
+    private func loadVaultAccess() async {
+        vaultAccess = nil // a new person (or View as): don't keep the last one's answer
+        guard let user = session.user, !user.sampleOnly else { return }
+        vaultAccess = try? await VaultService(client: client).access()
     }
 
     private func row(_ title: String, _ systemImage: String, _ route: Route) -> some View {

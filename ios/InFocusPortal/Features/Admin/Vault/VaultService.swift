@@ -9,6 +9,12 @@ struct VaultService {
 
     static var stubbed: Bool { SampleMode.isOn }
 
+    /// Full, shared or none. The sample app has full access to its fictional logins.
+    func access() async throws -> VaultAccess {
+        if Self.stubbed { return VaultAccess(level: .full, canShare: true, canDeleteAny: true) }
+        return try await client.get("api/vault/access")
+    }
+
     func entries() async throws -> [VaultEntry] {
         if Self.stubbed { return try VaultFixtures.entries() }
         return try await client.get("api/vault")

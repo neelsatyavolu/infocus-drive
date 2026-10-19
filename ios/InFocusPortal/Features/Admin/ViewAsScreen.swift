@@ -11,7 +11,7 @@ struct ViewAsScreen: View {
     @Environment(BadgeCenter.self) private var badges
     @State private var state: Loadable<[ViewAsPerson]> = .idle
     @State private var notAvailable = false
-    @State private var viewingAs = false
+    @State private var status: ViewAsStatus?
     @State private var query = ""
     @State private var picked: ViewAsPerson?
     @State private var switching = false
@@ -47,13 +47,8 @@ struct ViewAsScreen: View {
 
     private func list(_ people: [ViewAsPerson]) -> some View {
         List {
-            if viewingAs {
-                Section {
-                    Text("You're viewing the Portal as \(session.user?.name ?? "someone else").")
-                    Button("Stop viewing as") { Task { await switchTo(nil) } }
-                        .buttonStyle(.brandPrimary)
-                        .listRowBackground(Color.clear)
-                }
+            if let status, status.active {
+                ViewAsActiveSection(status: status, stopping: switching) { Task { await switchTo(nil) } }
             }
             Section("People") {
                 ForEach(ViewAsSwitch.filter(people, query)) { person in
@@ -68,9 +63,16 @@ struct ViewAsScreen: View {
         .refreshable { await load() }
     }
 
+    /// The status says if this person may use View as at all (no more guessing from a 403),
+    /// then the people list loads.
     private func load() async {
-        if let portal = router.portal { viewingAs = await ViewAsSwitch.isViewingAs(portal: portal) }
-        await ToolLoad.run($state, notAvailable: $notAvailable) { try await AdminService(client: client).viewAsPeople() }
+        let service = AdminService(client: client)
+        status = try? await service.viewAsStatus()
+        if let status, !status.allowed {
+            notAvailable = true
+            return
+        }
+        await ToolLoad.run($state, notAvailable: $notAvailable) { try await service.viewAsPeople() }
     }
 
     /// Switch (or stop with nil), then reload the signed-in person and start over on Home.
@@ -78,10 +80,7 @@ struct ViewAsScreen: View {
         switching = true
         defer { switching = false }
         do {
-            try await ViewAsSwitch.switchTo(userId, client: client)
-            await session.load(using: client)
-            router.reset()
-            await badges.refresh(using: client)
+            try await ViewAsSwitch.apply(userId, client: client, session: session, router: router, badges: badges)
         } catch {
             actionError = Loadable<Int>.message(for: error)
         }
@@ -98,9 +97,15 @@ enum ViewAsSwitch {
         return people.filter { [$0.name, $0.email].contains { $0?.lowercased().contains(needle) == true } }
     }
 
+    /// Switch (or stop with nil), then reload the signed-in person, start over on Home and
+    /// refresh the badges: every screen now shows the new account.
     @MainActor
-    static func isViewingAs(portal: URL, now: Date = Date()) async -> Bool {
-        await PortalCookies.forPortal(portal).contains { isActive($0, now: now) }
+    static func apply(_ userId: String?, client: PortalClient, session: SessionStore,
+                      router: Router, badges: BadgeCenter) async throws {
+        try await switchTo(userId, client: client)
+        await session.load(using: client)
+        router.reset()
+        await badges.refresh(using: client)
     }
 
     static func isActive(_ cookie: HTTPCookie, now: Date = Date()) -> Bool {
