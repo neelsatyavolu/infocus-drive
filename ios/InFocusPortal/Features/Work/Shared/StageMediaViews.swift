@@ -99,6 +99,8 @@ struct StagePlayerScreen: View {
 struct PortalImage: View {
     let path: String
     let api: WorkAPI
+    /// Show the whole image (a full-screen viewer) instead of filling the frame.
+    var fit = false
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -106,7 +108,11 @@ struct PortalImage: View {
         ZStack {
             Brand.raised
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+                if fit {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
             } else if failed {
                 Image(systemName: "photo").foregroundStyle(Brand.muted)
             } else {

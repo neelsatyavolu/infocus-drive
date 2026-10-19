@@ -4,6 +4,7 @@ import SwiftUI
 /// unread feedback, and whether it's unlocked yet.
 struct PackagesScreen: View {
     @Environment(\.portalClient) private var client
+    @Environment(SessionStore.self) private var session
     @State private var state: Loadable<StudentGates> = .idle
 
     var body: some View {
@@ -13,17 +14,25 @@ struct PackagesScreen: View {
                     Nameplate(eyebrow: "Cycle \(gates.cycleNumber)", title: "Your package",
                               subtitle: gates.hasRow ? "Work through each stage in order." : nil)
                     if gates.hasRow {
-                        ForEach(StudentStage.allCases) { stage in
+                        ForEach(StudentStage.allCases.filter { $0 != .information }) { stage in
                             StageRowLink(stage: stage, gates: gates)
                         }
                     } else {
                         EmptyStateView(title: "Not on a package yet",
                                        message: "When your group is on the Package Cycle roster, your stages show up here.")
                             .card()
+                    }
+                    HStack(spacing: 12) {
                         NavigationLink(value: Route.work(.studentStage(.information))) {
-                            Label("Cycle information", systemImage: "info.circle").font(.lexend(15, .medium))
+                            Label("Cycle guide", systemImage: "book").font(.lexend(15, .medium))
                         }
                         .buttonStyle(.brandSecondary)
+                        if session.user?.isProducer != true {
+                            NavigationLink(value: Route.grades(.extensions)) {
+                                Label("Extension requests", systemImage: "clock.arrow.circlepath").font(.lexend(15, .medium))
+                            }
+                            .buttonStyle(.brandSecondary)
+                        }
                     }
                 }
             }
@@ -32,7 +41,8 @@ struct PackagesScreen: View {
         .refreshable { await load() }
         .brandBackground()
         .navigationTitle("Packages")
-        .task { if state.value == nil { await load() } }
+        // Again on every visit: a stage page marks its feedback read and may change a status.
+        .task { await load() }
     }
 
     private func load() async {
@@ -68,7 +78,7 @@ private struct StageRowLink: View {
                 }
                 Spacer(minLength: 0)
                 if let status = gates.status(stage) {
-                    StatusTag(text: status.label, tone: status.tone)
+                    StatusTag(text: StageGuide.label(status, remainingExecutiveSignoffs: gates.remainingExecutiveSignoffs), tone: status.tone)
                 }
                 Image(systemName: unlocked ? "chevron.right" : "lock.fill").foregroundStyle(Brand.muted).accessibilityHidden(true)
             }

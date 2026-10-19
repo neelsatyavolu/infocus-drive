@@ -15,7 +15,11 @@ extension WorkAPI {
         uploadProof: { _, _, _ in SampleMode.notSaved() },
         startUpload: { _ in throw PortalError.sampleApp },
         finishUpload: { _, _ in SampleMode.notSaved() },
-        data: { _ in Data() }
+        data: { _ in Data() },
+        saveToss: { _, _ in SampleMode.notSaved() },
+        removeProof: { _, _ in SampleMode.notSaved() },
+        certificate: { _ in throw PortalError.sampleApp },
+        resolveComment: { _, _ in SampleMode.notSaved(); return nil }
     )
 }
 

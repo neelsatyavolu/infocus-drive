@@ -18,6 +18,25 @@ struct WorkAPI: Sendable {
     var startUpload: @Sendable (_ request: StageUploadRequest) async throws -> StageUploadTicket
     var finishUpload: @Sendable (_ request: StageUploadRequest, _ ticket: StageUploadTicket) async throws -> Void
     var data: @Sendable (_ path: String) async throws -> Data
+    /// Final Cut: change the anchors' toss after the upload (`POST api/package-cycle/toss`).
+    var saveToss: @Sendable (_ rowId: String, _ toss: String) async throws -> Void
+    /// Brainstorming: empty one proof-of-contact slot (`DELETE api/brainstorming/proofs`).
+    var removeProof: @Sendable (_ rowId: String, _ slot: Int) async throws -> Void
+    /// Package of the Cycle certificate (a PNG) for the signed-in member.
+    var certificate: @Sendable (_ rowId: String) async throws -> Data
+    /// Mark a stage note handled, or open it again (`PATCH api/package-cycle/comments`). Returns the new `resolvedAt`.
+    var resolveComment: @Sendable (_ id: String, _ resolved: Bool) async throws -> Date?
+}
+
+/// `PATCH api/package-cycle/comments` answer.
+struct ResolvedComment: Decodable, Sendable {
+    struct Comment: Decodable, Sendable { let id: String; let resolvedAt: Date? }
+    let comment: Comment
+}
+
+private struct ResolveCommentBody: Encodable {
+    let id: String
+    let resolved: Bool
 }
 
 /// An approve / send-back decision on a group stage, with the optional feedback note.
@@ -82,7 +101,24 @@ extension WorkAPI {
                 try await client.post("api/package-cycle/upload",
                                       body: StageUploadBody(action: "complete", request: request, ticket: ticket))
             },
-            data: { path in try await client.send("GET", path) }
+            data: { path in try await client.send("GET", path) },
+            saveToss: { rowId, toss in
+                try await client.post("api/package-cycle/toss", body: ["rowId": rowId, "toss": toss])
+            },
+            removeProof: { rowId, slot in
+                try await client.delete("api/brainstorming/proofs", query: [
+                    URLQueryItem(name: "rowId", value: rowId), URLQueryItem(name: "slot", value: String(slot)),
+                ])
+            },
+            certificate: { rowId in
+                try await client.send("GET", "api/package-cycle/package-of-cycle/certificate",
+                                      query: [URLQueryItem(name: "rowId", value: rowId)])
+            },
+            resolveComment: { id, resolved in
+                let answer: ResolvedComment = try await client.patch("api/package-cycle/comments",
+                                                                     body: ResolveCommentBody(id: id, resolved: resolved))
+                return answer.comment.resolvedAt
+            }
         )
     }
 

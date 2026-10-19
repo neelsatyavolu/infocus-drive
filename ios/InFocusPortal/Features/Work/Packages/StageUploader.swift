@@ -19,6 +19,8 @@ final class StageUploader {
 
     private(set) var phase: Phase = .idle
     private(set) var fileName = ""
+    /// "2 of 5" while several clips upload one after another.
+    private(set) var batchPosition: String?
 
     var isBusy: Bool {
         switch phase {
@@ -55,9 +57,52 @@ final class StageUploader {
         }
     }
 
+    /// Uploads files one at a time (like the website), carrying on past a failed one.
+    /// Returns how many made it; the phase ends on Uploaded or on the first failure's words.
+    func uploadBatch(_ files: [StageUploadFile], api: WorkAPI,
+                     request: (StageUploadFile, Int) -> StageUploadRequest) async -> Int {
+        var succeeded = 0
+        var failures: [String] = []
+        for (index, file) in files.enumerated() {
+            batchPosition = files.count > 1 ? "\(index + 1) of \(files.count)" : nil
+            if let problem = file.problem {
+                failures.append("\(file.name): \(problem)")
+                continue
+            }
+            if await upload(file.url, request: request(file, index), api: api) {
+                succeeded += 1
+            } else if case .failed(let message) = phase {
+                failures.append("\(file.name): \(message)")
+            }
+        }
+        batchPosition = nil
+        if let first = failures.first {
+            phase = .failed(succeeded == 0 ? first : "\(succeeded) uploaded, \(failures.count) failed. \(first)")
+        } else if files.count > 1 {
+            phase = .done
+        }
+        return succeeded
+    }
+
     func reset() { phase = .idle }
 
     func fail(_ message: String) { phase = .failed(message) }
+}
+
+/// A video picked for a stage, already copied to a temporary file.
+struct StageUploadFile: Sendable, Hashable {
+    let url: URL
+    let name: String
+    let bytes: Int
+    /// Why it can't go up (too big for its roll), checked before any upload starts.
+    var problem: String?
+
+    init(url: URL, name: String? = nil, problem: String? = nil) {
+        self.url = url
+        self.name = name ?? url.lastPathComponent
+        self.bytes = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+        self.problem = problem
+    }
 }
 
 /// A video from Photos, copied to a temporary file so it can be streamed.
@@ -124,6 +169,9 @@ struct UploadProgressCard: View {
                 HStack {
                     Text(uploader.fileName).font(.lexend(14, .medium)).lineLimit(1)
                     Spacer()
+                    if let position = uploader.batchPosition {
+                        Text(position).font(.mono(12)).foregroundStyle(Brand.muted)
+                    }
                     Text(fraction, format: .percent.precision(.fractionLength(0)))
                         .font(.mono(14, .medium))
                         .monospacedDigit()

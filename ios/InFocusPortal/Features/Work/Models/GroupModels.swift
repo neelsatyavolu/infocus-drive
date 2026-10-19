@@ -83,8 +83,11 @@ struct GroupRow: Decodable, Sendable, Hashable, Identifiable {
 
 /// `GET api/brainstorming`: the student's brainstorm (doc link + three proofs of contact).
 struct BrainstormPayload: Decodable, Sendable {
+    struct Cycle: Decodable, Sendable, Hashable { let cycleNumber: Int; let focus: String? }
+
     let activeCycleNumber: Int
     let packages: [BrainstormPackage]
+    var cycles: [Cycle]? = nil
 }
 
 struct BrainstormPackage: Decodable, Sendable, Hashable, Identifiable {
@@ -96,6 +99,10 @@ struct BrainstormPackage: Decodable, Sendable, Hashable, Identifiable {
     let assignedProducer: PackagePerson?
     let members: [PackagePerson]
     let proofs: [ProofView]
+    /// Producer feedback newer than the last proof (a revision request).
+    var needsChanges: Bool? = nil
+    /// The viewer is on this package (only members change its materials).
+    var canEdit: Bool? = nil
 
     static let proofSlots = [1, 2, 3]
 
