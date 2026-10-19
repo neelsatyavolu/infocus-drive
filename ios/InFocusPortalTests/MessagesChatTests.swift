@@ -136,7 +136,7 @@ final class MessagesChatTests: XCTestCase {
     func testDeepLinks() {
         XCTAssertEqual(MessagesRoute.deepLink(["messages", "c1"], []), DeepLinkMatch(tab: .messages, route: .messages(.conversation(id: "c1"))))
         XCTAssertEqual(MessagesRoute.deepLink(["messages"], []), DeepLinkMatch(tab: .messages, route: nil))
-        XCTAssertEqual(MessagesRoute.deepLink(["equipment", "request"], []), DeepLinkMatch(tab: .more, route: .messages(.equipment)))
+        XCTAssertEqual(MessagesRoute.deepLink(["equipment", "request"], []), DeepLinkMatch(tab: .more, route: .messages(.equipmentAt(.request))))
         XCTAssertEqual(MessagesRoute.deepLink(["livestreams", "ev1"], []), DeepLinkMatch(tab: .more, route: .messages(.livestream(id: "ev1"))))
         XCTAssertNil(MessagesRoute.deepLink(["grades"], []))
     }

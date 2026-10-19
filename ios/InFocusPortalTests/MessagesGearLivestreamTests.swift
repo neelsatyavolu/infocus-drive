@@ -102,7 +102,9 @@ final class MessagesGearLivestreamTests: XCTestCase {
 
     func testManagerRequestActionsFollowTheWebsRules() throws {
         func item(out: Bool = false, held: String? = nil) -> String {
-            #"{"item":{"id":"i","name":"Mic","barcode":"MIC-1","checkedOut":\#(out),"checkedOutAt":null,"onHoldForStudentId":\#(held.map { "\"\($0)\"" } ?? "null"),"archivedAt":null,"metadata":null}}"#
+            let hold = held.map { "\"\($0)\"" } ?? "null"
+            let request = held == "s" ? "\"r\"" : "null"
+            return #"{"item":{"id":"i","name":"Mic","barcode":"MIC-1","checkedOut":\#(out),"checkedOutAt":null,"onHoldForStudentId":\#(hold),"holdRequestId":\#(request),"archivedAt":null,"metadata":null}}"#
         }
         func request(_ status: String, _ items: String) throws -> ManagedRequests.Request {
             try decode(ManagedRequests.self, """
@@ -117,8 +119,15 @@ final class MessagesGearLivestreamTests: XCTestCase {
         let approvedHeld = try request("APPROVED", item(held: "s"))
         XCTAssertFalse(approvedHeld.canApprove)
         XCTAssertTrue(approvedHeld.canDeny)
+        XCTAssertEqual(approvedHeld.word, "Approved")
         XCTAssertFalse(try request("APPROVED", item(out: true)).canDeny)
         XCTAssertFalse(try request("DENIED", item()).canDeny)
+        // Approved, every hold picked up: fulfilled, nothing left to deny.
+        let picked = try request("APPROVED", item())
+        XCTAssertTrue(picked.fulfilled)
+        XCTAssertEqual(picked.word, "Fulfilled")
+        XCTAssertFalse(picked.canDeny)
+        XCTAssertFalse(try request("PENDING", "").canApprove, "an empty request can't be approved")
     }
 
     func testOverdueAfterSeventyTwoHours() {

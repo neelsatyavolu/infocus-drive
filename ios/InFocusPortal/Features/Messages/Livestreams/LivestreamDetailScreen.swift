@@ -4,7 +4,15 @@ import SwiftUI
 struct LivestreamDetailScreen: View {
     let eventId: String
     @Environment(\.portalClient) private var client
+    @Environment(\.dismiss) private var dismiss
     @State private var model: LivestreamsModel?
+    @State private var editing: Editing?
+
+    private struct Editing: Identifiable {
+        let event: LivestreamEvent
+        let complete: Bool
+        var id: String { event.id + (complete ? ":complete" : "") }
+    }
 
     var body: some View {
         Group {
@@ -25,6 +33,23 @@ struct LivestreamDetailScreen: View {
         .navigationTitle("Livestream")
         .navigationBarTitleDisplayMode(.inline)
         .livestreamAlerts(model)
+        .toolbar {
+            if let schedule = model?.state.value, schedule.canManage, let event = schedule.event(eventId) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Edit", systemImage: "pencil") { editing = Editing(event: event, complete: false) }
+                        if event.status == .scheduled {
+                            Button("Complete…", systemImage: "checkmark.circle") { editing = Editing(event: event, complete: true) }
+                        }
+                    } label: { Text("Edit") }
+                }
+            }
+        }
+        .sheet(item: $editing) { editing in
+            if let model {
+                LivestreamEditorSheet(model: model, event: editing.event, complete: editing.complete) { dismiss() }
+            }
+        }
         .task {
             let model = self.model ?? LivestreamsModel(service: .resolve(client))
             self.model = model
@@ -63,7 +88,10 @@ private struct LivestreamDetail: View {
     private var facts: some View {
         VStack(alignment: .leading, spacing: 10) {
             fact("mappin.and.ellipse", "Where", event.location.isEmpty ? "To be announced" : event.location)
-            fact("clock", "Arrive", FeatureDates.dayAndTime(event.startsAt))
+            fact("clock", "Starts", FeatureDates.dayAndTime(event.startsAt))
+            if let arrives = event.arrivesAt {
+                fact("figure.walk.arrival", "Arrive", FeatureDates.clock(arrives))
+            }
             if let hours = event.hours {
                 fact("hourglass", "Credit", "\(LivestreamsScreen.hours(hours)) hours")
             }

@@ -5,6 +5,8 @@ import Observation
 @MainActor @Observable
 final class LivestreamsModel {
     private(set) var state: Loadable<LivestreamSchedule> = .idle
+    private(set) var completion: Loadable<LivestreamCompletion> = .idle
+    private(set) var members: Loadable<[PortalMember]> = .idle
     private(set) var busy: String?
     var actionError: String?
     var notice: String?
@@ -34,6 +36,49 @@ final class LivestreamsModel {
         _ = await run(signup.id, success: approve ? "Approved. They're on the crew." : "Denied.") {
             try await self.service.review(signup.id, approve)
         }
+    }
+
+    func loadCompletion() async {
+        if completion.value == nil { completion = .loading }
+        do {
+            completion = .loaded(try await service.completion())
+        } catch {
+            if completion.value == nil { completion = .failed(Loadable<LivestreamCompletion>.message(for: error)) }
+        }
+    }
+
+    func loadMembers() async {
+        guard members.value == nil else { return }
+        members = .loading
+        do {
+            members = .loaded(try await service.members())
+        } catch {
+            members = .failed(Loadable<[PortalMember]>.message(for: error))
+        }
+    }
+
+    /// Creates (`event` nil) or saves an event; true when saved.
+    func save(_ form: LivestreamEventForm, event: LivestreamEvent?) async -> Bool {
+        let body = form.body
+        let saved = await run(event?.id ?? "new", success: event == nil ? "Added \(body.title)." : "Saved.") {
+            try await self.service.saveEvent(event?.id, body)
+        }
+        if saved, completion.value != nil { await loadCompletion() }
+        return saved
+    }
+
+    func delete(_ event: LivestreamEvent) async -> Bool {
+        await run(event.id, success: "Deleted \(event.title).") { try await self.service.deleteEvent(event.id) }
+    }
+
+    func addManager(_ member: PortalMember) async {
+        _ = await run(member.id, success: "\(member.label) can now manage livestreams.") {
+            try await self.service.addManager(member.id)
+        }
+    }
+
+    func removeManager(_ person: LivestreamPerson) async {
+        _ = await run(person.id, success: "Removed \(person.label).") { try await self.service.removeManager(person.id) }
     }
 
     private func run(_ key: String, success: String, _ action: @escaping () async throws -> Void) async -> Bool {

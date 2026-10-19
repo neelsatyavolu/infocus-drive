@@ -9,6 +9,9 @@ final class EquipmentModel {
     private(set) var available: Loadable<[GearItem]> = .idle
     private(set) var requests: Loadable<[ManagedRequests.Request]> = .idle
     private(set) var out: Loadable<[ManagedOut.Item]> = .idle
+    private(set) var inventory: Loadable<[ManagedOut.Item]> = .idle
+    private(set) var managers: Loadable<[ManagerRow]> = .idle
+    private(set) var members: Loadable<[PortalMember]> = .idle
     private(set) var busy: String?
     var selected: Set<String> = []
     var query = ""
@@ -29,6 +32,9 @@ final class EquipmentModel {
     func loadAvailable() async { await fill(\.available) { try await self.service.available() } }
     func loadRequests() async { await fill(\.requests) { try await self.service.managedRequests() } }
     func loadOut() async { await fill(\.out) { try await self.service.out() } }
+    func loadInventory() async { await fill(\.inventory) { try await self.service.inventory() } }
+    func loadManagers() async { await fill(\.managers) { try await self.service.managers() } }
+    func loadMembers() async { await fill(\.members) { try await self.service.members() } }
 
     var matchingGear: [GearItem] {
         Self.search(available.value ?? [], query: query)
@@ -82,6 +88,70 @@ final class EquipmentModel {
             try await self.service.outAction(item.id, item.checkedOut ? "force-return" : "release-hold")
             await self.loadOut()
         }
+    }
+
+    // MARK: Inventory
+
+    /// Adds an item; true when saved (the form then clears).
+    func addItem(name: String, barcode: String) async -> Bool {
+        let body = NewGearBody(name: name.trimmingCharacters(in: .whitespaces), barcode: barcode.trimmingCharacters(in: .whitespaces))
+        guard !body.name.isEmpty, !body.barcode.isEmpty else { return false }
+        return await inventoryChange("add", done: "Added \(body.name).", archiving: false) {
+            try await self.service.addItem(body)
+        }
+    }
+
+    func saveItem(_ item: ManagedOut.Item, name: String, barcode: String) async -> Bool {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        let barcode = barcode.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !barcode.isEmpty else { return false }
+        let body = GearPatchBody(id: item.id, name: name, barcode: barcode)
+        return await inventoryChange(item.id, done: "Saved.", archiving: false) { try await self.service.updateItem(body) }
+    }
+
+    /// Archive only items that are in (not out or held), like the web.
+    func archive(_ item: ManagedOut.Item) async {
+        guard item.state == .in else { return }
+        _ = await inventoryChange(item.id, done: "Archived \(item.name).", archiving: true) {
+            try await self.service.updateItem(GearPatchBody(id: item.id, archived: true))
+        }
+    }
+
+    private func inventoryChange(_ key: String, done: String, archiving: Bool,
+                                 _ work: @escaping () async throws -> Void) async -> Bool {
+        busy = key
+        defer { busy = nil }
+        do {
+            try await work()
+            notice = done
+            await loadInventory()
+            return true
+        } catch {
+            actionError = PortalError.inventoryMessage(error, archiving: archiving)
+            return false
+        }
+    }
+
+    // MARK: Managers
+
+    func addManager(_ member: PortalMember) async {
+        await act(member.id, done: "\(member.label) can now manage equipment.") {
+            try await self.service.addManager(member.id)
+            await self.loadManagers()
+        }
+    }
+
+    func removeManager(_ row: ManagerRow) async {
+        await act(row.id, done: "Removed \(row.label).") {
+            try await self.service.removeManager(row.userId)
+            await self.loadManagers()
+        }
+    }
+
+    nonisolated static func searchItems(_ items: [ManagedOut.Item], query: String) -> [ManagedOut.Item] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return items }
+        return items.filter { $0.name.localizedCaseInsensitiveContains(needle) || $0.barcode.localizedCaseInsensitiveContains(needle) }
     }
 
     private func act(_ key: String, done: String, _ work: @escaping () async throws -> Void) async {
