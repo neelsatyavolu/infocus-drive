@@ -11,6 +11,8 @@ enum AnnouncementsRoute: Hashable {
     case submitted
     /// The PA script (`/announcements/pa`; producers and the assigned announcers edit it).
     case pa
+    /// Ask for an announcement (`/submit-announcement`; anyone, signed in or not on the web).
+    case submit
 
     static func deepLink(_ path: [String], _ query: [URLQueryItem]) -> DeepLinkMatch? {
         switch path {
@@ -20,6 +22,8 @@ enum AnnouncementsRoute: Hashable {
             return DeepLinkMatch(tab: .more, route: .announcements(.submitted))
         case ["announcements", "pa"]:
             return DeepLinkMatch(tab: .more, route: .announcements(.pa))
+        case ["submit-announcement"]:
+            return DeepLinkMatch(tab: .more, route: .announcements(.submit))
         default:
             return nil
         }

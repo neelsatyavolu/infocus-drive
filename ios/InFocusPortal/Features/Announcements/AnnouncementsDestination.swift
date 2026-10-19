@@ -10,6 +10,7 @@ struct AnnouncementsDestination: View {
         case .announcement(let id): SlackPostDetailView(id: id)
         case .submitted: SubmittedView()
         case .pa: PAEditorView()
+        case .submit: SubmitAnnouncementView()
         }
     }
 }

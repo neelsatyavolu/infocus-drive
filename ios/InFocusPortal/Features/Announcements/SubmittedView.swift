@@ -55,7 +55,7 @@ struct SubmittedView: View {
             counts(board)
             if board.buckets.isEmpty {
                 EmptyStateView(title: "Nothing submitted yet", message: "No announcements have been submitted yet.",
-                               actionTitle: "Open the form") { router.openPortal("submit-announcement", title: "Submit") }
+                               actionTitle: "Open the form") { router.push(.announcements(.submit)) }
             }
             ForEach(board.buckets) { bucket in
                 section(bucket, board: board)
@@ -109,10 +109,9 @@ struct SubmittedView: View {
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Menu {
-                Button { router.openPortal("submit-announcement", title: "Submit") } label: {
+                Button { router.push(.announcements(.submit)) } label: {
                     Label("Submit an announcement", systemImage: "plus")
                 }
-                .hiddenInSampleApp()
                 if let link = model.state.value?.collegeVisitsUrl, let url = URL(string: link) {
                     Button { openURL(url) } label: { Label("College Visits", systemImage: "graduationcap") }
                 }

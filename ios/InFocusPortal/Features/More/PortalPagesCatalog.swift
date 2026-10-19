@@ -68,9 +68,15 @@ enum PortalPagesCatalog {
         producers.append(page("Extension Requests", "calendar.badge.clock", "extension-requests"))
         sections.append(PortalPageSection(title: "Producers", links: producers))
 
+        sections.append(PortalPageSection(title: "Class", links: [
+            page("Ideas", "lightbulb", "ideas"),
+            page("Class Board", "rectangle.split.3x1", "class-board"),
+        ]))
+
         sections.append(PortalPageSection(title: "Announcements", links: [
             page("Submitted", "tray", "announcements/submitted"),
             page("PA", "speaker.wave.2", "announcements/pa"),
+            page("Submit an announcement", "megaphone", "submit-announcement"),
         ]))
 
         var admin: [PortalPageLink] = []
