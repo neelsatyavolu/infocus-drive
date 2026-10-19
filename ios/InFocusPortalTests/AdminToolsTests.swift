@@ -104,6 +104,25 @@ final class AdminModelTests: XCTestCase {
         XCTAssertFalse(ViewAsSwitch.isActive(cookie("", expires: nil), now: now))
         XCTAssertEqual(ViewAsSwitch.filter(try AdminFixtures.viewAsPeople(), "abby").map(\.id), ["u-abby"])
     }
+
+    func testDecodesViewAsStatus() throws {
+        let on = try AdminFixtures.decode(ViewAsStatus.self, #"""
+        {"data":{"active":true,"allowed":true,"realUser":{"id":"u-sage","name":"Sage Example","email":"sage@example.edu"},
+          "actingAs":{"id":"u-abby","name":"Abby Example","email":"abby@example.edu"}}}
+        """#)
+        XCTAssertTrue(on.active)
+        XCTAssertTrue(on.allowed)
+        XCTAssertEqual(on.actingAsLabel, "Abby Example")
+        XCTAssertEqual(on.realUser?.label, "Sage Example")
+        let off = try AdminFixtures.decode(ViewAsStatus.self, #"""
+        {"data":{"active":false,"allowed":false,"realUser":{"id":"u-otto","name":null,"email":"otto@example.edu"},"actingAs":null}}
+        """#)
+        XCTAssertFalse(off.active)
+        XCTAssertFalse(off.allowed)
+        XCTAssertNil(off.actingAs)
+        XCTAssertEqual(off.realUser?.label, "otto@example.edu")
+        XCTAssertEqual(off.actingAsLabel, "someone else")
+    }
 }
 
 /// Admin's writes send what the web sends.
@@ -154,6 +173,26 @@ final class AdminServiceTests: XCTestCase {
         XCTAssertEqual(StubProtocol.lastRequest?.url?.query, "email=otto@example.edu")
     }
 
+    func testStatusEndpointsUseTheirPaths() async throws {
+        StubProtocol.handler = { _ in
+            (200, Data(#"{"data":{"active":false,"allowed":true,"realUser":{"id":"u-sage","name":"Sage","email":null},"actingAs":null}}"#.utf8))
+        }
+        let status = try await AdminService(client: client()).viewAsStatus()
+        XCTAssertEqual(StubProtocol.lastRequest?.httpMethod, "GET")
+        XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/auth/view-as/status")
+        XCTAssertTrue(status.allowed)
+
+        StubProtocol.handler = { _ in (200, Data(#"{"data":{"level":"shared","canShare":false,"canDeleteAny":false}}"#.utf8)) }
+        let access = try await VaultService(client: client()).access()
+        XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/vault/access")
+        XCTAssertEqual(access.level, .shared)
+
+        StubProtocol.handler = { _ in (200, Data(ManagersFixtures.overviewJSON.utf8)) }
+        let overview = try await ManagersService(client: client()).overview()
+        XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/managers")
+        XCTAssertEqual(overview.ordered.first?.area, .equipment)
+    }
+
     func testAddPersonAndForbidden() async throws {
         StubProtocol.handler = { _ in (201, Data(#"{"data":{"email":"rio@example.edu","emailed":0}}"#.utf8)) }
         let result = try await AdminService(client: client()).addPerson(name: "Rio Example", email: "rio@example.edu", sendInvite: false)
@@ -188,14 +227,54 @@ final class ManagersTests: XCTestCase {
         XCTAssertEqual(flat.candidates.map(\.id), ["u-kai"])
     }
 
-    func testNamesLineShowsFourNamesAndNeverEmails() {
-        func manager(_ id: String, _ name: String?) -> ManagerRoster.Manager {
-            .init(userId: id, name: name, email: "\(id)@example.edu")
+    func testDecodesOverviewAndSkipsUnknownAreas() throws {
+        let overview = try ManagersFixtures.overview()
+        XCTAssertFalse(overview.isProducer)
+        XCTAssertEqual(overview.yourAreas, [.equipment])
+        XCTAssertEqual(overview.areas.map(\.area), [.equipment, .livestreams, .website, .socialMedia])
+        XCTAssertEqual(overview.areas[0].people.map(\.name), ["Rio"])
+        XCTAssertTrue(overview.areas[0].yours)
+        XCTAssertFalse(overview.areas[2].canOpen)
+        // A newer Portal's area (and its id in yourAreas) is skipped, not a decoding failure.
+        let newer = try AdminFixtures.decode(ManagersOverview.self, #"""
+        {"data":{"isProducer":true,"yourAreas":["podcast"],"areas":[
+          {"id":"podcast","title":"Podcast","tool":"Podcast Desk","description":"","href":"/podcast","access":"",
+           "canOpen":true,"yours":true,"people":[]},
+          {"id":"website","title":"Website","tool":"Publishing Queue","description":"Shows.","href":"/publishing-queue",
+           "access":"Producers","canOpen":true,"yours":false,"people":[]}]}}
+        """#)
+        XCTAssertTrue(newer.isProducer)
+        XCTAssertEqual(newer.yourAreas, [])
+        XCTAssertEqual(newer.areas.map(\.area), [.website])
+    }
+
+    func testOrdersYoursThenOpenThenLockedLikeTheWeb() {
+        func area(_ id: ManagerArea, open: Bool, yours: Bool) -> ManagersOverview.Area {
+            .init(area: id, title: id.rawValue, tool: "", description: "", access: "Producers",
+                  canOpen: open, yours: yours, people: [])
         }
-        XCTAssertEqual(ManagerRoster(managers: []).namesLine, "No one appointed yet")
-        let roster = ManagerRoster(managers: [manager("a", "Abby"), manager("b", nil), manager("c", "Otto"),
-                                              manager("d", "Sage"), manager("e", "Rio"), manager("f", "Kai")])
-        XCTAssertEqual(roster.namesLine, "Abby, A member, Otto, Sage +2 more")
+        // The Portal's fixed order: equipment, livestreams, website, social media.
+        let overview = ManagersOverview(isProducer: false, yourAreas: [.socialMedia], areas: [
+            area(.equipment, open: false, yours: false), area(.livestreams, open: true, yours: false),
+            area(.website, open: false, yours: false), area(.socialMedia, open: true, yours: true)])
+        XCTAssertEqual(overview.ordered.map(\.area), [.socialMedia, .livestreams, .equipment, .website])
+        XCTAssertEqual(overview.areas[0].accessLine, "Producers. Ask a producer if you need it.")
+        XCTAssertEqual(overview.areas[1].accessLine, "Producers")
+        XCTAssertEqual(overview.summary, "Each manager role has its own tool. Choose yours to open it.")
+        XCTAssertEqual(ManagersOverview(isProducer: false, yourAreas: [], areas: []).summary,
+                       "You're not a manager yet. Producers appoint managers from each tool.")
+        XCTAssertTrue(ManagersOverview(isProducer: true, yourAreas: [], areas: []).summary.hasPrefix("You're a producer"))
+        XCTAssertEqual(ManagerArea.socialMedia.roleName, "Social media manager")
+    }
+
+    func testNamesLineShowsFourNames() {
+        func people(_ names: [String]) -> ManagersOverview.Area {
+            .init(area: .equipment, title: "", tool: "", description: "", access: "", canOpen: true, yours: false,
+                  people: names.enumerated().map { .init(userId: "u\($0.offset)", name: $0.element) })
+        }
+        XCTAssertEqual(people([]).namesLine, "No one appointed yet")
+        XCTAssertEqual(people(["Abby", "A member", "Otto", "Sage", "Rio", "Kai"]).namesLine, "Abby, A member, Otto, Sage +2 more")
+        XCTAssertEqual(people(["Abby", "Otto"]).namesLine, "Abby, Otto")
     }
 
     func testAreasOpenTheirNativeTools() {
@@ -233,6 +312,20 @@ final class VaultTests: XCTestCase {
         XCTAssertEqual(try VaultFixtures.activity().map(\.label), ["Viewed password", "Edited"])
         let people = try AdminFixtures.decode(VaultPeople.self, #"{"data":{"people":[{"id":"u-abby","name":"Abby"}]}}"#)
         XCTAssertEqual(people.people.map(\.name), ["Abby"])
+    }
+
+    func testDecodesAccessLevels() throws {
+        let full = try AdminFixtures.decode(VaultAccess.self, #"{"data":{"level":"full","canShare":true,"canDeleteAny":true}}"#)
+        XCTAssertEqual(full, VaultAccess(level: .full, canShare: true, canDeleteAny: true))
+        XCTAssertTrue(full.isFull)
+        let shared = try AdminFixtures.decode(VaultAccess.self, #"{"data":{"level":"shared","canShare":false,"canDeleteAny":false}}"#)
+        XCTAssertFalse(shared.isFull)
+        XCTAssertTrue(shared.canOpen)
+        let none = try AdminFixtures.decode(VaultAccess.self, #"{"data":{"level":"none","canShare":false,"canDeleteAny":false}}"#)
+        XCTAssertEqual(none, .noAccess)
+        XCTAssertFalse(none.canOpen)
+        let newer = try AdminFixtures.decode(VaultAccess.self, #"{"data":{"level":"auditor"}}"#)
+        XCTAssertEqual(newer, .noAccess) // unknown levels open nothing
     }
 
     func testSecretModesMatchTheWebForm() {

@@ -30,6 +30,44 @@ struct VaultEntry: Decodable, Sendable, Identifiable, Hashable {
     }
 }
 
+/// `GET api/vault/access`: this person's Passwords access, by the rule the `/passwords` page uses.
+struct VaultAccess: Decodable, Sendable, Equatable {
+    enum Level: String, Sendable {
+        /// Associate producer and up (and still so under View as): every login.
+        case full
+        /// Only logins a producer shared with them (never while viewing as someone).
+        case shared
+        /// `"none"`: no Passwords page at all (named so it never reads as `Optional.none`).
+        case noAccess = "none"
+    }
+
+    let level: Level
+    /// Executive producers, the adviser and the super admin with full access.
+    let canShare: Bool
+    let canDeleteAny: Bool
+
+    static let noAccess = VaultAccess(level: .noAccess, canShare: false, canDeleteAny: false)
+
+    var isFull: Bool { level == .full }
+    var canOpen: Bool { level != .noAccess }
+
+    init(level: Level, canShare: Bool, canDeleteAny: Bool) {
+        self.level = level
+        self.canShare = canShare
+        self.canDeleteAny = canDeleteAny
+    }
+
+    /// An unknown level from a newer Portal reads as no access.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        level = Level(rawValue: try c.decodeIfPresent(String.self, forKey: .level) ?? "") ?? .noAccess
+        canShare = try c.decodeIfPresent(Bool.self, forKey: .canShare) ?? false
+        canDeleteAny = try c.decodeIfPresent(Bool.self, forKey: .canDeleteAny) ?? false
+    }
+
+    private enum CodingKeys: String, CodingKey { case level, canShare, canDeleteAny }
+}
+
 /// `POST api/vault/<id>/reveal` with `{ field: "password" | "notes" }`.
 struct VaultRevealedValue: Decodable, Sendable {
     let field: String

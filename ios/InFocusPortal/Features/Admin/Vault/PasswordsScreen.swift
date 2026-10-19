@@ -6,16 +6,16 @@ import SwiftUI
 /// one at a time on the login's screen, and the Portal logs each reveal.
 struct PasswordsScreen: View {
     @Environment(\.portalClient) private var client
-    @Environment(SessionStore.self) private var session
     @State private var state: Loadable<[VaultEntry]> = .idle
+    @State private var access: VaultAccess?
     @State private var notAvailable = false
     @State private var query = ""
     @State private var sharedOnly = false
     @State private var adding = false
 
     private var service: VaultService { VaultService(client: client) }
-    /// Full access: associate producers and up (`requireFullVaultActor`).
-    private var fullAccess: Bool { session.user?.isProducer == true }
+    /// Full access (`GET api/vault/access`): associate producers and up, also under View as.
+    private var fullAccess: Bool { access?.isFull == true }
 
     var body: some View {
         Group {
@@ -74,8 +74,15 @@ struct PasswordsScreen: View {
         .refreshable { await load() }
     }
 
+    /// The access level first: "none" is the page's redirect to access denied, so the
+    /// logins aren't asked for.
     private func load() async {
-        await ToolLoad.run($state, notAvailable: $notAvailable) { try await service.entries() }
+        await ToolLoad.run($state, notAvailable: $notAvailable) {
+            let level = try await service.access()
+            access = level
+            guard level.canOpen else { throw PortalError.forbidden("Forbidden") }
+            return try await service.entries()
+        }
     }
 }
 

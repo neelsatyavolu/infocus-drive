@@ -142,6 +142,48 @@ struct ViewAsPerson: Decodable, Sendable, Identifiable, Hashable {
     var label: String { name?.isEmpty == false ? name! : email ?? "Unnamed" }
 }
 
+/// `GET api/auth/view-as/status`: whether View as is on for this session and whether the
+/// signed-in (real) person may use it. Read only; names are account names, not nicknames.
+struct ViewAsStatus: Decodable, Sendable, Equatable {
+    struct Person: Decodable, Sendable, Equatable {
+        let id: String
+        let name: String?
+        let email: String?
+
+        var label: String { name?.isEmpty == false ? name! : email ?? "someone else" }
+    }
+
+    /// Who the app shows while View as is on.
+    var actingAsLabel: String { actingAs?.label ?? "someone else" }
+
+    /// The session shows someone else's account.
+    let active: Bool
+    /// The real person is the super admin or a configured limited actor.
+    let allowed: Bool
+    let realUser: Person?
+    /// Nil unless `active`.
+    let actingAs: Person?
+
+    static let off = ViewAsStatus(active: false, allowed: false, realUser: nil, actingAs: nil)
+
+    init(active: Bool, allowed: Bool, realUser: Person?, actingAs: Person?) {
+        self.active = active
+        self.allowed = allowed
+        self.realUser = realUser
+        self.actingAs = actingAs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        allowed = try c.decodeIfPresent(Bool.self, forKey: .allowed) ?? false
+        realUser = try c.decodeIfPresent(Person.self, forKey: .realUser)
+        actingAs = try c.decodeIfPresent(Person.self, forKey: .actingAs)
+        active = try c.decodeIfPresent(Bool.self, forKey: .active) ?? false
+    }
+
+    private enum CodingKeys: String, CodingKey { case active, allowed, realUser, actingAs }
+}
+
 /// The parts of a `POST api/platform/allowed-emails` answer the app reads.
 struct AddPersonResult: Decodable, Sendable {
     let emailed: Int?
