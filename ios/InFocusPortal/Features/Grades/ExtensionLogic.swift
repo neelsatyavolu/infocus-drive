@@ -53,6 +53,9 @@ extension ExtensionRequest {
     /// A producer who can approve or deny it now.
     var awaitsDecision: Bool { canDecide && status == .pending }
 
+    /// An exec may grant it before the whole group agrees (`showGrant` on the web).
+    var showsGrant: Bool { canGrantPending == true && !memberConsentComplete }
+
     /// The days and people granted once a producer approved ("whole group" expanded).
     var grantedTerms: (days: Double, userIds: [String]) {
         (grantedDays ?? requestedDays, grantedUserIds.isEmpty ? groupMembers.map(\.userId) : grantedUserIds)

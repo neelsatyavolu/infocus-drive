@@ -1,16 +1,17 @@
 import SwiftUI
 
 /// Extension requests: students file and agree to them, producers approve or
-/// deny (`api/extensions/requests`). Exec grants stay on the web.
+/// deny, execs grant directly and email the group (`api/extensions/requests`, `api/extensions/grants`).
 struct ExtensionsScreen: View {
     @Environment(\.portalClient) private var client
     @Environment(SessionStore.self) private var session
     @Environment(BadgeCenter.self) private var badges
-    @Environment(Router.self) private var router
     @State private var model = ExtensionsModel()
     @State private var requesting = false
+    @State private var grantingNew = false
     @State private var approving: ExtensionRequest?
     @State private var denying: ExtensionRequest?
+    @State private var granting: ExtensionRequest?
     @State private var showDenied = false
 
     private var service: GradesService { GradesService(client: client) }
@@ -35,19 +36,26 @@ struct ExtensionsScreen: View {
                 try await model.submit(request, service: service, badges: badges)
             }
         }
+        .sheet(isPresented: $grantingNew) {
+            let payload = model.state.value
+            GrantExtensionSheet(service: service, initialCycle: payload?.activeCycleNumber ?? 1,
+                                cycleNumbers: payload?.cycleNumbers ?? []) {
+                await model.load(service)
+                await badges.refresh(using: service.client)
+            }
+        }
         .modifier(ExtensionActions(model: model, service: service, badges: badges,
-                                   approving: $approving, denying: $denying))
+                                   approving: $approving, denying: $denying, granting: $granting))
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             if session.user?.doesStudentWork == true {
                 Button { requesting = true } label: { Label("Request an extension", systemImage: "plus") }
-            } else if model.state.value?.canGrant == true {
-                Button { router.openPortal("extension-requests", title: "Extension requests") } label: {
+            } else if session.user?.isProducer == true && model.state.value?.canGrant == true {
+                Button { grantingNew = true } label: {
                     Label("Grant an extension", systemImage: "plus")
                 }
-                .hiddenInSampleApp()
             }
         }
     }
@@ -83,7 +91,7 @@ struct ExtensionsScreen: View {
     private func cards(_ requests: [ExtensionRequest], _ payload: ExtensionRequestsPayload) -> some View {
         ForEach(requests) { request in
             ExtensionRequestCard(request: request, payload: payload, model: model, service: service, badges: badges,
-                                 approving: $approving, denying: $denying)
+                                 approving: $approving, denying: $denying, granting: $granting)
         }
     }
 }
@@ -96,6 +104,7 @@ struct ExtensionRequestScreen: View {
     @State private var model = ExtensionsModel()
     @State private var approving: ExtensionRequest?
     @State private var denying: ExtensionRequest?
+    @State private var granting: ExtensionRequest?
 
     private var service: GradesService { GradesService(client: client) }
 
@@ -104,7 +113,7 @@ struct ExtensionRequestScreen: View {
             LoadableView(model.state, retry: { Task { await model.load(service) } }) { payload in
                 if let request = payload.requests.first(where: { $0.id == id }) {
                     ExtensionRequestCard(request: request, payload: payload, model: model, service: service,
-                                         badges: badges, approving: $approving, denying: $denying)
+                                         badges: badges, approving: $approving, denying: $denying, granting: $granting)
                 } else {
                     EmptyStateView(title: "Request not found",
                                    message: "It may have been decided, or it belongs to a group you're not on.")
@@ -118,6 +127,6 @@ struct ExtensionRequestScreen: View {
         .navigationTitle("Extension request")
         .navigationBarTitleDisplayMode(.inline)
         .modifier(ExtensionActions(model: model, service: service, badges: badges,
-                                   approving: $approving, denying: $denying))
+                                   approving: $approving, denying: $denying, granting: $granting))
     }
 }

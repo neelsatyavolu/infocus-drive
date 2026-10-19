@@ -11,6 +11,8 @@ final class ExtensionsModel {
     private(set) var busyRequestId: String?
     /// A failed action's words, shown in an alert.
     var actionError: String?
+    /// A finished action's words ("Emailed 2 students."), shown in an alert.
+    var notice: String?
 
     func load(_ service: GradesService) async {
         if state.value == nil { state = .loading }
@@ -29,12 +31,26 @@ final class ExtensionsModel {
         }
     }
 
-    /// `terms` only when this producer is the first to approve.
-    func approve(_ request: ExtensionRequest, terms: (days: Double, userIds: [String])?, service: GradesService,
-                 badges: BadgeCenter) async -> Bool {
+    /// `terms` only when this producer is the first to approve. `grant`: an exec grants it
+    /// before every member agrees.
+    func approve(_ request: ExtensionRequest, terms: (days: Double, userIds: [String])?, grant: Bool = false,
+                 service: GradesService, badges: BadgeCenter) async -> Bool {
         await run(request.id, service: service, badges: badges) {
             try await service.decideAsProducer(ProducerDecision(requestId: request.id, approved: true,
-                                                                grantedDays: terms?.days, grantedUserIds: terms?.userIds))
+                                                                grantedDays: terms?.days, grantedUserIds: terms?.userIds,
+                                                                grantWithoutAgreement: grant ? true : nil))
+        }
+    }
+
+    /// Execs (re)send the decision email to a decided request's group.
+    func emailGroup(_ request: ExtensionRequest, service: GradesService) async {
+        busyRequestId = request.id
+        defer { busyRequestId = nil }
+        do {
+            let sent = try await service.emailGroup(requestId: request.id)
+            notice = "Emailed \(sent) \(sent == 1 ? "student" : "students")."
+        } catch {
+            actionError = Loadable<ExtensionRequestsPayload>.message(for: error)
         }
     }
 

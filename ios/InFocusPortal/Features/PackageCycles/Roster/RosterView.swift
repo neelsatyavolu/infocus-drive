@@ -5,6 +5,8 @@ import SwiftUI
 struct RosterView: View {
     @Bindable var store: RosterStore
     @Environment(Router.self) private var router
+    @Environment(SessionStore.self) private var session
+    @State private var filter = RosterFilter.all
 
     var body: some View {
         LoadableView(store.state, retry: { Task { await store.load() } }) { roster in
@@ -35,6 +37,9 @@ struct RosterView: View {
                         store.notice = nil
                     }
             }
+            if !roster.rows.isEmpty {
+                filterChips(roster)
+            }
             if roster.rows.isEmpty {
                 EmptyStateView(title: "No groups yet", message: roster.canEdit
                                ? "Add a group to start this cycle's roster." : "Groups appear here once they're added.",
@@ -42,8 +47,14 @@ struct RosterView: View {
                                action: roster.canEdit ? { addGroup() } : nil)
                     .card()
             } else {
+                let rows = visibleRows(roster)
+                if rows.isEmpty {
+                    Text("No groups match \(filter.title.lowercased()).")
+                        .font(.small)
+                        .foregroundStyle(Brand.muted)
+                }
                 LazyVStack(spacing: 12) {
-                    ForEach(roster.rows) { row in
+                    ForEach(rows) { row in
                         NavigationLink(value: Route.packageCycles(.group(rowId: row.id, cycle: roster.activeCycleNumber))) {
                             RosterGroupCard(row: row,
                                       assigned: RosterLogic.assignedLabel(row, producers: roster.producers, executives: roster.executives),
@@ -58,6 +69,25 @@ struct RosterView: View {
                     }
                     .buttonStyle(.brandSecondary)
                     .disabled(store.saving)
+                }
+            }
+        }
+    }
+
+    private func visibleRows(_ roster: RosterPayload) -> [RosterRow] {
+        let viewer = RosterFilter.viewerId(email: session.user?.email, in: roster)
+        return roster.rows.filter { filter.matches($0, previous: roster.previousTeammatesByUser, viewerId: viewer) }
+    }
+
+    /// The web toolbar's filters, each with its count.
+    private func filterChips(_ roster: RosterPayload) -> some View {
+        let viewer = RosterFilter.viewerId(email: session.user?.email, in: roster)
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(RosterFilter.allCases) { option in
+                    let count = roster.rows.filter { option.matches($0, previous: roster.previousTeammatesByUser, viewerId: viewer) }.count
+                    Chip(title: "\(option.title) \(count)", selected: filter == option) { filter = option }
+                        .accessibilityLabel("\(option.title), \(count) groups")
                 }
             }
         }

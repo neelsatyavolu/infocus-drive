@@ -6,9 +6,13 @@ struct ExtensionRequestCard: View {
     let request: ExtensionRequest
     let viewerId: String
     let busy: Bool
+    /// Execs can (re)send a decided request's email to its group.
+    var canEmail = false
     var onRespond: (Bool) -> Void = { _ in }
     var onApprove: () -> Void = {}
     var onDeny: () -> Void = {}
+    var onGrant: () -> Void = {}
+    var onEmail: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -102,6 +106,18 @@ struct ExtensionRequestCard: View {
                     .font(.small)
                     .foregroundStyle(Brand.muted)
             }
+        }
+        if request.showsGrant {
+            Button { onGrant() } label: { Label("Grant now", systemImage: "plus") }
+                .buttonStyle(.brandSecondary)
+                .disabled(busy)
+                .accessibilityHint("Grants it without waiting for every member to agree")
+        }
+        if canEmail && request.status != .pending {
+            Button { onEmail() } label: { Label("Email group", systemImage: "envelope") }
+                .buttonStyle(.brandSecondary)
+                .disabled(busy)
+                .accessibilityHint("Sends the decision email to the group")
         }
         if busy {
             ProgressView().tint(Brand.green)
