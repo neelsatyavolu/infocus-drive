@@ -202,7 +202,7 @@ struct StudentStageScreen: View {
     private func versions(_ media: [StageMedia]) -> some View {
         if let latest = media.first {
             StudentMediaRow(media: latest, result: StageGuide.cutResult(latest), current: true) { play(latest) }
-            reviewButton(latest, bare: true)
+            reviewButton(latest)
             let older = Array(media.dropFirst())
             if !older.isEmpty {
                 Button(showOlder ? "Hide older versions" : "Show older versions (\(older.count))") { showOlder.toggle() }
@@ -220,14 +220,14 @@ struct StudentStageScreen: View {
     private func finalCut(_ media: [StageMedia]) -> some View {
         ForEach(media) { item in
             StudentMediaRow(media: item) { play(item) }
-            reviewButton(item, bare: false)
+            reviewButton(item)
         }
     }
 
     @ViewBuilder
-    private func reviewButton(_ media: StageMedia, bare: Bool) -> some View {
-        if let path = StageGuide.reviewPath(media, bare: bare) {
-            Button { router.openPortal(path, title: "Review") } label: {
+    private func reviewButton(_ media: StageMedia) -> some View {
+        if let route = media.reviewRoute {
+            Button { router.push(.review(route)) } label: {
                 Label("Open review (timecoded notes)", systemImage: "text.bubble")
             }
             .buttonStyle(.brandSecondary)

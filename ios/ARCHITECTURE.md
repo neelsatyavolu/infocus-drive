@@ -23,7 +23,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Features/Publishing/` | `PublishingRoute`, `PublishingDestination` | **Publishing agent** (Publishing Queue, YouTube publication status) |
 | `Features/GradeEditor/` | `GradeEditorRoute`, `GradeEditorDestination` | **Grade Editor agent** (execs: gradebook editing) |
 | `Features/Meetings/` | `MeetingsScreen` (More → Producer tools → Meetings), `MeetingCallScreen` (full-screen call), `MeetingsService` (+ sample meetings), `MeetingsRoute` | **Meetings** (producer meetings: list, join, call) |
-| `Features/Review/` | `WorkspacesScreen`, `ProjectScreen` (folders, media, uploads), `ReviewScreen` (AVKit player or image, versions, status, timecoded and pinned comments), `ShareLinksScreen`, `ReviewAPI` (+ `ReviewStub` for the sample app), `ReviewRoute` | **Review agent** (workspaces, projects, media review, guest links) |
+| `Features/Review/` | `WorkspacesScreen`, `ProjectScreen` (folders, media, uploads), `ReviewScreen` (AVKit player or image, versions, status, package review, every timecoded and pinned comment from `GET api/media/<id>/review`; "Open review" on stages and review notices opens it), `ReviewPackageCard` (Initial Cut approval path; decisions open the Groups stage), `ShareLinksScreen`, `ReviewAPI` (+ `ReviewStub` for the sample app), `ReviewRoute` | **Review agent** (workspaces, projects, media review, guest links) |
 | `Features/More/` | `MoreTab`, `SettingsScreen` (+ profile, email notifications, PINs, signature), `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
 | `Features/Admin/` | `AdminRoute`, Admin dashboard (access requests, people, producer team, backups, View as), Managers, `Vault/` (Passwords) | **Admin and tools** |
 | `Features/Community/` | `CommunityRoute`, `CommunityDestination`, Class Board and story ideas (web views with native routes), `ClassBoardSettingsSheet` (board cycle and PIN) | **Community** (class pages) |
@@ -63,8 +63,7 @@ The route enums and the Portal links each one opens:
 
 Every signed-in Portal page has a native screen; `PortalParityTests` checks that each one resolves to a native route. These parts stay on the web on purpose:
 
-- The timecoded review notes on a media version (`/projects/<id>/review/<mediaId>`, "Open review" on stages and review notices). No API lists review comments yet, so the native review screen shows the player and the comments posted from the app, and opens the web page for earlier comments.
-- On the web review and project pages: package review decisions, quick grades, transcripts, comment import, member assignment, moving media, project download, new versions of an item and legacy Bunny uploads.
+- On the web review and project pages: quick grades, transcripts, comment import, member assignment, moving media, project download, new versions of an item and legacy Bunny uploads.
 - `/g/<token>` guest review pages, for people without a Portal account.
 - The Class Board display and story ideas (`/class-board`, `/ideas`): native routes that wrap the web page, because no JSON API returns them. The board's cycle and PIN settings are native.
 - The equipment checkout kiosk and equipment passkeys (the Equipment toolbar menu).

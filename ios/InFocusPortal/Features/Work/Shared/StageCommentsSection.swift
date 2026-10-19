@@ -45,7 +45,7 @@ struct StageCommentsSection: View {
                     ForEach(comments) { comment in
                         CommentRow(comment: comment, resolving: resolvingId == comment.id,
                                    onToggleResolved: { Task { await setResolved(comment) } },
-                                   onOpenReview: { href in router.openPortal(StageGuide.portalPath(href), title: "Review") })
+                                   onOpenReview: { href in router.openReview(href) })
                             .contextMenu {
                                 if !isMine(comment) {
                                     Button("Report comment", systemImage: "flag") {

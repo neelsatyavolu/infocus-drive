@@ -72,7 +72,7 @@ final class StudentStagesTests: XCTestCase {
            "author":{"userId":"u-sage","name":"Sage","email":"sage@example.edu"}}],"unread":0}}
         """)
         XCTAssertNotNil(comments.comments[1].resolvedAt)
-        XCTAssertEqual(comments.comments[1].reviewHref.map(StageGuide.portalPath), "projects/p1/review/m1?v=v2")
+        XCTAssertEqual(comments.comments[1].reviewHref, "/projects/p1/review/m1?v=v2")
 
         let group = StageThread(comments.comments, clipId: nil)
         XCTAssertEqual(group.comments.map(\.id), ["c2", "c1"])
@@ -169,8 +169,7 @@ final class StudentStagesTests: XCTestCase {
         media = StageMedia(id: "m1", title: "v2", rollKind: nil, projectId: "p1", versionId: "v2", versionNumber: 2, status: "READY",
                            approvalStatus: "NEEDS_CHANGES", approvedInStage: nil, thumbnailUrl: nil, playbackUrl: nil, commentCount: 0, isNew: nil)
         XCTAssertEqual(StageGuide.cutResult(media).label, "Needs revisions")
-        XCTAssertEqual(StageGuide.reviewPath(media, bare: true), "projects/p1/review/m1?bare=1")
-        XCTAssertEqual(StageGuide.reviewPath(media, bare: false), "projects/p1/review/m1")
+        XCTAssertEqual(media.reviewRoute, .media(projectId: "p1", mediaId: "m1", versionId: "v2"))
         XCTAssertEqual(StageGuide.cutTitle(version: 3), "Initial Cut Version 3")
     }
 

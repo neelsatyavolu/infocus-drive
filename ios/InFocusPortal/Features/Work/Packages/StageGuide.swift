@@ -184,17 +184,6 @@ enum StageGuide {
             return lower.prefix(1).uppercased() + lower.dropFirst()
         }
     }
-
-    /// The Portal page for a cut's timecoded review (`stageReviewHref`); Initial Cut opens it bare.
-    static func reviewPath(_ media: StageMedia, bare: Bool) -> String? {
-        guard let project = media.projectId else { return nil }
-        return "projects/\(project)/review/\(media.id)" + (bare ? "?bare=1" : "")
-    }
-
-    /// A Portal link (`/projects/…?v=…`) as an in-app path without the leading slash.
-    static func portalPath(_ href: String) -> String {
-        href.hasPrefix("/") ? String(href.dropFirst()) : href
-    }
 }
 
 /// Brainstorming's status and next step (`app/(app)/brainstorming/brainstorm-view.ts`).

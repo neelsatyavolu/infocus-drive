@@ -11,7 +11,8 @@ extension ReviewAPI {
         media: { _, query in ReviewStub.page(query) },
         playback: { _, _ in throw PortalError.sampleApp },
         image: { mediaId, _ in ReviewStub.image(for: mediaId) },
-        earlierComments: { mediaId in ReviewStub.comments.filter { ReviewStub.versionIds[mediaId] == $0.mediaVersionId } },
+        review: { mediaId, _ in try ReviewStub.review(mediaId) },
+        poster: { _, _ in nil },
         comment: { new in
             SampleMode.notSaved()
             return ReviewComment(id: "local-\(UUID().uuidString)", mediaVersionId: new.mediaVersionId, authorId: "u-me",
@@ -93,6 +94,19 @@ enum ReviewStub {
                       timeSeconds: 12, xPct: nil, yPct: nil, body: "Start the interview here and trim the warm-up.",
                       createdAt: ago(hours: 4), resolvedAt: nil, authorName: "Sage"),
     ]
+
+    /// The review of one sample item: its comments, as the sample account (an editor) sees it.
+    static func review(_ mediaId: String) throws -> ReviewDetail {
+        guard let item = items.first(where: { $0.id == mediaId }) else { throw PortalError.notFound }
+        let versionId = item.currentVersionId ?? ""
+        return ReviewDetail(mediaId: item.id, projectId: "p1", projectName: "Sample package: Club Fair",
+                            folderName: folders.first { $0.id == item.folderId }?.name, title: item.title, workspaceRole: .editor,
+                            canUpdateApprovalStatus: false, currentUserId: "u-me", packageReview: nil,
+                            assignedPeople: [.init(userId: "u-abby", name: "Abby", email: "abby@example.edu")],
+                            currentVersionId: versionId, versions: item.versions,
+                            comments: comments.filter { $0.mediaVersionId == versionId },
+                            allowComment: true, isInitialCut: false, canViewShareLinks: false)
+    }
 
     static func shell(mediaId: String?) -> ReviewProjectShell {
         let asset = mediaId.flatMap { id in items.first { $0.id == id } }

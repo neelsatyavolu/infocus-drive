@@ -78,13 +78,6 @@ enum GroupReviewLogic {
         }
     }
 
-    /// The review page for a cut or clip on the Portal (`stageReviewHref`).
-    static func reviewPath(_ media: StageMedia) -> String? {
-        guard let project = media.projectId else { return nil }
-        let base = "projects/\(project)/review/\(media.id)"
-        return media.versionId.map { "\(base)?version=\($0)" } ?? base
-    }
-
     // MARK: Final Cut scores
 
     /// Typed but unsaved scores for one member.
