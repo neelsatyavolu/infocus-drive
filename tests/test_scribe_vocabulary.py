@@ -1,56 +1,65 @@
-"""Transcription hotwords: InFocus terms and people's names from the Portal."""
+"""People's names from the Portal and InFocus terms: spellings for the notes model (never whisper)."""
 
-import functools
+import json
 
 from scribe_fakes import make_cfg  # noqa: F401  (puts scribe/ on sys.path)
-from app import jobs, pipeline, vocabulary  # noqa: E402
-from app.transcribe import Transcriber  # noqa: E402
+from app import jobs, ollama_runtime, pipeline, summarize, vocabulary  # noqa: E402
+from app.transcribe import Segment  # noqa: E402
 
 
-def test_hotwords_put_terms_first_then_names_without_repeats():
-    text = vocabulary.hotwords(["Abby Example", "abby example", " Otto ", "InFocus"])
-    assert text.startswith("InFocus, Paly, A-roll")
-    assert text.endswith(", Abby Example, Otto")
-    assert text.count("InFocus") == 1
+def test_known_names_are_cleaned_without_repeats():
+    assert vocabulary.known_names(["Abby Example", "abby example", " Otto ", "", "Sage  Example"]) == [
+        "Abby Example", "Otto", "Sage Example"]
 
 
-def test_hotwords_stop_at_the_budget_on_a_whole_name():
-    names = [f"Student{i} Example" for i in range(200)]
-    text = vocabulary.hotwords(names)
-    assert len(text) <= vocabulary.MAX_CHARS
-    assert text.split(", ")[-1].startswith("Student") and text.split(", ")[-1].endswith("Example")
+def test_known_names_stop_at_the_budget_on_a_whole_name():
+    names = vocabulary.known_names([f"Student{i} Example" for i in range(400)])
+    assert len(", ".join(names)) <= vocabulary.MAX_CHARS
+    assert names[-1].startswith("Student") and names[-1].endswith("Example")
 
 
-def test_transcriber_passes_hotwords_to_whisper(tmp_path):
-    seen = {}
-
-    class FakeModel:
-        def transcribe(self, path, **kwargs):
-            seen.update(kwargs)
-            return [], None
-
-    transcriber = Transcriber.__new__(Transcriber)
-    transcriber._model, transcriber._hotwords = FakeModel(), "InFocus, Abby"
-    transcriber.transcribe(tmp_path / "a.wav", offset_ms=0, uid="u1", name="Abby")
-    assert seen["hotwords"] == "InFocus, Abby" and seen["vad_filter"] is True
+def test_the_notes_prompt_lists_the_class_and_the_terms():
+    user = summarize.user_prompt("[00:00:01] Abby: hi", "T", "Monday, Oct 19, 2026, 9:30 PM PDT",
+                                 ["Abby Example", "Otto"])
+    assert "Participants: Abby.\nClass members: Abby Example, Otto.\n\nTranscript:" in user
+    assert "Class members" not in summarize.user_prompt("[00:00:01] Abby: hi", "T", "D")
+    assert "Fun Focus" in summarize.SYSTEM and "A-roll" in summarize.SYSTEM
 
 
-def test_pipeline_builds_the_transcriber_with_the_meetings_names(tmp_path, monkeypatch):
+def test_the_class_reaches_the_cloud_and_local_notes(tmp_path, monkeypatch):
+    note = json.dumps({"title": "T", "tldr": "x", "sections": [], "decisions": [], "action_items": []})
+    users = []
+
+    def chat(system, user, schema, num_predict=None):
+        users.append(user)
+        return note
+
+    monkeypatch.setattr(ollama_runtime, "WorkersAIChat", lambda cfg: chat)
+    cfg = make_cfg(tmp_path, workers_ai_account_id="a" * 32, workers_ai_token="t" * 40)
+    ollama_runtime.summarize_meeting(cfg, "T", "D", "[00:00:01] Abby: hi", names=["Otto Example"])
+    assert users and all("Class members: Otto Example." in u for u in users)
+
+
+def test_pipeline_sends_the_meetings_names_to_the_notes(tmp_path, monkeypatch):
+    cfg = make_cfg(tmp_path)
+    cfg.meetings_dir.mkdir()
+    cfg.tmp_dir.mkdir()
     job = tmp_path / "job"
     job.mkdir()
     jobs.write_marker(job, jobs.JobMarker(meeting_id="m1", title="T", starts_at="2026-10-04T04:15:00+00:00",
-                                          recording_started_ms=1, vocabulary=["Abby Example", "Otto"]))
+                                          recording_started_ms=1, state="queued",
+                                          vocabulary=["Abby Example", "Otto"]))
     seen = {}
+    monkeypatch.setattr(pipeline.portal_client, "post_notes", lambda *a, **kw: True)
+    monkeypatch.setattr(pipeline, "transcribe", lambda cfg_, d: ([Segment(1_000, 2_000, "u1", "Abby", "Hi.")], []))
 
-    def fake_streams(model, threads, audio_dir, *, max_mb, factory):
-        seen["factory"] = factory
-        return [], []
+    def fake_summary(cfg_, title, started, text, **kw):
+        seen.update(kw)
+        return "# Notes\n"
 
-    monkeypatch.setattr(pipeline, "transcribe_streams", fake_streams)
-    pipeline.transcribe(make_cfg(tmp_path), job)
-    factory = seen["factory"]
-    assert isinstance(factory, functools.partial) and factory.func is Transcriber
-    assert factory.keywords["hotwords"].endswith("Abby Example, Otto")
+    monkeypatch.setattr(pipeline, "summarize_meeting", fake_summary)
+    pipeline.process(cfg, job)
+    assert seen["names"] == ["Abby Example", "Otto"]
 
 
 def test_old_markers_without_names_still_load(tmp_path):

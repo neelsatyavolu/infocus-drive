@@ -60,7 +60,7 @@ class StartRequest:
     key: str
     epoch: int
     portal_base_url: str
-    # Names the transcriber should expect (vocabulary.py); kept in the job marker for processing.
+    # Names the notes should spell right (vocabulary.py); kept in the job marker for processing.
     vocabulary: tuple[str, ...] = ()
 
 

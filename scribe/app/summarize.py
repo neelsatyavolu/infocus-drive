@@ -11,9 +11,11 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import httpx
+
+from .vocabulary import TERMS
 
 log = logging.getLogger("scribe.summarize")
 
@@ -40,7 +42,14 @@ Rules:
 - Make no assumptions. Do not infer reasons, intentions, owners, deadlines, agreement or outcomes that nobody stated, and do not fill gaps with what usually happens in a meeting like this. If something was left unclear or undecided, say it was left open or leave it out.
 - Never write that something did not happen (no vote, no decision, nobody objected) unless someone said so. The transcript can be garbled or missing stretches of speech: when a vote or decision was called for and its result is not clearly in the transcript, say the result was not captured in the transcript.
 - The transcript comes from speech recognition: silently fix obvious mis-hearings, ignore filler and small talk. Leave out personal chatter that is not meeting business (other classes, homework).
-- "Participants" lists the correct spelling of everyone's name. A name in the transcript that sounds like one of them (a mis-hearing) means that person.
+- "Participants" lists the correct spelling of everyone who spoke, and "Class members" (when given) everyone in the class. A name in the transcript that sounds like one of them (a mis-hearing) means that person: write it exactly as those lists spell it, even where the transcript spells it differently. A word that is not clearly a name is not a person: never turn an ordinary word into someone's name.
+- InFocus terms are spelled """ + ", ".join(TERMS) + """.
+- Days: the first line gives the meeting's weekday and date. Work out "today", "tomorrow", "Thursday" or "next week" from that date and write the weekday (for example "Tuesday, Oct 20") instead of the relative word. Keep every plan on the day its speaker gave it: never move an event to another day or swap the days of two events.
+- People change plans during a meeting: when a later line corrects, cancels or reassigns something (takes someone off a role, moves a date, drops an idea), report only the final version.
+- A suggestion, a question or a joke is not a decision. When people disagreed and nobody settled it, say it was left open.
+- The owner of a task is the person who was asked to do it or offered to, never the person who asked. "Can someone…" that nobody took on has no owner. Something a speaker says is already done is not a task.
+- Keep every approval or denial that was given (a package, an extension, a pitch) and whose it was, even when it was said in passing.
+- Keep students' private matters out of the notes (health, family, discipline, using AI on schoolwork): write only what the class has to do about it, for example "Abby can't anchor Tuesday; a backup anchor is needed".
 - title: 3-7 words naming the meeting's subject, no date.
 - tldr: two or three sentences a colleague who missed the meeting could act on.
 - Cover the whole meeting, start to finish: later topics matter as much as the first one.
@@ -56,6 +65,15 @@ Keep every decision, number, date, name, commitment and open question. Drop fill
 Do not assume or add anything that was not said: no guessed reasons, owners, deadlines or conclusions.
 Never write that something did not happen unless someone said so. Keep every call for a vote and whatever was said about its result.
 Reply with plain text bullets only."""
+
+# A second call on Workers AI: the draft is checked against the transcript it came from.
+REVIEW_SYSTEM = SYSTEM + """
+
+You are now checking a draft of these notes against the transcript, statement by statement, and returning corrected notes:
+- Find the transcript lines behind every statement in the tldr, sections, decisions and action items. Correct anything those lines contradict: another day, another person, the wrong owner, the opposite outcome.
+- When a later line changes something, keep only the final version. Remove statements nothing in the transcript supports. Move suggestions and unsettled questions out of decisions.
+- Add decisions, tasks and announcements the draft left out.
+Reply with the corrected notes as a single JSON object with exactly the keys above."""
 
 
 def _object(properties: dict[str, Any]) -> dict[str, Any]:
@@ -82,18 +100,23 @@ def speaker_names(transcript: str) -> list[str]:
     return list(dict.fromkeys(m.group(1).strip() for m in _SPEAKER.finditer(transcript)))
 
 
-def _header(title: str, started: str, participants: list[str] | None = None) -> str:
-    line = f"InFocus producer meeting \"{title}\", started {started}."
-    return f"{line}\nParticipants: {', '.join(participants)}." if participants else line
+def _header(title: str, started: str, participants: list[str] | None = None, names: Iterable[str] = ()) -> str:
+    lines = [f"InFocus producer meeting \"{title}\", started {started}."]
+    if participants:
+        lines.append(f"Participants: {', '.join(participants)}.")
+    if names:
+        lines.append(f"Class members: {', '.join(names)}.")
+    return "\n".join(lines)
 
 
-def user_prompt(transcript: str, title: str, started: str) -> str:
-    return f"{_header(title, started, speaker_names(transcript))}\n\nTranscript:\n{transcript}"
+def user_prompt(transcript: str, title: str, started: str, names: Iterable[str] = ()) -> str:
+    return f"{_header(title, started, speaker_names(transcript), names)}\n\nTranscript:\n{transcript}"
 
 
-def user_from_digests(digests: list[str], title: str, started: str, participants: list[str] | None = None) -> str:
+def user_from_digests(digests: list[str], title: str, started: str, participants: list[str] | None = None,
+                      names: Iterable[str] = ()) -> str:
     body = "\n\n".join(f"Part {i + 1}:\n{d}" for i, d in enumerate(digests))
-    return f"{_header(title, started, participants)}\n\nDigests of the transcript, in order:\n{body}"
+    return f"{_header(title, started, participants, names)}\n\nDigests of the transcript, in order:\n{body}"
 
 
 def chunk_transcript(text: str, max_chars: int = CHUNK_BUDGET) -> list[str]:
@@ -151,6 +174,13 @@ class MeetingNote:
             lines = [f"- [ ] **{a.owner}** — {a.task}" if a.owner else f"- [ ] {a.task}" for a in self.action_items]
             blocks.append("\n".join(["## Action items"] + lines))
         return "\n\n".join(blocks) + "\n"
+
+    def as_dict(self) -> dict[str, Any]:
+        """The note in the model's JSON shape (SCHEMA)."""
+        return {"title": self.title, "tldr": self.tldr,
+                "sections": [{"heading": s.heading, "bullets": s.bullets} for s in self.sections],
+                "decisions": self.decisions,
+                "action_items": [{"owner": a.owner or "", "task": a.task} for a in self.action_items]}
 
 
 class NotJSON(ValueError):
@@ -224,26 +254,50 @@ def digest(complete: Complete, chunks: list[str], chunk_budget: int = CHUNK_BUDG
     return digests if _digests_size(digests) <= budget else _fit(digests, budget)
 
 
+def _ask_note(complete: Complete, system: str, user: str) -> tuple[MeetingNote | None, str]:
+    """One JSON note (one retry). None and the last reply when neither reply parses."""
+    reply = ""
+    for _ in range(2):
+        reply = complete(system, user, SCHEMA, None)
+        try:
+            return parse_note(reply), reply
+        except NotJSON:
+            continue
+    return None, reply
+
+
+def review_note(complete: Complete, user: str, draft: MeetingNote) -> MeetingNote:
+    """The draft checked against the transcript in `user` and corrected; the draft if the check fails."""
+    try:
+        checked, _ = _ask_note(complete, REVIEW_SYSTEM,
+                               f"{user}\n\nDraft notes:\n{json.dumps(draft.as_dict(), ensure_ascii=False)}")
+    except Exception as e:
+        log.warning("notes review failed (%s); keeping the draft", type(e).__name__)
+        return draft
+    return checked or draft
+
+
 def summarize(complete: Complete, title: str, started: str, transcript: str,
-              chunk_budget: int = CHUNK_BUDGET, digest_budget: int = DIGEST_BUDGET) -> MeetingNote:
-    """Redrule's Summarizer: digest long transcripts, then one JSON note (one retry, then fallback)."""
+              chunk_budget: int = CHUNK_BUDGET, digest_budget: int = DIGEST_BUDGET, *,
+              names: Iterable[str] = (), review: bool = False) -> MeetingNote:
+    """Redrule's Summarizer: digest long transcripts, then one JSON note (one retry, then fallback).
+    With `review`, a transcript that fits one call is also checked against the note (review_note)."""
     chunks = chunk_transcript(transcript, chunk_budget)
     if not chunks:
         raise ValueError("empty transcript")
-    if len(chunks) == 1:
-        user = user_prompt(transcript, title, started)
+    names = list(names)
+    whole = len(chunks) == 1
+    if whole:
+        user = user_prompt(transcript, title, started, names)
     else:
         user = user_from_digests(digest(complete, chunks, chunk_budget, digest_budget), title, started,
-                                 speaker_names(transcript))
-    reply = ""
-    for _ in range(2):
-        reply = complete(SYSTEM, user, SCHEMA, None)
-        try:
-            return parse_note(reply)
-        except NotJSON:
-            continue
-    # Keep whatever the model wrote rather than losing the meeting.
-    return MeetingNote(title=title, tldr=reply.strip())
+                                 speaker_names(transcript), names)
+    note, reply = _ask_note(complete, SYSTEM, user)
+    if note is None:
+        # Keep whatever the model wrote rather than losing the meeting.
+        return MeetingNote(title=title, tldr=reply.strip())
+    # Digests no longer hold the transcript lines a review would check against.
+    return review_note(complete, user, note) if review and whole else note
 
 
 class OllamaChat:

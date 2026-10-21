@@ -1,18 +1,18 @@
-"""Words the transcriber should expect: InFocus terms, then people's names from the Portal.
+"""Words the notes should spell right: InFocus terms, and people's names from the Portal.
 
-faster-whisper puts `hotwords` in front of every 30-second window, which nudges spellings toward
-these (names it would otherwise hear as look-alikes). It keeps only the first ~220 tokens, so the
-short fixed terms go first and the Portal sends its names most-important first.
+They go to the summary model, which fixes mis-heard names and terms. Whisper gets no hints: with
+`hotwords` (the class list, or only the people in the call) it skipped whole minutes of speech and
+wrote names nobody said.
 """
 
 from __future__ import annotations
 
 from typing import Iterable
 
-TERMS = ("InFocus", "Paly", "A-roll", "B-roll", "Initial Cut", "Final Cut", "teleprompter",
+TERMS = ("InFocus", "Paly", "Fun Focus", "A-roll", "B-roll", "Initial Cut", "Final Cut", "teleprompter",
          "show manager", "floor director", "tech director", "package", "Portal")
-# About 220 tokens of names (≈4 characters per token).
-MAX_CHARS = 900
+# The Portal sends at most 300 names of at most 80 characters; this keeps the prompt line bounded.
+MAX_CHARS = 4_000
 
 
 def clean_vocabulary(words: Iterable[str]) -> list[str]:
@@ -27,12 +27,13 @@ def clean_vocabulary(words: Iterable[str]) -> list[str]:
     return out
 
 
-def hotwords(names: Iterable[str]) -> str | None:
-    """"InFocus, Paly, …, Abby Example, Otto, …" cut at MAX_CHARS on a whole word; None if empty."""
-    text = ""
-    for word in clean_vocabulary([*TERMS, *names]):
-        candidate = f"{text}, {word}" if text else word
-        if len(candidate) > MAX_CHARS:
+def known_names(names: Iterable[str]) -> list[str]:
+    """The Portal's names, cleaned, cut at MAX_CHARS (joined with ", ") on a whole name."""
+    out: list[str] = []
+    size = 0
+    for name in clean_vocabulary(names):
+        size += len(name) + (2 if out else 0)
+        if size > MAX_CHARS:
             break
-        text = candidate
-    return text or None
+        out.append(name)
+    return out

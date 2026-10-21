@@ -11,7 +11,7 @@ import logging
 import os
 import subprocess
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import httpx
 
@@ -92,21 +92,24 @@ class OllamaServer:
 
 
 def summarize_meeting(cfg: ScribeConfig, title: str, started: str, transcript: str,
-                      server_factory: Callable[[ScribeConfig], OllamaServer] = OllamaServer) -> str:
+                      server_factory: Callable[[ScribeConfig], OllamaServer] = OllamaServer, *,
+                      names: Iterable[str] = ()) -> str:
     """Notes markdown, or the "Summary unavailable" note on any failure (the transcript still ships).
 
-    Workers AI first when it's configured (one call over the whole transcript); the local model
-    is the fallback."""
+    Workers AI first when it's configured (one call over the whole transcript, then a second call
+    that checks the notes against it); the local model is the fallback. `names`: the class's names,
+    so the notes spell people right."""
+    names = list(names)
     if workers_ai_configured(cfg):
         try:
-            return summarize(WorkersAIChat(cfg), title, started, transcript,
-                             chunk_budget=CLOUD_CHUNK_BUDGET, digest_budget=CLOUD_CHUNK_BUDGET).markdown
+            return summarize(WorkersAIChat(cfg), title, started, transcript, chunk_budget=CLOUD_CHUNK_BUDGET,
+                             digest_budget=CLOUD_CHUNK_BUDGET, names=names, review=True).markdown
         except Exception as e:
             log.warning("Workers AI summary failed (%s); using the local model", type(e).__name__)
     try:
         with server_factory(cfg) as base_url:
             chat = OllamaChat(base_url, cfg.ollama_model)
-            return summarize(chat, title, started, transcript).markdown
+            return summarize(chat, title, started, transcript, names=names).markdown
     except Exception as e:
         log.warning("summary failed: %s", type(e).__name__)
         return SUMMARY_UNAVAILABLE

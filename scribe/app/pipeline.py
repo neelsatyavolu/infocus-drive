@@ -10,7 +10,6 @@ audio stays as a backup (so notes can be redone by hand). The 14-day cleanup del
 from __future__ import annotations
 
 import errno
-import functools
 import logging
 import shutil
 import time
@@ -22,8 +21,8 @@ from .notes_writer import folder_name, local_time, write_notes
 from .ollama_runtime import summarize_meeting
 from .preflight import NOT_WRITABLE
 from .summarize import NO_SPEECH, SUMMARY_UNAVAILABLE
-from .transcribe import Gap, Segment, Transcriber, render_markdown, transcript_json, transcript_lines
-from .vocabulary import hotwords
+from .transcribe import Gap, Segment, render_markdown, transcript_json, transcript_lines
+from .vocabulary import known_names
 from .whisper_child import transcribe_streams
 
 log = logging.getLogger("scribe.pipeline")
@@ -33,10 +32,7 @@ _NOT_WRITABLE_ERRNOS = {errno.EACCES, errno.EPERM, errno.EROFS, errno.ENOSPC, er
 
 
 def transcribe(cfg: ScribeConfig, audio_dir: Path) -> tuple[list[Segment], list[Gap]]:
-    marker = jobs.read_marker(audio_dir)
-    factory = functools.partial(Transcriber, hotwords=hotwords(marker.vocabulary if marker else []))
-    return transcribe_streams(cfg.whisper_model, cfg.whisper_threads, audio_dir, max_mb=cfg.whisper_max_mb,
-                              factory=factory)
+    return transcribe_streams(cfg.whisper_model, cfg.whisper_threads, audio_dir, max_mb=cfg.whisper_max_mb)
 
 
 def failure_reason(error: Exception) -> str:
@@ -83,14 +79,15 @@ def _write(cfg: ScribeConfig, marker: jobs.JobMarker, segments: list[Segment],
     date_label = f"{when:%A, %B %-d, %Y · %-I:%M %p}"
     if marker.part > 1:
         date_label += f" · part {marker.part}"
-    started_label = f"{when:%b %-d, %Y, %-I:%M %p %Z}"
+    # The weekday lets the notes model turn "tomorrow" or "Thursday" into the right day.
+    started_label = f"{when:%A, %b %-d, %Y, %-I:%M %p %Z}"
     rec_start = marker.recording_started_ms
     transcript_md = render_markdown(marker.title, date_label, segments, rec_start, gaps)
     meta = {"meetingId": marker.meeting_id, "title": marker.title, "startsAt": marker.starts_at,
             "recordingStartedMs": rec_start, "part": marker.part, "complete": not gaps}
     if segments:
         body = "\n".join(transcript_lines(segments, rec_start))
-        summary_md = summarize_meeting(cfg, marker.title, started_label, body)
+        summary_md = summarize_meeting(cfg, marker.title, started_label, body, names=known_names(marker.vocabulary))
     else:
         summary_md = NO_SPEECH
     if gaps:

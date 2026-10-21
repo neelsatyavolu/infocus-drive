@@ -43,7 +43,7 @@ class JobMarker:
     complete: bool = True
     last_error: str | None = None
     updated_ms: int = 0
-    # People's names from the Portal's start request (transcription hotwords).
+    # People's names from the Portal's start request (spellings for the notes model).
     vocabulary: list[str] = field(default_factory=list)
 
     @property

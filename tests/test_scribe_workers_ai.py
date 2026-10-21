@@ -109,15 +109,16 @@ def test_config_reads_workers_ai_from_the_environment(monkeypatch):
 # --- choosing the model --------------------------------------------------------------
 
 def test_cloud_summary_reads_the_whole_long_transcript_in_one_call(tmp_path, monkeypatch):
-    model = FakeModel([json.dumps(NOTE_JSON)])
+    model = FakeModel([json.dumps(NOTE_JSON), json.dumps(NOTE_JSON)])
     monkeypatch.setattr(ollama_runtime, "WorkersAIChat", lambda cfg: model)
     transcript = "\n".join(f"[00:{i // 60:02d}:{i % 60:02d}] Abby: " + "z" * 80 for i in range(600))
     assert len(transcript) > summarize.CHUNK_BUDGET  # the local model would digest this in pieces
     out = ollama_runtime.summarize_meeting(cloud_cfg(tmp_path), "T", STARTED, transcript, server_factory=NoServer)
     assert out.startswith("# Cycle 3 pitch review")
-    assert len(model.calls) == 1
+    assert len(model.calls) == 2  # the notes, then the check against the transcript
     system, user, _, _ = model.calls[0]
     assert system == summarize.SYSTEM and transcript in user
+    assert model.calls[1][0] == summarize.REVIEW_SYSTEM and transcript in model.calls[1][1]
 
 
 def test_cloud_failure_falls_back_to_the_local_model(tmp_path, monkeypatch):

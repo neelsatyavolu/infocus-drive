@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .recorder import StreamInfo, concat_stream, load_streams
-from .transcribe import Gap, Segment, Transcriber, drop_repeats, merge_segments
+from .transcribe import Gap, Segment, Transcriber, drop_repeats, join_turns, merge_segments
 
 log = logging.getLogger("scribe.whisper")
 
@@ -238,4 +238,4 @@ def transcribe_streams(model: str, threads: int, audio_dir: Path, *, max_mb: flo
     finally:
         if state["child"] is not None:
             state["child"].close()
-    return merge_segments(per_speaker), sorted(gaps, key=lambda g: (g.from_ms, g.name))
+    return join_turns(merge_segments(per_speaker)), sorted(gaps, key=lambda g: (g.from_ms, g.name))

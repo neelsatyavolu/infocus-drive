@@ -41,7 +41,7 @@ def env(tmp_path, monkeypatch):
         return acked["value"]
 
     monkeypatch.setattr(pipeline.portal_client, "post_notes", post)
-    monkeypatch.setattr(pipeline, "summarize_meeting", lambda cfg_, title, started, text: "# Notes\n")
+    monkeypatch.setattr(pipeline, "summarize_meeting", lambda cfg_, title, started, text, **kw: "# Notes\n")
     monkeypatch.setattr(pipeline, "transcribe", lambda cfg_, d: ([Segment(REC + 1_000, REC + 2_000, "u1", "Abby", "Hi.")], []))
     return cfg, sent, acked, monkeypatch
 
@@ -154,7 +154,7 @@ def test_ready_not_acknowledged_is_retried_without_transcribing_again(env):
 
 def test_summary_failure_still_delivers_the_transcript(env):
     cfg, sent, _, monkeypatch = env
-    monkeypatch.setattr(pipeline, "summarize_meeting", lambda *a: SUMMARY_UNAVAILABLE)
+    monkeypatch.setattr(pipeline, "summarize_meeting", lambda *a, **kw: SUMMARY_UNAVAILABLE)
     assert pipeline.process(cfg, _job(cfg)) == "done"
     assert sent[-1][0] == "READY" and sent[-1][1]["summary_markdown"] == SUMMARY_UNAVAILABLE
 

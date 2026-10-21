@@ -13,6 +13,11 @@ log = logging.getLogger("scribe.transcribe")
 # A segment is a repeat when this share of its 3-word runs was in the speaker's previous segment.
 REPEAT_SHARE = 0.8
 _NOT_WORD = re.compile(r"[^a-z0-9' ]+")
+# Whisper can put words said 40 seconds apart in one segment, which then carries the first word's
+# time and lands before other people's replies. Segments are cut at pauses this long and at
+# sentence ends; a speaker's pieces that nobody spoke between are joined again (join_turns).
+PAUSE_MS = 1_500
+_SENTENCE_END = re.compile(r"[.?!][\"')\]]*$")
 
 
 @dataclass(frozen=True)
@@ -34,27 +39,43 @@ class Gap:
     reason: str
 
 
+def _pieces(seg: Any) -> list[tuple[float, float, str]]:
+    """(start s, end s, text) for one whisper segment, cut at long pauses and sentence ends."""
+    words = getattr(seg, "words", None) or []
+    if not words:
+        return [(seg.start, seg.end, seg.text)]
+    groups: list[list[Any]] = [[]]
+    for word in words:
+        last = groups[-1][-1] if groups[-1] else None
+        if last is not None and ((word.start - last.end) * 1000 >= PAUSE_MS
+                                 or _SENTENCE_END.search(last.word.strip())):
+            groups.append([])
+        groups[-1].append(word)
+    return [(g[0].start, g[-1].end, "".join(w.word for w in g)) for g in groups if g]
+
+
 class Transcriber:
     """Loads the whisper model once per processing job (frees RAM between meetings)."""
 
-    def __init__(self, model: str, threads: int, hotwords: str | None = None) -> None:
+    def __init__(self, model: str, threads: int) -> None:
         from faster_whisper import WhisperModel  # heavy import, only in the container
 
         self._model = WhisperModel(model, device="cpu", compute_type="int8", cpu_threads=threads)
-        # People's names and InFocus terms (vocabulary.py), in front of every 30-second window.
-        self._hotwords = hotwords
 
     def transcribe(self, wav: Path, *, offset_ms: int, uid: str, name: str) -> list[Segment]:
         # condition_on_previous_text=False: a window that went wrong (cross-talk, noise) must not
         # seed the next one, or whisper repeats one phrase for minutes and the real speech is lost.
+        # No hotwords (not even a short list of names): with them whisper skipped whole minutes of
+        # speech and wrote names nobody said. The summary fixes name spellings instead.
         segments, _info = self._model.transcribe(str(wav), language="en", vad_filter=True, beam_size=1,
-                                                 hotwords=self._hotwords, condition_on_previous_text=False)
+                                                 condition_on_previous_text=False, word_timestamps=True)
         out: list[Segment] = []
         for seg in segments:
-            text = " ".join(seg.text.split())
-            if text:
-                out.append(Segment(start_ms=offset_ms + int(seg.start * 1000),
-                                   end_ms=offset_ms + int(seg.end * 1000), uid=uid, name=name, text=text))
+            for start, end, raw in _pieces(seg):
+                text = " ".join(raw.split())
+                if text:
+                    out.append(Segment(start_ms=offset_ms + int(start * 1000), end_ms=offset_ms + int(end * 1000),
+                                       uid=uid, name=name, text=text))
         return out
 
 
@@ -82,6 +103,19 @@ def merge_segments(per_speaker: Iterable[Iterable[Segment]]) -> list[Segment]:
     """All speakers in time order (ties: earlier end, then name)."""
     merged = [seg for segments in per_speaker for seg in segments]
     return sorted(merged, key=lambda s: (s.start_ms, s.end_ms, s.name, s.uid))
+
+
+def join_turns(segments: list[Segment]) -> list[Segment]:
+    """Merged segments with each run of one speaker's lines joined into one line, unless someone
+    else spoke in between or the speaker paused for PAUSE_MS or longer."""
+    out: list[Segment] = []
+    for seg in segments:
+        last = out[-1] if out else None
+        if last is not None and last.uid == seg.uid and seg.start_ms - last.end_ms < PAUSE_MS:
+            out[-1] = Segment(last.start_ms, max(last.end_ms, seg.end_ms), last.uid, last.name, f"{last.text} {seg.text}")
+        else:
+            out.append(seg)
+    return out
 
 
 def format_clock(ms: int) -> str:
