@@ -68,6 +68,9 @@ class Settings(BaseSettings):
     packages_service_user: str = ""
     # Relative root under drive for packages media (must match site structure)
     packages_root: str = "Package Cycles"
+    # Switcher recordings folder the service API may read (never write) for the
+    # automatic show editor. Empty turns read access off.
+    shows_root: str = "Shows"
     # infocus-packages origin for the Drive roster (same token as packages_service_token).
     packages_roster_url: str = ""
     # Last-seen packages emails; used to delete NAS users who left the roster.

@@ -33,6 +33,7 @@ services:
       PACKAGES_SERVICE_TOKEN: ${PACKAGES_SERVICE_TOKEN:-}
       PACKAGES_SERVICE_USER: ${PACKAGES_SERVICE_USER:-}
       PACKAGES_ROOT: ${PACKAGES_ROOT:-Package Cycles}
+      SHOWS_ROOT: ${SHOWS_ROOT-Shows}
       PACKAGES_ROSTER_URL: ${PACKAGES_ROSTER_URL?set it in .env (see .env.example)}
       UGOS_API_URL: ${UGOS_API_URL:-http://127.0.0.1:9999}
       UGOS_ADMIN_USER: ${UGOS_ADMIN_USER?set it in .env (see .env.example)}

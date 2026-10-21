@@ -82,6 +82,7 @@ import thumbs
 import webproxy
 from zipstream import stream_zip_store, zip_store_content_length
 from service_auth import (
+    assert_readable_service_path,
     assert_under_packages_root,
     mint_file_token,
     require_service_token,
@@ -476,10 +477,12 @@ async def service_mint_token(request: Request) -> dict[str, Any]:
     """Mint a short-lived path-scoped token for browser upload/download."""
     require_service_token(request)
     body = await request.json()
-    rel = assert_under_packages_root(str(body.get("path") or ""))
     purpose = str(body.get("purpose") or "rw")
     if purpose not in ("r", "rw", "w"):
         raise HTTPException(status_code=400, detail="purpose must be r, w, or rw")
+    # Read tokens may also cover the read-only Shows root; write tokens never do.
+    raw_path = str(body.get("path") or "")
+    rel = assert_readable_service_path(raw_path) if purpose == "r" else assert_under_packages_root(raw_path)
     ttl = int(body.get("ttlSeconds") or 3600)
     token = mint_file_token(rel, ttl_seconds=ttl, purpose=purpose if purpose != "w" else "rw")
     base = settings.public_base_url.rstrip("/")
@@ -763,12 +766,12 @@ def service_file(
     inline: bool = Query(True),
     web: bool = Query(False),
 ) -> FileResponse:
-    """Download/stream a Package Cycles file (Range-friendly via FileResponse).
+    """Download/stream a Package Cycles/Storage or Shows file (Range-friendly via FileResponse).
 
     web=1 transcodes camera originals (ProRes, XAVC 4:2:2) to H.264/AAC for
     browser <video>. Original downloads omit web=1.
     """
-    rel = assert_under_packages_root(path)
+    rel = assert_readable_service_path(path)
     _require_service_read(request, rel, token)
 
     ident = service_identity()
@@ -791,6 +794,33 @@ def service_file(
         media_type=media_type,
         content_disposition_type="inline" if inline else "attachment",
     )
+
+
+@app.get("/api/service/list")
+def service_list(request: Request, path: str = Query(...)) -> dict[str, Any]:
+    """List a service folder as the service user (bearer only; read roots only).
+
+    Used by the Portal to show the switcher recordings in Shows/ to producers.
+    """
+    require_service_token(request)
+    rel = assert_readable_service_path(path)
+    ident = service_identity()
+    try:
+        listing = list_dir(rel, ident.uid, ident.gid)
+    except FSError as e:
+        raise _fs_http(e) from e
+    items = [
+        {
+            "name": item["name"],
+            "path": item["path"],
+            "isDir": item["is_dir"],
+            "size": item["size"],
+            "mtime": item["mtime"],
+        }
+        for item in listing["items"]
+        if not item["name"].startswith(".") and item["name"] != "#recycle"
+    ]
+    return {"path": rel, "items": items}
 
 
 @app.get("/api/service/thumbnail")

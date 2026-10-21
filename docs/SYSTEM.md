@@ -274,6 +274,7 @@ infocus-packages can store cycle media on the NAS via a **service API** (not end
 | `PACKAGES_SERVICE_TOKEN` | Shared secret (= packages `DRIVE_SERVICE_TOKEN`) | Set on NAS |
 | `PACKAGES_SERVICE_USER` | NAS user for writes | e.g. `admin` |
 | `PACKAGES_ROOT` | Extra allowed path prefix (Cycles + Storage are always allowed) | `Package Cycles` |
+| `SHOWS_ROOT` | Read-only folder for the automatic show editor (switcher recordings). Empty turns it off | `Shows` |
 
 `docker-compose.yml` must pass these into the container (`env_file: .env` **and** explicit `environment:` entries). A host-only `.env` without compose wiring left the API unconfigured until fixed.
 
@@ -285,7 +286,10 @@ infocus-packages can store cycle media on the NAS via a **service API** (not end
 | `POST /api/service/mint-token` | Short-lived path-scoped token |
 | `POST /api/service/upload` | Multipart (service bearer **or** form token) |
 | `GET /api/service/file` | Download/stream (Range); query token or bearer |
+| `GET /api/service/list?path=` | List a folder (bearer only): `{ path, items: [{ name, path, isDir, size, mtime }] }`, no dotfiles or `#recycle` |
 | `DELETE /api/service/file` | Delete |
+
+**Read roots vs write roots.** Writes (`ensure-dir`, `upload`, `upload/*`, `DELETE`, and `rw`/`w` tokens) work only under Package Cycles and Package Storage. Reads (`list`, `file`, and `r` tokens) also cover `SHOWS_ROOT` (default `Shows/`), where the switcher's recordings land. The Portal's automatic show editor lists it and hands the editing Mac short-lived `r` tokens, so the Mac needs no Drive sign-in. Every write to `SHOWS_ROOT` is refused with 403. `PACKAGES_SERVICE_USER` must be able to read that folder on the NAS: give it read (not write) on `Shows/` in the share's permissions.
 
 **CORS** (required for browser upload from packages): allow the packages app origin(s) (e.g. `https://packages.example.com`), `*.vercel.app`, localhost:3000. Without CORS, curl works but the browser fails silently / “upload failed”.
 

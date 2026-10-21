@@ -193,7 +193,10 @@ Ensure NAS `.env` includes:
 PACKAGES_SERVICE_TOKEN=<shared-secret>
 PACKAGES_SERVICE_USER=admin
 PACKAGES_ROOT=Package Cycles
+SHOWS_ROOT=Shows
 ```
+
+`SHOWS_ROOT` is the switcher recordings folder that the Portal's automatic show editor reads (never writes). Give `PACKAGES_SERVICE_USER` read access to it in the NAS share permissions, or listing it returns 403.
 
 And `docker-compose.yml` passes them into `infocus-drive` (see `env_file` + `environment` block). Then:
 

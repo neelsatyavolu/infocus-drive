@@ -74,27 +74,65 @@ def _allowed_package_roots() -> tuple[str, ...]:
     return tuple(roots)
 
 
-def assert_under_packages_root(rel: str) -> str:
-    """Normalize and ensure path is under Package Cycles or Package Storage."""
-    roots = _allowed_package_roots()
+def _shows_root() -> str:
+    return (get_settings().shows_root or "").strip().strip("/")
+
+
+def _under(path: str, root: str) -> bool:
+    return path == root or path.startswith(root + "/")
+
+
+def _normalize_service_path(rel: str) -> str:
+    """Strip slashes and `.` segments; refuse `..` traversal. "" stays ""."""
     rel = (rel or "").strip().lstrip("/")
-    if not rel:
-        return roots[0]
-    # Block traversal
     parts = [p for p in rel.replace("\\", "/").split("/") if p and p != "."]
     if any(p == ".." for p in parts):
         raise HTTPException(status_code=400, detail="Invalid path")
-    joined = "/".join(parts)
-    if any(joined == root or joined.startswith(root + "/") for root in roots):
+    return "/".join(parts)
+
+
+def assert_under_packages_root(rel: str) -> str:
+    """Normalize and ensure path is under Package Cycles or Package Storage.
+
+    This is the write check: the read-only Shows root is refused here even if
+    it were configured under a package root.
+    """
+    roots = _allowed_package_roots()
+    if not (rel or "").strip().lstrip("/"):
+        return roots[0]
+    joined = _normalize_service_path(rel)
+    shows = _shows_root()
+    if shows and _under(joined, shows):
+        raise HTTPException(status_code=403, detail=f"{shows}/ is read-only for the service API")
+    if any(_under(joined, root) for root in roots):
         return joined
     shown = " or ".join(f"{root}/" for root in roots)
     raise HTTPException(status_code=403, detail=f"Path must be under {shown}")
 
 
+def assert_readable_service_path(rel: str) -> str:
+    """Read check: the package roots plus the read-only Shows root."""
+    joined = _normalize_service_path(rel)
+    shows = _shows_root()
+    if joined and shows and _under(joined, shows):
+        return joined
+    roots = _allowed_package_roots()
+    if not (rel or "").strip().lstrip("/") or any(_under(joined, root) for root in roots):
+        return assert_under_packages_root(rel)
+    shown = " or ".join(f"{root}/" for root in (*roots, *((shows,) if shows else ())))
+    raise HTTPException(status_code=403, detail=f"Path must be under {shown}")
+
+
+def _assert_token_path(rel_path: str, purpose: str) -> str:
+    if purpose == "r":
+        return assert_readable_service_path(rel_path)
+    return assert_under_packages_root(rel_path)
+
+
 def mint_file_token(rel_path: str, *, ttl_seconds: int = 3600, purpose: str = "rw") -> dict[str, Any]:
     """Short-lived HMAC token for browser upload/download of a single path."""
     exp = int(time.time()) + max(60, min(ttl_seconds, 6 * 3600))
-    path = assert_under_packages_root(rel_path)
+    path = _assert_token_path(rel_path, purpose)
     msg = f"{purpose}|{exp}|{path}".encode("utf-8")
     sig = hmac.new(_service_ser_secret(), msg, sha256).hexdigest()
     token = f"{purpose}.{exp}.{sig}"
@@ -113,7 +151,7 @@ def verify_file_token(token: str, rel_path: str, *, purpose: str = "rw") -> None
             raise HTTPException(status_code=401, detail="Token purpose mismatch")
     if exp < int(time.time()):
         raise HTTPException(status_code=401, detail="File token expired")
-    path = assert_under_packages_root(rel_path)
+    path = _assert_token_path(rel_path, purpose)
     msg = f"{pur}|{exp}|{path}".encode("utf-8")
     expect = hmac.new(_service_ser_secret(), msg, sha256).hexdigest()
     if not hmac.compare_digest(expect, sig):
