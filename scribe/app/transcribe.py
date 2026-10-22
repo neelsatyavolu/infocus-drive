@@ -118,6 +118,24 @@ def join_turns(segments: list[Segment]) -> list[Segment]:
     return out
 
 
+# "Meeting adjourned", "this meeting is now adjourned", "we're adjourned".
+_ADJOURNED = re.compile(r"\b(?:meeting|we|we're)\b[^.?!]{0,20}?\badjourned\b", re.IGNORECASE)
+
+
+def cut_at_adjournment(segments: list[Segment], gaps: Iterable[Gap] = ()) -> tuple[list[Segment], list[Gap], bool]:
+    """Segments and gaps up to the end of the last line that adjourns the meeting, and whether one did.
+    People keep talking after the meeting ends (a real recording had 35 minutes of college and
+    politics chat), and that is not meeting business: it stays out of the transcript and the notes."""
+    gaps = list(gaps)
+    ends = [s.end_ms for s in segments if _ADJOURNED.search(s.text)]
+    if not ends:
+        return segments, gaps, False
+    cut = ends[-1]
+    kept_gaps = [g if g.to_ms is not None and g.to_ms <= cut else Gap(g.uid, g.name, g.from_ms, cut, g.reason)
+                 for g in gaps if g.from_ms < cut]
+    return [s for s in segments if s.start_ms <= cut], kept_gaps, True
+
+
 def format_clock(ms: int) -> str:
     total = max(0, ms) // 1000
     return f"{total // 3600:02d}:{total % 3600 // 60:02d}:{total % 60:02d}"
@@ -137,9 +155,14 @@ def gap_lines(gaps: Iterable[Gap], meeting_start_ms: int) -> list[str]:
     return lines
 
 
+ADJOURNED_NOTE = "_The meeting was adjourned here. What was said after that is not in the transcript._"
+
+
 def render_markdown(title: str, date_label: str, segments: list[Segment], meeting_start_ms: int,
-                    gaps: Iterable[Gap] = ()) -> str:
+                    gaps: Iterable[Gap] = (), adjourned: bool = False) -> str:
     lines = transcript_lines(segments, meeting_start_ms)
+    if adjourned:
+        lines.append(ADJOURNED_NOTE)
     body = "\n\n".join(lines) if lines else "_No speech was recorded._"
     missing = gap_lines(gaps, meeting_start_ms)
     note = ""

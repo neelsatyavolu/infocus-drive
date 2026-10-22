@@ -41,13 +41,15 @@ Rules:
 - Report only what was said. Never invent names, numbers, dates or commitments.
 - Make no assumptions. Do not infer reasons, intentions, owners, deadlines, agreement or outcomes that nobody stated, and do not fill gaps with what usually happens in a meeting like this. If something was left unclear or undecided, say it was left open or leave it out.
 - Never write that something did not happen (no vote, no decision, nobody objected) unless someone said so. The transcript can be garbled or missing stretches of speech: when a vote or decision was called for and its result is not clearly in the transcript, say the result was not captured in the transcript.
-- The transcript comes from speech recognition: silently fix obvious mis-hearings, ignore filler and small talk. Leave out personal chatter that is not meeting business (other classes, homework).
+- The transcript comes from speech recognition: silently fix obvious mis-hearings, ignore filler and small talk. Leave out personal chatter that is not meeting business (other classes, homework, college applications, politics, opinions about the news).
 - "Participants" lists the correct spelling of everyone who spoke, and "Class members" (when given) everyone in the class. A name in the transcript that sounds like one of them (a mis-hearing) means that person: write it exactly as those lists spell it, even where the transcript spells it differently. A word that is not clearly a name is not a person: never turn an ordinary word into someone's name.
 - InFocus terms are spelled """ + ", ".join(TERMS) + """.
 - Days: the first line gives the meeting's weekday and date. Work out "today", "tomorrow", "Thursday" or "next week" from that date and write the weekday (for example "Tuesday, Oct 20") instead of the relative word. Keep every plan on the day its speaker gave it: never move an event to another day or swap the days of two events.
-- People change plans during a meeting: when a later line corrects, cancels or reassigns something (takes someone off a role, moves a date, drops an idea), report only the final version.
+- People change plans during a meeting: when a later line corrects, cancels or reassigns something (takes someone off a role, moves a date, drops an idea), report only the final version. When the group agrees on one plan and then settles on a different one, report only the plan they ended on, never both. Before you list any decision, read everything said after it: a later proposal that was accepted and drops a deadline, limit or step replaces it.
+- Something read back from earlier notes or recalled from an earlier meeting was decided before: write it as a reminder of an earlier decision, never as a decision of this meeting.
+- Keep every rule, limit and number with what it was said about: a length limit set for one package is not about another package mentioned nearby.
 - A suggestion, a question or a joke is not a decision. When people disagreed and nobody settled it, say it was left open.
-- The owner of a task is the person who was asked to do it or offered to, never the person who asked. "Can someone…" that nobody took on has no owner. Something a speaker says is already done is not a task.
+- The owner of a task is the person who was asked to do it or offered to, never the person who asked. "Can someone…" that nobody took on has no owner. Something a speaker says is already done ("I made the slides") is not a task.
 - Keep every approval or denial that was given (a package, an extension, a pitch) and whose it was, even when it was said in passing.
 - Keep students' private matters out of the notes (health, family, discipline, using AI on schoolwork): write only what the class has to do about it, for example "Abby can't anchor Tuesday; a backup anchor is needed".
 - title: 3-7 words naming the meeting's subject, no date.
@@ -55,10 +57,11 @@ Rules:
 - Cover the whole meeting, start to finish: later topics matter as much as the first one.
 - sections: 2-6 topic sections in the order discussed, each with concise, specific bullets.
 - Bullets, decisions and tasks are plain sentences: no leading "-", "*" or numbers.
-- decisions: things actually agreed. Empty list if none.
+- decisions: things actually agreed in this meeting. Empty list if none.
+- open_questions: questions the meeting raised and did not settle, above all a request someone is waiting on (an extension, an approval, a pitch): what was asked, what each side said, and who was going to give the answer if someone said so. Empty list if none.
 - action_items: concrete follow-ups someone actually took on or was given in the meeting; never add tasks nobody said. owner is a name if one was stated, otherwise an empty string.
 Reply with a single JSON object and nothing else, with exactly these keys:
-{"title": string, "tldr": string, "sections": [{"heading": string, "bullets": [string]}], "decisions": [string], "action_items": [{"owner": string, "task": string}]}"""
+{"title": string, "tldr": string, "sections": [{"heading": string, "bullets": [string]}], "decisions": [string], "open_questions": [string], "action_items": [{"owner": string, "task": string}]}"""
 
 DIGEST_SYSTEM = """You are condensing one part of a long meeting transcript so that notes can be written later from your digest.
 Keep every decision, number, date, name, commitment and open question. Drop filler. Keep the order of discussion.
@@ -71,8 +74,9 @@ REVIEW_SYSTEM = SYSTEM + """
 
 You are now checking a draft of these notes against the transcript, statement by statement, and returning corrected notes:
 - Find the transcript lines behind every statement in the tldr, sections, decisions and action items. Correct anything those lines contradict: another day, another person, the wrong owner, the opposite outcome.
-- When a later line changes something, keep only the final version. Remove statements nothing in the transcript supports. Move suggestions and unsettled questions out of decisions.
-- Add decisions, tasks and announcements the draft left out.
+- When a later line changes something, keep only the final version: check every decision against everything said after it. Remove statements nothing in the transcript supports. Move suggestions and unsettled questions out of decisions and into open_questions. Move anything recalled from an earlier meeting out of decisions.
+- Check that every limit, number and owner is attached to the thing the transcript attaches it to, and that no task is something a speaker said was already done.
+- Add decisions, open questions, tasks and announcements the draft left out. Every request the meeting discussed (an extension, an approval) is either a decision or an open question.
 Reply with the corrected notes as a single JSON object with exactly the keys above."""
 
 
@@ -88,6 +92,7 @@ SCHEMA = _object({
     "sections": {"type": "array", "items": _object({"heading": _STRING,
                                                      "bullets": {"type": "array", "items": _STRING}})},
     "decisions": {"type": "array", "items": _STRING},
+    "open_questions": {"type": "array", "items": _STRING},
     "action_items": {"type": "array", "items": _object({"owner": _STRING, "task": _STRING})},
 })
 
@@ -163,6 +168,7 @@ class MeetingNote:
     sections: list[NoteSection] = field(default_factory=list)
     decisions: list[str] = field(default_factory=list)
     action_items: list[ActionItem] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
 
     @property
     def markdown(self) -> str:
@@ -170,6 +176,8 @@ class MeetingNote:
         blocks += ["\n".join([f"## {s.heading}"] + [f"- {b}" for b in s.bullets]) for s in self.sections]
         if self.decisions:
             blocks.append("\n".join(["## Decisions"] + [f"- {d}" for d in self.decisions]))
+        if self.open_questions:
+            blocks.append("\n".join(["## Open questions"] + [f"- {q}" for q in self.open_questions]))
         if self.action_items:
             lines = [f"- [ ] **{a.owner}** — {a.task}" if a.owner else f"- [ ] {a.task}" for a in self.action_items]
             blocks.append("\n".join(["## Action items"] + lines))
@@ -179,7 +187,7 @@ class MeetingNote:
         """The note in the model's JSON shape (SCHEMA)."""
         return {"title": self.title, "tldr": self.tldr,
                 "sections": [{"heading": s.heading, "bullets": s.bullets} for s in self.sections],
-                "decisions": self.decisions,
+                "decisions": self.decisions, "open_questions": self.open_questions,
                 "action_items": [{"owner": a.owner or "", "task": a.task} for a in self.action_items]}
 
 
@@ -220,7 +228,8 @@ def parse_note(reply: str) -> MeetingNote:
             owner = (item.get("owner") or "").strip()
             items.append(ActionItem(task=_plain(str(item["task"])), owner=owner or None))
         return MeetingNote(title=title, tldr=tldr, sections=sections,
-                           decisions=_strings(data.get("decisions")), action_items=items)
+                           decisions=_strings(data.get("decisions")), action_items=items,
+                           open_questions=_strings(data.get("open_questions")))
     except (ValueError, KeyError, TypeError, AttributeError) as e:
         raise NotJSON(str(e)) from e
 

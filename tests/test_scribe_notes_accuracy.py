@@ -75,7 +75,7 @@ def test_review_corrects_the_draft_against_the_transcript():
     system, user, schema, _ = model.calls[1]
     assert TRANSCRIPT in user and schema == summarize.SCHEMA
     draft_in_prompt = json.loads(user.split("Draft notes:\n", 1)[1])
-    assert draft_in_prompt == DRAFT
+    assert draft_in_prompt == {**DRAFT, "open_questions": []}
 
 
 def test_review_keeps_the_draft_when_its_reply_is_not_json():
@@ -204,3 +204,81 @@ def test_prompt_spells_names_from_the_lists_and_keeps_approvals():
     assert "exactly as those lists spell it" in summarize.SYSTEM
     assert '"Can someone…" that nobody took on has no owner' in summarize.SYSTEM
     assert "Keep every approval or denial" in summarize.SYSTEM
+
+
+# --- after the meeting ------------------------------------------------------------------
+#
+# A real producer meeting was adjourned at 24 minutes and the recording ran 35 more: college
+# applications and politics ended up in the transcript (and were more than half of what the
+# notes model read). Its notes also listed a plan the group later replaced, decisions read back
+# from an earlier meeting, a limit set for one package as if it were about another, slides
+# already made as a task, and left out the extension request nobody settled.
+
+def test_the_transcript_ends_where_the_meeting_was_adjourned():
+    from app.transcribe import Gap, cut_at_adjournment
+    said = [Segment(1_000, 2_000, "u1", "Abby", "Sage gets two days."),
+            Segment(3_000, 4_000, "u2", "Otto", "Okay, meeting adjourned at 9:40."),
+            Segment(4_500, 5_000, "u1", "Abby", "Where are you applying ED?")]
+    gaps = [Gap("u1", "Abby", 500, 800, "timed out"), Gap("u2", "Otto", 3_500, None, "timed out"),
+            Gap("u1", "Abby", 6_000, None, "timed out")]
+    kept, kept_gaps, adjourned = cut_at_adjournment(said, gaps)
+    assert adjourned and [s.text for s in kept] == ["Sage gets two days.", "Okay, meeting adjourned at 9:40."]
+    assert [(g.from_ms, g.to_ms) for g in kept_gaps] == [(500, 800), (3_500, 4_000)]
+
+
+def test_the_last_adjournment_counts_and_other_uses_of_the_word_dont():
+    from app.transcribe import cut_at_adjournment
+    said = [Segment(1_000, 2_000, "u1", "Abby", "We're adjourned. Kidding, one more thing."),
+            Segment(3_000, 4_000, "u1", "Abby", "The trial was adjourned until May."),
+            Segment(5_000, 6_000, "u2", "Otto", "This meeting is now adjourned."),
+            Segment(7_000, 8_000, "u1", "Abby", "Bye.")]
+    kept, _, adjourned = cut_at_adjournment(said)
+    assert adjourned and kept[-1].text == "This meeting is now adjourned."
+    assert cut_at_adjournment(said[1:2] + said[3:])[0][-1].text == "Bye."  # "the trial was adjourned" doesn't end it
+
+
+def test_pipeline_leaves_talk_after_adjournment_out_of_transcript_and_notes(tmp_path, monkeypatch):
+    cfg = make_cfg(tmp_path)
+    cfg.meetings_dir.mkdir()
+    cfg.tmp_dir.mkdir()
+    rec = int(datetime(2026, 10, 22, 4, 15, tzinfo=timezone.utc).timestamp() * 1000)
+    job_dir = cfg.tmp_dir / "job"
+    job_dir.mkdir()
+    jobs.write_marker(job_dir, jobs.JobMarker(meeting_id=MEETING, title="Producer meeting",
+                                              starts_at="2026-10-22T04:15:00+00:00", recording_started_ms=rec,
+                                              state="queued"))
+    said = [Segment(rec + 1_000, rec + 2_000, "u1", "Abby", "Meeting adjourned."),
+            Segment(rec + 3_000, rec + 4_000, "u2", "Otto", "Who are you voting for?")]
+    seen = {}
+    monkeypatch.setattr(pipeline.portal_client, "post_notes", lambda *a, **kw: True)
+    monkeypatch.setattr(pipeline, "transcribe", lambda cfg_, d: (said, []))
+    monkeypatch.setattr(pipeline, "summarize_meeting",
+                        lambda cfg_, title, started, text, **kw: seen.setdefault("text", text) and "# Notes\n")
+    pipeline.process(cfg, job_dir)
+    folder = next(cfg.meetings_dir.rglob("transcript.md")).parent
+    transcript = (folder / "transcript.md").read_text()
+    assert "voting" not in seen["text"] and "voting" not in transcript
+    assert "adjourned here" in transcript
+    data = json.loads((folder / "transcript.json").read_text())
+    assert data["adjourned"] is True and len(data["segments"]) == 1
+
+
+def test_prompt_guards_against_the_adjourned_meetings_mistakes():
+    assert "report only the plan they ended on, never both" in summarize.SYSTEM
+    assert "never as a decision of this meeting" in summarize.SYSTEM
+    assert "a length limit set for one package is not about another package" in summarize.SYSTEM
+    assert '("I made the slides") is not a task' in summarize.SYSTEM
+    assert "college applications, politics" in summarize.SYSTEM
+    assert "check every decision against everything said after it" in summarize.REVIEW_SYSTEM
+    assert "either a decision or an open question" in summarize.REVIEW_SYSTEM
+
+
+def test_open_questions_are_parsed_and_rendered():
+    reply = {**DRAFT, "decisions": ["Grade the first cut."], "open_questions": ["Sage's extension: not settled."]}
+    note = summarize.parse_note(json.dumps(reply))
+    assert note.open_questions == ["Sage's extension: not settled."]
+    md = note.markdown
+    assert md.index("## Decisions") < md.index("## Open questions") < md.index("## Action items")
+    assert note.as_dict()["open_questions"] == reply["open_questions"]
+    assert "open_questions" in summarize.SCHEMA["required"]
+    assert summarize.parse_note(json.dumps(DRAFT)).open_questions == []  # an older reply without the key

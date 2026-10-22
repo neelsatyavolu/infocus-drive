@@ -270,7 +270,7 @@ def test_user_prompts():
 
 def test_schema_is_strict():
     schema = summarize.SCHEMA
-    assert schema["required"] == ["action_items", "decisions", "sections", "title", "tldr"]
+    assert schema["required"] == ["action_items", "decisions", "open_questions", "sections", "title", "tldr"]
     assert schema["additionalProperties"] is False
     assert schema["properties"]["action_items"]["items"]["required"] == ["owner", "task"]
 

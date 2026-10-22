@@ -21,7 +21,7 @@ from .notes_writer import folder_name, local_time, write_notes
 from .ollama_runtime import summarize_meeting
 from .preflight import NOT_WRITABLE
 from .summarize import NO_SPEECH, SUMMARY_UNAVAILABLE
-from .transcribe import Gap, Segment, render_markdown, transcript_json, transcript_lines
+from .transcribe import Gap, Segment, cut_at_adjournment, render_markdown, transcript_json, transcript_lines
 from .vocabulary import known_names
 from .whisper_child import transcribe_streams
 
@@ -82,9 +82,10 @@ def _write(cfg: ScribeConfig, marker: jobs.JobMarker, segments: list[Segment],
     # The weekday lets the notes model turn "tomorrow" or "Thursday" into the right day.
     started_label = f"{when:%A, %b %-d, %Y, %-I:%M %p %Z}"
     rec_start = marker.recording_started_ms
-    transcript_md = render_markdown(marker.title, date_label, segments, rec_start, gaps)
+    segments, gaps, adjourned = cut_at_adjournment(segments, gaps)
+    transcript_md = render_markdown(marker.title, date_label, segments, rec_start, gaps, adjourned)
     meta = {"meetingId": marker.meeting_id, "title": marker.title, "startsAt": marker.starts_at,
-            "recordingStartedMs": rec_start, "part": marker.part, "complete": not gaps}
+            "recordingStartedMs": rec_start, "part": marker.part, "complete": not gaps, "adjourned": adjourned}
     if segments:
         body = "\n".join(transcript_lines(segments, rec_start))
         summary_md = summarize_meeting(cfg, marker.title, started_label, body, names=known_names(marker.vocabulary))
