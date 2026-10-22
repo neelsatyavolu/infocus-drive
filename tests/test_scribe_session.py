@@ -304,6 +304,52 @@ def test_start_when_nothing_can_be_saved_is_503_and_reports_failed(api):
     assert posted == [("FAILED", {"reason": preflight.NOT_WRITABLE})]
 
 
+def test_overlapping_rekeys_leave_the_newest_key_on_the_page(tmp_path):
+    async def run():
+        from app.recorder import ChunkStore
+
+        cfg = make_cfg(tmp_path)
+        manager = session.SessionManager(cfg, post=lambda *_a, **_k: True)
+        audio = tmp_path / "audio"
+        audio.mkdir()
+        current = session.Session(
+            req=_req(), started_ms=1, audio_dir=audio, store=ChunkStore(audio), part=1,
+            key="old-key", epoch=1, room_token="ticket.one", key_version=1, page_key_version=0,
+        )
+
+        class SlowPage:
+            def __init__(self):
+                self.keys = []
+                self.started = asyncio.Event()
+                self.release = asyncio.Event()
+                self.calls = 0
+
+            async def evaluate(self, script, arg=None):
+                self.calls += 1
+                if self.calls == 1:
+                    self.started.set()
+                    await self.release.wait()
+                if script == session.SET_KEY_JS:
+                    self.keys.append(arg[0])
+                return True
+
+        page = SlowPage()
+        current.page = page
+        first = asyncio.create_task(manager._apply(current))
+        await page.started.wait()
+        current.key = "new-key"
+        current.key_version = 2
+        second = asyncio.create_task(manager._apply(current))
+        await asyncio.sleep(0)
+        page.release.set()
+        await first
+        await second
+        assert page.keys[-1] == "new-key"
+        assert current.page_key_version == 2
+
+    asyncio.run(run())
+
+
 def test_health_is_unhealthy_until_the_folders_are_writable(api):
     cfg, _ = api
     client = TestClient(scribe_main.app)

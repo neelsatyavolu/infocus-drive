@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261006-linkpreview";
-import * as api from "./api.js?v=20261006-linkpreview";
-import { ApiError } from "./api.js?v=20261006-linkpreview";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261009-bugfix";
+import * as api from "./api.js?v=20261009-bugfix";
+import { ApiError } from "./api.js?v=20261009-bugfix";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261006-linkpreview";
-import { $, el, icon, show } from "./dom.js?v=20261006-linkpreview";
+} from "./format.js?v=20261009-bugfix";
+import { $, el, icon, show } from "./dom.js?v=20261009-bugfix";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261006-linkpreview";
+} from "./quick.js?v=20261009-bugfix";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -497,10 +497,10 @@ async function openSearchResult(item, revealOnly = false) {
     navigate(item.is_dir ? item.path : parent);
     const targetPath = item.path;
     const destPath = item.is_dir ? item.path : parent;
-    const startedAt = loadRequestId;
     const finish = () => {
-      if (state.loading) return false;
-      if (state.path !== destPath && loadRequestId === startedAt) return false;
+      // Only select once this folder is the one on screen. A newer navigation
+      // used to fall through and select the file in the wrong folder.
+      if (state.loading || state.path !== destPath) return false;
       state.selection = new Set([targetPath]);
       render();
       return true;
@@ -874,7 +874,11 @@ async function hydrateFolderSizes(requestId) {
       item._sizeLoaded = true;
       changed = true;
     }
-    if (changed) patchFolderSizeDom();
+    if (changed) {
+      // Size order was computed when folder sizes were still unknown.
+      if (state.sortKey === "size" && requestId === loadRequestId) render();
+      else patchFolderSizeDom();
+    }
   };
 
   const pendingPaths = () =>
@@ -929,11 +933,14 @@ function cssPath(path) {
 }
 
 async function refreshShortcuts() {
+  const share = state.share;
   try {
     const data = await api.listFiles("");
+    if (state.share !== share) return;
     state.shortcuts = (data.items || []).filter((item) => item.is_dir);
     state.treeChildren[""] = state.shortcuts;
   } catch {
+    if (state.share !== share) return;
     state.shortcuts = [];
     state.treeChildren[""] = [];
   }
@@ -972,16 +979,20 @@ function syncTreeExpanded(path) {
 
 async function ensureTreeChildren(path) {
   if (Object.prototype.hasOwnProperty.call(state.treeChildren, path)) return;
+  const share = state.share;
   state.treeLoading.add(path);
   renderTree();
   try {
     const data = await api.listFiles(path);
+    if (state.share !== share) return;
     state.treeChildren[path] = (data.items || []).filter((item) => item.is_dir);
   } catch {
+    if (state.share !== share) return;
     state.treeChildren[path] = [];
+  } finally {
+    if (state.share === share) state.treeLoading.delete(path);
   }
-  state.treeLoading.delete(path);
-  renderTree();
+  if (state.share === share) renderTree();
 }
 
 async function hydrateTreeAncestors(path) {
@@ -1571,6 +1582,7 @@ async function switchShare(shareId) {
 
     state.treeChildren = Object.create(null);
     state.treeExpanded = new Set();
+    state.treeLoading = new Set();
     state.selection.clear();
     state.items = [];
     state.error = null;
@@ -2147,11 +2159,12 @@ function buildRowMenu(item) {
   }
   menu.append(el("div", { class: "menu__sep" }));
   const inTrash = isUnderRecycle(item.path);
+  const permanent = !state.hasRecycle || inTrash;
   const deleteLabel = multi
-    ? inTrash
+    ? permanent
       ? `Delete ${selected.length} forever`
       : `Move ${selected.length} to Recycle`
-    : inTrash
+    : permanent
       ? "Delete forever"
       : "Move to Recycle";
   menu.append(
@@ -2166,7 +2179,7 @@ function buildRowMenu(item) {
           openDeleteModal(multi ? selected : [item]);
         },
       },
-      [icon(inTrash ? "#i-trash" : "#i-recycle", 14), deleteLabel],
+      [icon(permanent ? "#i-trash" : "#i-recycle", 14), deleteLabel],
     ),
   );
   return menu;
@@ -2401,7 +2414,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261006-linkpreview").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261009-bugfix").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3184,7 +3197,9 @@ function openMoveModal(items) {
   const destLabel = el("span", { class: "picker__dest" });
   const confirmButton = el("button", { type: "button", class: "btn btn--primary btn--modal", text: "Move here" });
 
+  let pickerGen = 0;
   async function loadPicker(path) {
+    const gen = ++pickerGen;
     pickerPath = path;
     const parts = pathParts(path);
 
@@ -3210,13 +3225,16 @@ function openMoveModal(items) {
     let folders = [];
     try {
       const data = await api.listFiles(path);
+      if (gen !== pickerGen) return;
       folders = (data.items || []).filter((item) => item.is_dir && !movingPaths.has(item.path));
     } catch (error) {
+      if (gen !== pickerGen) return;
       listRow.textContent = "";
       listRow.append(el("div", { class: "picker__empty" }, [icon("#i-lock", 20), error.message]));
       return;
     }
 
+    if (gen !== pickerGen) return;
     listRow.textContent = "";
     if (!folders.length) {
       listRow.append(
@@ -4293,19 +4311,23 @@ function destinationInView(dest) {
  * batch costs one listing call, not one per file.
  */
 let uploadRefreshTimer = 0;
+/** loadFolder clears the selection. Put back whatever is still in the folder. */
+async function refreshListingKeepingSelection() {
+  const keep = [...state.selection];
+  const path = state.path;
+  await loadFolder(path);
+  if (state.path !== path || !keep.length) return;
+  const present = new Set(state.items.map((entry) => entry.path));
+  for (const itemPath of keep) {
+    if (present.has(itemPath)) state.selection.add(itemPath);
+  }
+  if (state.selection.size) render();
+}
 function scheduleListingRefresh() {
   clearTimeout(uploadRefreshTimer);
   uploadRefreshTimer = setTimeout(async () => {
     uploadRefreshTimer = 0;
-    // loadFolder resets selection; the user didn't ask for that mid-upload.
-    const keep = [...state.selection];
-    await loadFolder(state.path);
-    if (!keep.length) return;
-    const present = new Set(state.items.map((entry) => entry.path));
-    for (const path of keep) {
-      if (present.has(path)) state.selection.add(path);
-    }
-    if (state.selection.size) render();
+    await refreshListingKeepingSelection();
   }, 600);
 }
 
@@ -4372,7 +4394,7 @@ async function startUploads(files) {
   const share = state.share;
 
   const queued = [...files].map((file) => {
-    const rel = String(file.webkitRelativePath || "").replace(/\\/g, "/");
+    const rel = String(file.ifdRelativePath || file.webkitRelativePath || "").replace(/\\/g, "/");
     const segments = rel.split("/").filter((s) => s && s !== "." && s !== "..");
     const fileName = segments.length ? segments[segments.length - 1] : file.name;
     const subDir = segments.length > 1 ? segments.slice(0, -1).join("/") : "";
@@ -4507,7 +4529,7 @@ async function startUploads(files) {
   ) {
     clearTimeout(uploadRefreshTimer);
     uploadRefreshTimer = 0;
-    await loadFolder(state.path);
+    await refreshListingKeepingSelection();
   }
 }
 
@@ -5070,6 +5092,63 @@ function bindEvents() {
     }
   });
 
+  // Folder drops don't set webkitRelativePath (only <input webkitdirectory> does).
+  // Walk the FileSystem entries so nested files keep their folders.
+  function droppedEntries(dataTransfer) {
+    const items = [...(dataTransfer?.items || [])];
+    const entries = [];
+    for (const item of items) {
+      const entry = item.webkitGetAsEntry?.() || item.getAsEntry?.();
+      if (entry) entries.push(entry);
+    }
+    return entries;
+  }
+
+  function readAllEntries(reader) {
+    return new Promise((resolve, reject) => {
+      const all = [];
+      const read = () => {
+        reader.readEntries((batch) => {
+          if (!batch.length) resolve(all);
+          else {
+            all.push(...batch);
+            read();
+          }
+        }, reject);
+      };
+      read();
+    });
+  }
+
+  function fileFromEntry(entry) {
+    return new Promise((resolve, reject) => entry.file(resolve, reject));
+  }
+
+  async function filesFromEntry(entry, prefix) {
+    if (entry.isFile) {
+      const file = await fileFromEntry(entry);
+      const rel = prefix ? `${prefix}/${file.name}` : file.name;
+      try {
+        Object.defineProperty(file, "ifdRelativePath", { value: rel });
+      } catch {
+        file.ifdRelativePath = rel;
+      }
+      return [file];
+    }
+    if (!entry.isDirectory) return [];
+    const next = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const children = await readAllEntries(entry.createReader());
+    const out = [];
+    for (const child of children) out.push(...(await filesFromEntry(child, next)));
+    return out;
+  }
+
+  async function filesFromEntries(entries) {
+    const out = [];
+    for (const entry of entries) out.push(...(await filesFromEntry(entry, "")));
+    return out;
+  }
+
   // Drag-and-drop upload anywhere on the browser screen (OS files only).
   // In-app moves use IFD_DND and are handled by bindFolderDrop targets.
   window.addEventListener("dragenter", (event) => {
@@ -5101,8 +5180,18 @@ function bindEvents() {
     event.preventDefault();
     dragDepth = 0;
     show($("dropzone"), false);
-    const files = [...(event.dataTransfer?.files || [])];
-    if (files.length) startUploads(files);
+    // webkitGetAsEntry has to run during the event; the transfer is cleared after.
+    const entries = droppedEntries(event.dataTransfer);
+    const flat = [...(event.dataTransfer?.files || [])];
+    if (entries.some((entry) => entry.isDirectory)) {
+      void filesFromEntries(entries)
+        .then((files) => {
+          if (files.length) startUploads(files);
+        })
+        .catch((error) => toast(error?.message || "Could not read the dropped folder", "err"));
+      return;
+    }
+    if (flat.length) startUploads(flat);
   });
 
   window.addEventListener("hashchange", () => loadRoute());

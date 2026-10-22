@@ -447,3 +447,92 @@ def test_revoke_skips_protected(monkeypatch):
     result = user_sync.revoke_user("nasadmin@pausd.org", roster=set(), ugos=Fake())
     assert result["status"] == "skipped_protected"
     assert deleted == []
+
+
+def test_roster_fetch_failure_is_not_an_empty_roster(monkeypatch):
+    import httpx
+
+    previous = user_sync._roster_cache
+    user_sync._roster_cache = None
+
+    def boom(*_args, **_kwargs):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(user_sync.httpx, "get", boom)
+    monkeypatch.setattr(
+        user_sync,
+        "get_settings",
+        lambda: type("S", (), {"packages_roster_url": "https://packages.example.com/roster", "packages_service_token": "token"})(),
+    )
+    try:
+        with pytest.raises(user_sync.RosterUnavailable):
+            user_sync.fetch_roster_emails()
+        with pytest.raises(user_sync.RosterUnavailable):
+            user_sync.fetch_roster_entries()
+    finally:
+        user_sync._roster_cache = previous
+
+
+def test_roster_response_without_users_is_not_an_empty_roster(monkeypatch):
+    previous = user_sync._roster_cache
+    user_sync._roster_cache = None
+
+    class Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"error": "maintenance"}
+
+    monkeypatch.setattr(user_sync.httpx, "get", lambda *_a, **_k: Resp())
+    monkeypatch.setattr(
+        user_sync,
+        "get_settings",
+        lambda: type("S", (), {"packages_roster_url": "https://packages.example.com/roster", "packages_service_token": "token"})(),
+    )
+    try:
+        with pytest.raises(user_sync.RosterUnavailable):
+            user_sync.fetch_roster_entries()
+    finally:
+        user_sync._roster_cache = previous
+
+
+def test_login_does_not_revoke_when_roster_is_unavailable(monkeypatch):
+    monkeypatch.setattr(user_sync, "linux_user_exists", lambda name: name == "gonekid")
+    monkeypatch.setattr(
+        user_sync,
+        "linux_user_by_email",
+        lambda email: _Pw("gonekid", 1200, 100, "/", email) if email == "gonekid@pausd.us" else None,
+    )
+
+    def boom(*, force=False):
+        raise user_sync.RosterUnavailable("down")
+
+    monkeypatch.setattr(user_sync, "fetch_roster_emails", boom)
+    user_sync.save_roster_snapshot({"gonekid@pausd.us"})
+    revoked = []
+
+    class Fake:
+        def delete_user(self, username):
+            revoked.append(username)
+            return {"status": "deleted", "username": username}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(user_sync, "_client_factory", lambda: Fake())
+    assert user_sync.ensure_for_login("gonekid@pausd.us") is None
+    assert revoked == []
+
+
+def test_sync_does_not_delete_when_roster_is_unavailable(monkeypatch):
+    user_sync.save_roster_snapshot({"keep@pausd.us"})
+
+    def boom():
+        raise user_sync.RosterUnavailable("down")
+
+    monkeypatch.setattr(user_sync, "fetch_roster_entries", boom)
+    out = user_sync.sync_roster(ugos_factory=lambda: None)
+    assert out["ok"] is False
+    assert out["results"] == []
+    assert user_sync.load_roster_snapshot() == {"keep@pausd.us"}
