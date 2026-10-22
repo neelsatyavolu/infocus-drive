@@ -140,6 +140,32 @@ def client(drive_root, monkeypatch):
     return TestClient(main.app)
 
 
+def test_mint_refuses_a_personal_folder(client, monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "_active_share", lambda request, user: "~tester")
+    res = client.post("/api/file-link", json={"path": "notes.txt", "days": 7})
+    assert res.status_code == 403
+    assert "personal" in res.json()["detail"].lower()
+
+
+def test_old_personal_link_does_not_serve_the_file(client):
+    import file_links
+
+    token = file_links.mint(
+        share="~tester",
+        path="notes.txt",
+        days=1,
+        uid=os.getuid(),
+        gid=os.getgid(),
+        name="notes.txt",
+    )
+    body = client.get(f"/api/s/{token}/file")
+    assert body.status_code == 404
+    assert b"hello share" not in body.content
+    assert client.get(f"/api/s/{token}").status_code == 404
+
+
 def test_mint_and_public_get_without_session(client, drive_root):
     res = client.post("/api/file-link", json={"path": "clip.mp4", "days": 7})
     assert res.status_code == 200, res.text

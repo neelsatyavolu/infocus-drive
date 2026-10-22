@@ -144,11 +144,14 @@ def test_markdown_previews_as_plain_text(files_client):
 
 
 def test_pdf_inline_keeps_native_viewer(files_client):
-    # Browsers refuse to run the built-in PDF viewer in a CSP-sandboxed document.
+    # `sandbox` disables the built-in PDF viewer. Clickjacking directives do not.
     for res in _get_both(files_client, "doc.pdf"):
         assert res.headers["content-disposition"].startswith("inline")
         assert res.headers["x-content-type-options"] == "nosniff"
-        assert "content-security-policy" not in res.headers
+        csp = res.headers["content-security-policy"]
+        assert "sandbox" not in csp
+        assert "frame-ancestors 'self'" in csp
+        assert res.headers["x-frame-options"] == "SAMEORIGIN"
 
 
 def test_attachment_download_gets_hardening_headers(files_client):
@@ -253,3 +256,158 @@ def test_otp_success_within_cap(nas_client, monkeypatch):
     for _ in range(4):
         assert nas_client.post("/auth/nas/otp", json={"code": "000000", "type": 2}).status_code == 401
     assert nas_client.post("/auth/nas/otp", json={"code": "123456", "type": 2}).status_code == 200
+
+
+# --- File bytes stay on the fd opened as the NAS user -----------------------
+
+def test_download_returns_file_bytes(files_client):
+    res = files_client.get("/api/download", params={"path": "notes.txt"})
+    assert res.status_code == 200
+    assert res.content == b"hi"
+    ranged = files_client.get("/api/download", params={"path": "notes.txt"}, headers={"Range": "bytes=1-1"})
+    assert ranged.status_code == 206
+    assert ranged.content == b"i"
+
+
+def test_symlink_outside_the_share_is_not_served(files_client, files_root, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_bytes(b"SECRET-OUTSIDE-SHARE")
+    (files_root / "link.txt").symlink_to(secret)
+    res = files_client.get("/api/download", params={"path": "link.txt"})
+    assert res.status_code in (400, 404)
+    assert b"SECRET-OUTSIDE-SHARE" not in res.content
+
+
+def test_opened_fd_ignores_a_later_symlink_swap(files_root, tmp_path):
+    import fsops
+
+    target = files_root / "notes.txt"
+    original = target.read_bytes()
+    secret = tmp_path / "secret.txt"
+    secret.write_bytes(b"SECRET-OUTSIDE-SHARE")
+    opened = fsops.open_authorized_path(target, files_root, os.getuid(), os.getgid())
+    try:
+        target.unlink()
+        target.symlink_to(secret)
+        assert os.read(opened.fd, 100) == original
+        # /dev/fd/N shares this fd's offset, so rewind before reading it again.
+        opened.rewind()
+        assert Path(opened.dev_path()).read_bytes() == original
+    finally:
+        opened.close()
+
+
+def test_upload_does_not_write_through_a_symlink_outside_the_share(files_root, tmp_path):
+    import fsops
+
+    secret = tmp_path / "secret.txt"
+    secret.write_bytes(b"SECRET-OUTSIDE-SHARE")
+    link = files_root / "drop.txt"
+    link.symlink_to(secret)
+    with fsops.use_share_root(files_root), pytest.raises(fsops.FSError) as exc:
+        fsops.write_upload_stream("", "drop.txt", iter([b"uploaded"]), os.getuid(), os.getgid())
+    assert exc.value.status == 400
+    assert secret.read_bytes() == b"SECRET-OUTSIDE-SHARE"
+    assert link.is_symlink()
+
+
+def test_image_thumbnail_reads_the_authorized_fd(files_root, tmp_path, monkeypatch):
+    from PIL import Image
+
+    import fsops
+    import thumbs
+
+    monkeypatch.setenv("IFD_THUMB_CACHE_DIR", str(tmp_path / "thumbs"))
+    Image.new("RGB", (8, 8), (10, 20, 30)).save(files_root / "photo.png")
+    opened = fsops.open_authorized_path(files_root / "photo.png", files_root, os.getuid(), os.getgid())
+    try:
+        thumb = thumbs.get_or_create(
+            opened.path, 64, read_path=Path(opened.dev_path()), stat_result=opened.stat
+        )
+    finally:
+        opened.close()
+    assert thumb is not None and thumb.is_file() and thumb.stat().st_size > 0
+
+
+# --- Cookie writes must come from this site ----------------------------------
+
+def test_cross_site_write_is_blocked(files_client, files_root):
+    res = files_client.post(
+        "/api/mkdir",
+        data={"name": "nope"},
+        headers={"Origin": "https://evil.test", "Sec-Fetch-Site": "cross-site"},
+    )
+    assert res.status_code == 403
+    assert res.json()["detail"] == "Cross-site request blocked"
+    assert not (files_root / "nope").exists()
+
+
+def test_sec_fetch_site_cross_site_is_blocked(files_client):
+    res = files_client.post("/api/mkdir", data={"name": "nope"}, headers={"Sec-Fetch-Site": "cross-site"})
+    assert res.status_code == 403
+
+
+def test_null_origin_is_blocked(files_client):
+    res = files_client.post("/api/mkdir", data={"name": "nope"}, headers={"Origin": "null"})
+    assert res.status_code == 403
+
+
+def test_same_host_origin_can_write(files_client, files_root):
+    res = files_client.post("/api/mkdir", data={"name": "okdir"}, headers={"Origin": "http://testserver"})
+    assert res.status_code == 200, res.text
+    assert (files_root / "okdir").is_dir()
+
+
+def test_missing_origin_can_write(files_client, files_root):
+    res = files_client.post("/api/mkdir", data={"name": "curl-dir"})
+    assert res.status_code == 200, res.text
+    assert (files_root / "curl-dir").is_dir()
+
+
+def test_configured_public_origin_can_write(files_client, files_root, monkeypatch):
+    monkeypatch.setattr(main.settings, "public_base_url", "https://drive.example.com")
+    res = files_client.post(
+        "/api/mkdir", data={"name": "public-dir"}, headers={"Origin": "https://drive.example.com"}
+    )
+    assert res.status_code == 200, res.text
+    assert (files_root / "public-dir").is_dir()
+
+
+def test_bearer_write_skips_the_origin_check(files_client, files_root):
+    res = files_client.post(
+        "/api/mkdir",
+        data={"name": "cli-dir"},
+        headers={
+            "Authorization": "Bearer ifd_test",
+            "Origin": "https://evil.test",
+            "Sec-Fetch-Site": "cross-site",
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert (files_root / "cli-dir").is_dir()
+
+
+def test_cross_site_get_still_downloads(files_client):
+    res = files_client.get(
+        "/api/download",
+        params={"path": "notes.txt"},
+        headers={"Origin": "https://evil.test", "Sec-Fetch-Site": "cross-site"},
+    )
+    assert res.status_code == 200
+    assert res.content == b"hi"
+
+
+def test_home_page_denies_framing(files_client):
+    res = files_client.get("/")
+    assert res.status_code == 200
+    assert b"<!doctype html" in res.content.lower() or b"<html" in res.content.lower()
+    assert res.headers["x-frame-options"] == "DENY"
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert res.headers["referrer-policy"] == "same-origin"
+    assert "frame-ancestors 'none'" in res.headers["content-security-policy"]
+
+
+def test_download_keeps_its_sandbox_csp(files_client):
+    res = files_client.get("/api/download", params={"path": "notes.txt", "inline": "1"})
+    assert res.headers["content-security-policy"] == "sandbox"
+    assert res.content == b"hi"

@@ -6,6 +6,7 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import re
 import sqlite3
 import threading
@@ -50,6 +51,16 @@ class PersonalFolders:
     @contextmanager
     def _db(self):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Owner UGOS sessions live in this file. Refuse to open it if other
+        # users can read it. O_NOFOLLOW: a planted symlink is not the database.
+        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(self.db_path, flags, 0o600)
+        try:
+            os.fchmod(fd, 0o600)
+            if os.fstat(fd).st_mode & 0o077:
+                raise OSError("personal folder state is readable by other users")
+        finally:
+            os.close(fd)
         db = sqlite3.connect(self.db_path)
         try:
             with db:

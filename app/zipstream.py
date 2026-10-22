@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 import struct
 import time
@@ -105,20 +106,24 @@ def _eocd_len(entry_count: int, central_size: int, central_offset: int) -> int:
     return 22
 
 
-def zip_store_content_length(entries: list[tuple[str, Path]]) -> int:
-    """Exact byte length of ``stream_zip_store(entries)`` from current file sizes."""
+def zip_store_content_length(entries: list[tuple[str, Path]], *, size_of=None) -> int:
+    """Exact byte length of ``stream_zip_store(entries)`` from current file sizes.
+
+    ``size_of`` stats as the NAS user. The default follows ``path.stat`` for callers
+    that already hold the file as themselves.
+    """
     offset = 0
     central_size = 0
     for arcname, path in entries:
         name_b = _member_name(arcname)
-        size = int(path.stat().st_size)
+        size = int(size_of(path) if size_of else path.stat().st_size)
         plan = _plan_member(name_b, size, offset)
         central_size += int(plan["cd_len"])
         offset += int(plan["local_len"]) + size + int(plan["desc_len"])
     return offset + central_size + _eocd_len(len(entries), central_size, offset)
 
 
-def stream_zip_store(entries: list[tuple[str, Path]]) -> Iterator[bytes]:
+def stream_zip_store(entries: list[tuple[str, Path]], *, open_file=None) -> Iterator[bytes]:
     """
     Yield a ZIP archive for (arcname, absolute_path) pairs using STORE (no recompress).
 
@@ -126,47 +131,51 @@ def stream_zip_store(entries: list[tuple[str, Path]]) -> Iterator[bytes]:
     Streams file bodies in 4 MiB chunks; never buffers the full archive.
     Uses ZIP64 when a size or offset exceeds 4GiB-1 so folder zips of large
     add-on packs (and nested .zip/.rar members) stay readable.
+
+    ``open_file`` must return a binary file opened as the NAS user. The body is
+    read from that handle, never by reopening the path as the server user.
     """
+    opener = open_file or (lambda path: open(path, "rb"))
     central_chunks: list[bytes] = []
     offset = 0
 
     for arcname, path in entries:
         name_b = _member_name(arcname)
-        st = path.stat()
-        size = int(st.st_size)
-        dos_time, dos_date = _dos_time(st.st_mtime)
-        local_offset = offset
-        plan = _plan_member(name_b, size, local_offset)
-        zip64_size = bool(plan["zip64_size"])
-        extra = plan["local_extra"]
-        # Local header: bit 3 → CRC/sizes follow in a data descriptor.
-        # ZIP64 sizes are 0xFFFFFFFF in the 32-bit fields (and 0 in extra
-        # until the descriptor), matching CPython zipfile.
-        local_csize = _ZIP32_MARKER if zip64_size else 0
-        local = struct.pack(
-            "<IHHHHHIIIHH",
-            0x04034B50,
-            plan["version"],
-            _GP_DATA_DESCRIPTOR,
-            0,  # STORE
-            dos_time,
-            dos_date,
-            0,
-            local_csize,
-            local_csize,
-            len(name_b),
-            len(extra),
-        )
-        local += name_b
-        local += extra
-        yield local
-        offset += len(local)
+        with opener(path) as handle:
+            st = os.fstat(handle.fileno())
+            size = int(st.st_size)
+            dos_time, dos_date = _dos_time(st.st_mtime)
+            local_offset = offset
+            plan = _plan_member(name_b, size, local_offset)
+            zip64_size = bool(plan["zip64_size"])
+            extra = plan["local_extra"]
+            # Local header: bit 3 → CRC/sizes follow in a data descriptor.
+            # ZIP64 sizes are 0xFFFFFFFF in the 32-bit fields (and 0 in extra
+            # until the descriptor), matching CPython zipfile.
+            local_csize = _ZIP32_MARKER if zip64_size else 0
+            local = struct.pack(
+                "<IHHHHHIIIHH",
+                0x04034B50,
+                plan["version"],
+                _GP_DATA_DESCRIPTOR,
+                0,  # STORE
+                dos_time,
+                dos_date,
+                0,
+                local_csize,
+                local_csize,
+                len(name_b),
+                len(extra),
+            )
+            local += name_b
+            local += extra
+            yield local
+            offset += len(local)
 
-        crc = 0
-        written = 0
-        with open(path, "rb") as f:
+            crc = 0
+            written = 0
             while True:
-                block = f.read(_READ_CHUNK)
+                block = handle.read(_READ_CHUNK)
                 if not block:
                     break
                 crc = zlib.crc32(block, crc) & 0xFFFFFFFF

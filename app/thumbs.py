@@ -40,9 +40,14 @@ _warm_pending: set[str] = set()
 _warm_guard = threading.Lock()
 
 
-def warm_paths(paths: list[Path], size: int) -> int:
+def warm_paths(paths: list[Path], size: int, *, open_source=None) -> int:
     """Queue background thumbnail generation; returns how many were queued.
-    Already-pending paths are skipped; cache hits return instantly in the job."""
+
+    Already-pending paths are skipped; cache hits return instantly in the job.
+    ``open_source(path)`` must return an authorized open (``.path``, ``.dev_path()``,
+    ``.stat``, ``.close()``). Without it, ``path`` is read directly — tests and
+    callers that already dropped privileges.
+    """
     queued = 0
     for src in paths:
         pending_key = str(src)
@@ -51,12 +56,23 @@ def warm_paths(paths: list[Path], size: int) -> int:
                 continue
             _warm_pending.add(pending_key)
 
-        def job(src=src, pending_key=pending_key):
+        def job(src=src, pending_key=pending_key, open_source=open_source):
+            opened = None
             try:
-                get_or_create(src, size)
+                read_path = None
+                stat_result = None
+                key_path = src
+                if open_source is not None:
+                    opened = open_source(src)
+                    read_path = Path(opened.dev_path())
+                    stat_result = opened.stat
+                    key_path = opened.path
+                get_or_create(key_path, size, read_path=read_path, stat_result=stat_result)
             except Exception:
                 log.warning("thumb: warm failed for %s", src, exc_info=True)
             finally:
+                if opened is not None:
+                    opened.close()
                 with _warm_guard:
                     _warm_pending.discard(pending_key)
 
@@ -107,6 +123,31 @@ def _make_image_thumb(src: Path, dest: Path, size: int) -> bool:
         return False
 
 
+def _dev_fd(src: Path) -> int | None:
+    """fd number when ``src`` is an authorized ``/dev/fd/N``."""
+    text = str(src)
+    prefix = "/dev/fd/"
+    if not text.startswith(prefix) or not text[len(prefix):].isdigit():
+        return None
+    return int(text[len(prefix):])
+
+
+def _run_ffmpeg(cmd: list[str], src: Path, timeout: int) -> subprocess.CompletedProcess[bytes]:
+    """``close_fds`` drops every fd except those in ``pass_fds``."""
+    fd = _dev_fd(src)
+    kwargs: dict = {"capture_output": True, "timeout": timeout}
+    if fd is not None:
+        kwargs["pass_fds"] = (fd,)
+    try:
+        return subprocess.run(cmd, **kwargs)
+    finally:
+        if fd is not None:
+            try:
+                os.set_inheritable(fd, False)
+            except OSError:
+                pass
+
+
 def _make_video_thumb(src: Path, dest: Path, size: int) -> bool:
     cmd = [
         "ffmpeg", "-loglevel", "error", "-ss", "1", "-i", str(src),
@@ -114,21 +155,28 @@ def _make_video_thumb(src: Path, dest: Path, size: int) -> bool:
         "-f", "image2", "-y", str(dest),
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, timeout=FFMPEG_TIMEOUT_S)
+        proc = _run_ffmpeg(cmd, src, FFMPEG_TIMEOUT_S)
         return proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0
     except (subprocess.TimeoutExpired, OSError):
         log.warning("thumb: ffmpeg failed for %s", src, exc_info=True)
         return False
 
 
-def get_or_create(src: Path, size: int) -> Path | None:
+def get_or_create(
+    src: Path, size: int, *, read_path: Path | None = None, stat_result=None
+) -> Path | None:
     """Return the cached thumbnail path for `src`, generating it if needed.
-    None = no thumbnail possible (unsupported type, unreadable, corrupt)."""
+
+    None = no thumbnail possible (unsupported type, unreadable, corrupt).
+    When ``read_path`` is set (an already-authorized ``/dev/fd/N``), pixels are
+    read from that fd. ``src`` is only the cache identity and the filename.
+    """
     kind = thumb_kind(src.name)
     if kind is None:
         return None
+    source = read_path or src
     try:
-        stat = src.stat()
+        stat = stat_result if stat_result is not None else source.stat()
     except OSError:
         return None
     size = snap_size(size)
@@ -143,9 +191,9 @@ def get_or_create(src: Path, size: int) -> Path | None:
             cache_dir().mkdir(parents=True, exist_ok=True)
             partial = out.with_name(f".{out.name}.partial")
             made = (
-                _make_image_thumb(src, partial, size)
+                _make_image_thumb(source, partial, size)
                 if kind == "image"
-                else _make_video_thumb(src, partial, size)
+                else _make_video_thumb(source, partial, size)
             )
             if not made:
                 partial.unlink(missing_ok=True)

@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -21,6 +22,14 @@ class NAS:
         if key != 'correct':
             raise ValueError('bad key')
         self.state = 4
+
+
+def test_state_database_is_not_group_readable(tmp_path):
+    db = tmp_path / "personal_folders.sqlite3"
+    db.write_bytes(b"")
+    os.chmod(db, 0o644)
+    PersonalFolders(db, lambda: NAS()).status("nasadmin")
+    assert db.stat().st_mode & 0o077 == 0
 
 
 def test_deadline_does_not_slide_and_survives_restart(tmp_path):

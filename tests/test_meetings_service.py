@@ -147,6 +147,18 @@ def test_transcript_of_a_meeting_recorded_in_parts_is_all_parts_in_order(client,
     assert res.text == "# Part 1\n\n---\n\n# Part 2\n"
 
 
+def test_transcript_symlink_is_not_followed(client, forwarded, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("SECRET-OUTSIDE-SHARE")
+    folder = tmp_path / ".ifd-meetings" / f"2026-10-04 meeting ({MEETING[-6:]})"
+    folder.mkdir(parents=True)
+    (folder / "transcript.json").write_text(json.dumps({"meetingId": MEETING}))
+    (folder / "transcript.md").symlink_to(secret)
+    res = client.get(f"/api/service/meetings/{MEETING}/transcript", headers=AUTH)
+    assert res.status_code == 404
+    assert b"SECRET-OUTSIDE-SHARE" not in res.content
+
+
 def test_transcript_missing_or_bad_id(client, forwarded):
     assert client.get(f"/api/service/meetings/{MEETING}/transcript", headers=AUTH).status_code == 404
     assert client.get("/api/service/meetings/BAD_ID/transcript", headers=AUTH).status_code == 422

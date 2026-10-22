@@ -130,6 +130,94 @@ def resolve_rel(rel: str) -> Path:
     return target
 
 
+class AuthorizedFile:
+    """A file opened as the NAS user.
+
+    Serve or hash this fd. Reopening ``path`` later runs as the server user
+    (root on the NAS) and would follow a symlink swapped in after the check.
+    """
+
+    def __init__(self, fd: int, path: Path, name: str, stat_result: os.stat_result):
+        self.fd = fd
+        self.path = path
+        self.name = name
+        self.stat = stat_result
+
+    def dev_path(self) -> str:
+        if self.fd < 0:
+            raise FSError("File is closed", 500)
+        return f"/dev/fd/{self.fd}"
+
+    def rewind(self) -> None:
+        """macOS ``/dev/fd/N`` is a dup and shares this offset. Serve from the start."""
+        if self.fd >= 0:
+            os.lseek(self.fd, 0, os.SEEK_SET)
+
+    def close(self) -> None:
+        fd = self.fd
+        self.fd = -1
+        if fd >= 0:
+            os.close(fd)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _fd_realpath(fd: int) -> Path:
+    """Path the kernel opened, so a symlink race cannot point outside the share."""
+    try:
+        return Path(os.readlink(f"/proc/self/fd/{fd}")).resolve()
+    except OSError:
+        pass
+    import fcntl
+
+    # macOS F_GETPATH rejects a buffer longer than MAXPATHLEN (1024).
+    try:
+        raw = fcntl.fcntl(fd, fcntl.F_GETPATH, bytes(1024))
+    except (AttributeError, OSError, ValueError) as e:
+        raise FSError("Could not verify the opened file", 500) from e
+    text = raw.split(b"\0", 1)[0].decode() if isinstance(raw, bytes) else str(raw).split("\0", 1)[0]
+    return Path(text).resolve()
+
+
+def open_authorized_path(
+    path: Path, root: Path, uid: int, gid: int, *, name: str | None = None
+) -> AuthorizedFile:
+    """Open one regular file as ``uid`` and refuse anything outside ``root``."""
+    root = root.resolve()
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError) as e:
+        raise FSError("Path outside drive", 400) from e
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        with as_user(uid, gid):
+            fd = os.open(resolved, flags)
+    except PermissionError as e:
+        raise FSError("Permission denied", 403) from e
+    except OSError as e:
+        raise FSError("Not found", 404) from e
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise FSError("Not found", 404)
+        _fd_realpath(fd).relative_to(root)
+    except FSError:
+        os.close(fd)
+        raise
+    except ValueError as e:
+        os.close(fd)
+        raise FSError("Path outside drive", 400) from e
+    except Exception:
+        os.close(fd)
+        raise
+    return AuthorizedFile(fd, resolved, name or resolved.name, st)
+
+
 def resolve_within(base_rel: str, sub_rel: str) -> tuple[Path, str]:
     """Resolve `sub_rel` inside folder `base_rel` → (absolute path, normalized sub path).
 
@@ -1064,7 +1152,10 @@ def write_upload_stream(
             if dest.exists() and dest.is_dir():
                 raise FSError("Cannot overwrite directory")
             _check_expected_mtime(dest, expect_mtime_ns)
-            out = open(tmp, "wb")  # noqa: SIM115 — closed in finally / after pump
+            # O_NOFOLLOW|O_EXCL: a planted symlink at the temp name is not a write target.
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+            flags |= getattr(os, "O_NOFOLLOW", 0)
+            out = os.fdopen(os.open(tmp, flags, 0o666), "wb")
 
         assert out is not None
         try:
@@ -1231,15 +1322,32 @@ def upload_fingerprint(rel: str, size: int, uid: int, gid: int) -> str | None:
         return digest.hexdigest()
 
 
-def open_for_download(rel: str, uid: int, gid: int) -> tuple[Path, str]:
+def open_for_download(rel: str, uid: int, gid: int) -> AuthorizedFile:
+    """Open ``rel`` as this NAS user. Callers must read ``fd`` and then close it."""
     path = resolve_rel(rel)
+    return open_authorized_path(path, drive_root(), uid, gid, name=path.name)
+
+
+def open_zip_member(path: Path, root: Path, uid: int, gid: int):
+    """Open one zip member as the NAS user. The caller closes the file object."""
+    opened = open_authorized_path(path, root, uid, gid)
+    fd = opened.fd
+    opened.fd = -1  # the file object owns the fd now
+    return os.fdopen(fd, "rb")
+
+
+def zip_member_size(path: Path, root: Path, uid: int, gid: int) -> int:
+    """Byte size of a regular file inside ``root``, without following a symlink."""
+    root = root.resolve()
+    try:
+        path.resolve().relative_to(root)
+    except (OSError, ValueError) as e:
+        raise FSError("Path outside drive", 400) from e
     with as_user(uid, gid):
-        if not path.exists() or not path.is_file():
-            raise FSError("Not found", 404)
-        # Access check: try open
-        with open(path, "rb"):
-            pass
-    return path, path.name
+        st = path.lstat()
+    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+        raise FSError("Not found", 404)
+    return int(st.st_size)
 
 
 def _unique_arcname(name: str, used: set[str]) -> str:

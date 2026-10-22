@@ -1,5 +1,6 @@
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -93,6 +94,29 @@ def test_warm_paths_generates_in_background(tmp_path, monkeypatch):
     txt = tmp_path / "no.txt"
     txt.write_text("hi")
     assert thumbs.warm_paths([txt], 256) == 1
+
+
+def test_video_thumb_passes_the_authorized_fd(tmp_path, monkeypatch):
+    src = tmp_path / "clip.mp4"
+    src.write_bytes(b"not-a-real-video")
+    fd = os.open(src, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0))
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["pass_fds"] = kwargs.get("pass_fds")
+        Path(cmd[-1]).write_bytes(b"jpeg-bytes")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setenv("IFD_THUMB_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(thumbs.subprocess, "run", fake_run)
+    try:
+        out = thumbs.get_or_create(
+            src, 64, read_path=Path(f"/dev/fd/{fd}"), stat_result=os.fstat(fd)
+        )
+    finally:
+        os.close(fd)
+    assert seen["pass_fds"] == (fd,)
+    assert out is not None and out.read_bytes() == b"jpeg-bytes"
 
 
 def test_unsupported_and_missing_return_none(tmp_path, monkeypatch):

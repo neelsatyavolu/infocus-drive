@@ -15,6 +15,8 @@ import hmac
 import ipaddress
 import json
 import logging
+import os
+import stat
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -164,6 +166,32 @@ def meetings_dir() -> Path:
     return Path(get_settings().drive_root) / meetings_root_rel()
 
 
+def _read_under(path: Path, root: Path) -> str | None:
+    """Read one regular file that stays inside ``root``. A symlink is not a file."""
+    from fsops import FSError, _fd_realpath
+
+    fd = -1
+    try:
+        if path.is_symlink():
+            return None
+        resolved = path.resolve()
+        resolved.relative_to(root.resolve())
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(resolved, flags)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        # O_NOFOLLOW does not cover a parent swapped for a symlink after resolve.
+        _fd_realpath(fd).relative_to(root.resolve())
+        with os.fdopen(fd, "r", encoding="utf-8") as handle:
+            fd = -1
+            return handle.read()
+    except (OSError, ValueError, UnicodeError, FSError):
+        return None
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def find_meeting_folders(root: Path, meeting_id: str) -> list[Path]:
     """Every notes folder (one per recording part) of a meeting, oldest recording first.
     Names contain "(<last 6 of id>)"; transcript.json confirms the full id."""
@@ -174,9 +202,12 @@ def find_meeting_folders(root: Path, meeting_id: str) -> list[Path]:
     for folder in root.iterdir():
         if not folder.is_dir() or folder.is_symlink() or tag not in folder.name:
             continue
+        raw = _read_under(folder / "transcript.json", root)
+        if raw is None:
+            continue
         try:
-            meta = json.loads((folder / "transcript.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            meta = json.loads(raw)
+        except ValueError:
             continue
         if isinstance(meta, dict) and meta.get("meetingId") == meeting_id:
             started = meta.get("recordingStartedMs")
@@ -187,8 +218,9 @@ def find_meeting_folders(root: Path, meeting_id: str) -> list[Path]:
 @router.get("/{meeting_id}/transcript")
 def meeting_transcript(meeting_id: str = PathParam(pattern=MEETING_ID_PATTERN)) -> Response:
     """The transcript; a meeting recorded in several parts gets them all, in order."""
-    parts = [folder / "transcript.md" for folder in find_meeting_folders(meetings_dir(), meeting_id)]
-    texts = [md.read_text(encoding="utf-8") for md in parts if md.is_file() and not md.is_symlink()]
+    root = meetings_dir()
+    parts = [folder / "transcript.md" for folder in find_meeting_folders(root, meeting_id)]
+    texts = [text for md in parts if (text := _read_under(md, root)) is not None]
     if not texts:
         raise HTTPException(status_code=404, detail="Transcript not found")
     return Response("\n---\n\n".join(texts), media_type="text/markdown; charset=utf-8")

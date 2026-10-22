@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -47,6 +48,37 @@ def share_tree(tmp_path, monkeypatch):
         except Exception:
             pass
     return root
+
+
+def test_folder_zip_does_not_follow_a_symlink_outside_the_share(share_tree, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_bytes(b"SECRET-OUTSIDE-SHARE")
+    (share_tree / "Camp" / "leak.txt").symlink_to(secret)
+    entries = fsops.collect_zip_entries(
+        ["Camp"],
+        uid=0,
+        gid=0,
+        max_files=100,
+        max_total=8 * 1024**3,
+    )
+    assert all(path.name != "leak.txt" for _, path in entries)
+    blob = b"".join(
+        stream_zip_store(
+            entries,
+            open_file=lambda path: fsops.open_zip_member(path, share_tree, os.getuid(), os.getgid()),
+        )
+    )
+    assert b"alpha" in blob
+    assert b"SECRET-OUTSIDE-SHARE" not in blob
+
+
+def test_zip_refuses_a_symlink_file(share_tree, tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_bytes(b"SECRET-OUTSIDE-SHARE")
+    (share_tree / "leak.txt").symlink_to(secret)
+    with pytest.raises(fsops.FSError) as exc:
+        fsops.collect_zip_entries(["leak.txt"], uid=0, gid=0, max_files=10, max_total=1000)
+    assert exc.value.status in (400, 404)
 
 
 def test_collect_zip_entries_expands_folder(share_tree):

@@ -137,6 +137,32 @@ def test_mint_read_token_for_shows(client):
     assert "/api/service/file?path=Shows%2Frec.mov&token=" in body["downloadUrl"]
 
 
+def test_web_proxy_prepare_reports_ready(client, monkeypatch):
+    seen = {}
+
+    def fake_prepare(src, stat_result, open_source):
+        seen["src"] = src
+        opened = open_source()
+        seen["reopened"] = opened.path
+        opened.close()
+        return False
+
+    monkeypatch.setattr(main.webproxy, "prepare", fake_prepare)
+    res = client.post("/api/service/web-proxy", params={"path": "Shows/rec.mov"}, headers=BEARER)
+    assert res.status_code == 200, res.text
+    assert res.json() == {"ready": False}
+    assert seen["src"].name == "rec.mov"
+    assert seen["reopened"] == seen["src"]
+
+
+def test_web_proxy_prepare_needs_bearer_and_a_readable_path(client):
+    token = read_token("Shows/rec.mov")
+    res = client.post("/api/service/web-proxy", params={"path": "Shows/rec.mov", "token": token})
+    assert res.status_code == 401
+    res = client.post("/api/service/web-proxy", params={"path": "Other/secret.txt"}, headers=BEARER)
+    assert res.status_code == 403
+
+
 def test_file_read_traversal_blocked(client):
     res = client.get("/api/service/file", params={"path": "Shows/../Other/secret.txt"}, headers=BEARER)
     assert res.status_code == 400

@@ -55,6 +55,7 @@ from file_links import (
 )
 from fsops import (
     RECYCLE_NAME,
+    AuthorizedFile,
     FSError,
     as_user,
     collect_zip_entries,
@@ -68,7 +69,10 @@ from fsops import (
     list_dir,
     mkdir,
     move_item,
+    open_authorized_path,
     open_for_download,
+    open_zip_member,
+    zip_member_size,
     rename,
     resolve_rel,
     resolve_within,
@@ -186,7 +190,42 @@ async def asset_cache_headers(request: Request, call_next):  # type: ignore[no-u
         # Short edge cache so a new index.html / share.html (new ?v=) shows up quickly.
         response.headers["Cache-Control"] = "public, max-age=60, must-revalidate"
         response.headers["CDN-Cache-Control"] = "public, max-age=60, must-revalidate"
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    # Clickjacking only. A full script-src would block the theme boot script,
+    # pdf.js and the analytics tag. Routes that already set a CSP keep theirs.
+    if "content-security-policy" not in response.headers:
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'; base-uri 'none'; object-src 'none'"
     return response
+
+
+def _origin_allowed(request: Request, origin: str) -> bool:
+    """True when a browser POST's Origin is this Drive, not another site."""
+    allowed = {settings.public_base_url.rstrip("/"), (settings.lan_origin or "").rstrip("/")} - {""}
+    if origin.rstrip("/") in allowed:
+        return True
+    host = (request.headers.get("host") or request.url.netloc or "").lower()
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(origin)
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and parsed.netloc.lower() == host
+
+
+@app.middleware("http")
+async def block_cross_site_writes(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """Cookie mutations must come from this site. Bearer calls are not cookies."""
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        auth = request.headers.get("authorization") or ""
+        if not auth.lower().startswith("bearer "):
+            site = (request.headers.get("sec-fetch-site") or "").lower()
+            origin = request.headers.get("origin")
+            if site == "cross-site" or (origin is not None and not _origin_allowed(request, origin)):
+                return JSONResponse(status_code=403, content={"detail": "Cross-site request blocked"})
+    return await call_next(request)
 
 GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
@@ -776,24 +815,56 @@ def service_file(
 
     ident = service_identity()
     try:
-        file_path, name = open_for_download(rel, ident.uid, ident.gid)
+        opened = open_for_download(rel, ident.uid, ident.gid)
     except FSError as e:
         raise _fs_http(e) from e
-    serve_path = file_path
-    serve_name = name
-    media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
-    if web:
-        proxy = webproxy.get_or_create(file_path)
-        if proxy != file_path:
-            serve_path = proxy
-            serve_name = f"{Path(name).stem}.mp4"
-            media_type = "video/mp4"
-    return FileResponse(
-        path=serve_path,
-        filename=serve_name,
-        media_type=media_type,
-        content_disposition_type="inline" if inline else "attachment",
-    )
+    try:
+        name = opened.name
+        media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        if web:
+            proxy = webproxy.get_or_create(
+                opened.path, read_path=Path(opened.dev_path()), stat_result=opened.stat
+            )
+            if proxy != opened.path:
+                opened.close()
+                opened = None
+                return FileResponse(
+                    path=proxy,
+                    filename=f"{Path(name).stem}.mp4",
+                    media_type="video/mp4",
+                    content_disposition_type="inline" if inline else "attachment",
+                )
+        response = _OpenedFileResponse(
+            opened,
+            media_type=media_type,
+            filename=name,
+            content_disposition_type="inline" if inline else "attachment",
+        )
+        opened = None
+        return response
+    finally:
+        if opened is not None:
+            opened.close()
+
+
+@app.post("/api/service/web-proxy")
+def service_web_proxy(request: Request, path: str = Query(...)) -> dict[str, bool]:
+    """Start the browser-safe proxy for one file in the background. ``ready`` once
+    ``/api/service/file?web=1`` answers at once; poll until then."""
+    require_service_token(request)
+    rel = assert_readable_service_path(path)
+    ident = service_identity()
+    try:
+        opened = open_for_download(rel, ident.uid, ident.gid)
+    except FSError as e:
+        raise _fs_http(e) from e
+    try:
+        ready = webproxy.prepare(
+            opened.path, opened.stat, lambda: open_for_download(rel, ident.uid, ident.gid)
+        )
+    finally:
+        opened.close()
+    return {"ready": ready}
 
 
 @app.get("/api/service/list")
@@ -836,10 +907,10 @@ def service_thumbnail(
 
     ident = service_identity()
     try:
-        file_path, _name = open_for_download(rel, ident.uid, ident.gid)
+        opened = open_for_download(rel, ident.uid, ident.gid)
     except FSError as e:
         raise _fs_http(e) from e
-    thumb_path = thumbs.get_or_create(file_path, size)
+    thumb_path = _thumbnail_for(opened, size)
     if thumb_path is None:
         raise HTTPException(status_code=404, detail="No thumbnail")
     return FileResponse(path=thumb_path, media_type="image/jpeg")
@@ -1047,16 +1118,28 @@ def api_unlock_personal(request: Request, owner: str = Form(...), key: str = For
         raise HTTPException(status_code=426, detail="Open Drive over HTTPS to enter your encryption key")
     if not _nas_login_allowed(f"personal:{user['uid']}"):
         raise HTTPException(status_code=429, detail="Too many unlock attempts. Try again in a few minutes.")
+    # Separate from the NAS-password lockout: a wrong encryption key must not
+    # lock the account password, and a UGOS outage must not burn a guess.
+    if _personal_key_locked(owner):
+        raise HTTPException(status_code=429, detail="Too many failed unlock attempts. Try again in 15 minutes.")
     if not personal_folders.configured():
         raise HTTPException(status_code=503, detail="Personal-folder unlocking is not configured")
     try:
         result = personal_folders.folders.unlock(owner, key, key_file=key_file)
     except personal_folders.OwnerSignInRequired as e:
         raise HTTPException(status_code=428, detail=str(e)) from None
+    except personal_folders.UgosError:
+        _personal_key_failed(owner)
+        raise HTTPException(
+            status_code=400, detail="Could not unlock the folder. Check the encryption key and try again."
+        ) from None
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=400, detail="Could not unlock the folder. Check the encryption key and try again.") from e
+        raise HTTPException(
+            status_code=400, detail="Could not unlock the folder. Check the encryption key and try again."
+        ) from e
+    _personal_key_fails.pop(owner.lower(), None)
     return result
 
 
@@ -1200,6 +1283,25 @@ def _nas_user_locked(username: str) -> bool:
 
 def _nas_user_failed(username: str) -> None:
     _nas_user_fails.setdefault(username.lower(), []).append(time.time())
+
+
+# Encryption-key guesses. Not the NAS password counter: the two secrets differ.
+_personal_key_fails: dict[str, list[float]] = {}
+
+
+def _personal_key_locked(username: str) -> bool:
+    key = username.lower()
+    now = time.time()
+    fails = [t for t in _personal_key_fails.get(key, []) if now - t < _NAS_USER_LOCK_S]
+    if fails:
+        _personal_key_fails[key] = fails
+    else:
+        _personal_key_fails.pop(key, None)
+    return len(fails) >= _NAS_USER_MAX_FAILS
+
+
+def _personal_key_failed(username: str) -> None:
+    _personal_key_fails.setdefault(username.lower(), []).append(time.time())
 
 
 # Server-side so replaying an older session cookie can't reset the count.
@@ -1923,8 +2025,35 @@ def _inline_safe(media_type: str) -> bool:
     return base in _INLINE_SAFE_TYPES or base.startswith(_INLINE_SAFE_PREFIXES)
 
 
-def _user_file_response(file_path: Path, name: str, inline: bool) -> FileResponse:
+class _OpenedFileResponse(FileResponse):
+    """FileResponse that reads an already-authorized fd (/dev/fd/N) and closes it."""
+
+    def __init__(self, opened: AuthorizedFile, **kwargs: Any) -> None:
+        self._opened = opened
+        opened.rewind()
+        filename = kwargs.pop("filename", opened.name)
+        super().__init__(path=opened.dev_path(), stat_result=opened.stat, filename=filename, **kwargs)
+
+    async def __call__(self, scope, receive, send):  # type: ignore[no-untyped-def]
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._opened.close()
+
+
+def _thumbnail_for(opened: AuthorizedFile, size: int) -> Path | None:
+    """Build a thumbnail from an authorized fd, then close it."""
+    try:
+        return thumbs.get_or_create(
+            opened.path, size, read_path=Path(opened.dev_path()), stat_result=opened.stat
+        )
+    finally:
+        opened.close()
+
+
+def _user_file_response(opened: AuthorizedFile, inline: bool) -> FileResponse:
     """Serve a user-uploaded file without letting it execute on our origin."""
+    name = opened.name
     media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
     # Text-ish types without a registered MIME still preview better as plain text.
     if media_type in ("application/octet-stream", "text/markdown") and name.lower().endswith(_TEXTISH_EXTS):
@@ -1936,10 +2065,14 @@ def _user_file_response(file_path: Path, name: str, inline: bool) -> FileRespons
         "X-Content-Type-Options": "nosniff",
     }
     # Browsers won't run their built-in PDF viewer in a sandboxed document.
-    if not (inline and media_type == "application/pdf"):
+    # The share page and the viewer fallback embed that PDF in a same-origin iframe.
+    if inline and media_type == "application/pdf":
+        headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+        headers["X-Frame-Options"] = "SAMEORIGIN"
+    else:
         headers["Content-Security-Policy"] = "sandbox"
-    return FileResponse(
-        path=file_path,
+    return _OpenedFileResponse(
+        opened,
         filename=name,
         media_type=media_type,
         content_disposition_type="inline" if inline else "attachment",
@@ -1957,10 +2090,10 @@ def api_download(
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
-            file_path, name = open_for_download(path, user["uid"], user["gid"])
+            opened = open_for_download(path, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
-    return _user_file_response(file_path, name, inline)
+    return _user_file_response(opened, inline)
 
 
 @app.get("/api/thumbnail")
@@ -1975,12 +2108,12 @@ def api_thumbnail(
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
-            file_path, _name = open_for_download(path, user["uid"], user["gid"])
+            opened = open_for_download(path, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
-    # Access checked per-user above; generation reads as the service user.
-    # Sync endpoint → FastAPI threadpool, so Pillow/ffmpeg don't block the loop.
-    thumb_path = thumbs.get_or_create(file_path, size)
+    # Pixels come from the fd opened as this user. Sync endpoint → threadpool,
+    # so Pillow/ffmpeg don't block the event loop.
+    thumb_path = _thumbnail_for(opened, size)
     if thumb_path is None:
         raise HTTPException(status_code=404, detail="No thumbnail")
     return FileResponse(path=thumb_path, media_type="image/jpeg")
@@ -1996,13 +2129,12 @@ def api_thumbnail_warm(
     size: int = Form(256),
 ) -> dict[str, Any]:
     """Pre-generate thumbnails for a folder listing so scrolling hits warm cache.
-    Only fills the disk cache — retrieval via /api/thumbnail still runs the
-    per-user access check, so no per-path permission probe is needed here."""
+    Generation opens each file as this user; a path they cannot read is skipped."""
     user = _require_user(request)
     share = _active_share(request, user)
     targets: list[Path] = []
     try:
-        with use_share_root(share_path(share)):
+        with use_share_root(share_path(share)) as root:
             for rel in path[:_THUMB_WARM_MAX]:
                 if thumbs.thumb_kind(rel) is None:
                     continue
@@ -2012,7 +2144,11 @@ def api_thumbnail_warm(
                     continue
     except FSError as e:
         raise _fs_http(e) from e
-    queued = thumbs.warm_paths(targets, size)
+
+    def open_source(src: Path) -> AuthorizedFile:
+        return open_authorized_path(src, root, int(user["uid"]), int(user["gid"]))
+
+    queued = thumbs.warm_paths(targets, size, open_source=open_source)
     return {"ok": True, "queued": queued}
 
 
@@ -2043,7 +2179,7 @@ def api_download_zip(
         )
 
     try:
-        with use_share_root(share_path(share)):
+        with use_share_root(share_path(share)) as root:
             entries = collect_zip_entries(
                 paths,
                 user["uid"],
@@ -2062,16 +2198,22 @@ def api_download_zip(
         zip_name = f"{Path(entries[0][0]).name}.zip"
     else:
         zip_name = f"InFocus-Drive-{len(paths)}-items.zip"
-    return _zip_response(entries, zip_name)
+    return _zip_response(entries, zip_name, root=root, uid=int(user["uid"]), gid=int(user["gid"]))
 
 
-def _zip_response(entries: list[tuple[str, Path]], zip_name: str) -> StreamingResponse:
+def _zip_response(
+    entries: list[tuple[str, Path]], zip_name: str, *, root: Path, uid: int, gid: int
+) -> StreamingResponse:
     # Content-Disposition with RFC 5987 filename*
     cd = f"attachment; filename=\"{zip_name}\"; filename*=UTF-8''{quote(zip_name)}"
 
     def generate() -> Any:
-        # Stream outside as_user — network-paced I/O must not hold the lock.
-        yield from stream_zip_store(entries)
+        # Each member is opened as the NAS user. The body is read from that fd
+        # after the credential lock is released, so a swapped symlink is not
+        # served as root and the lock is not held across the download.
+        yield from stream_zip_store(
+            entries, open_file=lambda path: open_zip_member(path, root, uid, gid)
+        )
 
     headers = {
         "Content-Disposition": cd,
@@ -2079,8 +2221,10 @@ def _zip_response(entries: list[tuple[str, Path]], zip_name: str) -> StreamingRe
         "X-Accel-Buffering": "no",
     }
     try:
-        headers["Content-Length"] = str(zip_store_content_length(entries))
-    except OSError:
+        headers["Content-Length"] = str(
+            zip_store_content_length(entries, size_of=lambda path: zip_member_size(path, root, uid, gid))
+        )
+    except (OSError, FSError):
         pass
 
     return StreamingResponse(
@@ -2117,6 +2261,9 @@ def _link_target(token: str, sub: str = "") -> tuple[dict[str, Any], Path, str, 
     folder = is_folder_link(payload)
     if (sub or "").strip("/ ") and not folder:
         raise LinkError("unavailable", payload)
+    # Personal folders stay behind sign-in. A link minted earlier must die too.
+    if personal_owner(str(payload.get("share") or "")):
+        raise LinkError("unavailable", payload)
     try:
         with use_share_root(share_path(str(payload["share"]))) as root:
             if folder:
@@ -2129,7 +2276,7 @@ def _link_target(token: str, sub: str = "") -> tuple[dict[str, Any], Path, str, 
     return payload, root, rel, sub
 
 
-def _link_file(payload: dict[str, Any], root: Path, rel: str) -> tuple[Path, str]:
+def _link_file(payload: dict[str, Any], root: Path, rel: str) -> AuthorizedFile:
     try:
         with use_share_root(root):
             return open_for_download(rel, int(payload["uid"]), int(payload["gid"]))
@@ -2190,6 +2337,8 @@ async def api_mint_file_link(request: Request) -> dict[str, Any]:
     if days < MIN_DAYS or days > MAX_DAYS:
         raise HTTPException(status_code=400, detail="days must be 1–30")
     uid, gid = int(user["uid"]), int(user["gid"])
+    if personal_owner(share):
+        raise HTTPException(status_code=403, detail="Personal folders can't be shared with a public link")
     try:
         with use_share_root(share_path(share)) as root:
             target = resolve_rel(rel)
@@ -2203,7 +2352,11 @@ async def api_mint_file_link(request: Request) -> dict[str, Any]:
                 # Store the resolved path so a symlink swapped in later can't redirect the link.
                 rel, name = canonical.as_posix(), target.name
             else:
-                _file_path, name = open_for_download(rel, uid, gid)
+                opened = open_for_download(rel, uid, gid)
+                try:
+                    name = opened.name
+                finally:
+                    opened.close()
     except FSError as e:
         raise _fs_http(e) from e
     token = mint_file_link(
@@ -2227,10 +2380,14 @@ def api_file_link_meta(token: str, path: str = Query("", description="Item insid
             listing = _link_listing(payload, root, rel, sub)
             if listing is not None:
                 return listing
-        file_path, name = _link_file(payload, root, rel)
+        opened = _link_file(payload, root, rel)
     except LinkError as e:
         return _file_link_error(e)
-    stat = file_path.stat()
+    try:
+        stat = opened.stat
+        name = opened.name
+    finally:
+        opened.close()
     kind = preview_kind(name)
     meta = {
         "is_dir": False,
@@ -2255,10 +2412,10 @@ def api_file_link_file(
 ):
     try:
         payload, root, rel, _sub = _link_target(token, path)
-        file_path, name = _link_file(payload, root, rel)
+        opened = _link_file(payload, root, rel)
     except LinkError as e:
         return _file_link_error(e)
-    return _user_file_response(file_path, name, inline)
+    return _user_file_response(opened, inline)
 
 
 @app.get("/api/s/{token}/zip", response_model=None)
@@ -2280,7 +2437,9 @@ def api_folder_link_zip(token: str, path: str = Query("", description="Subfolder
             )
     except FSError as e:
         raise _fs_http(e) from e
-    return _zip_response(entries, f"{Path(rel).name}.zip")
+    return _zip_response(
+        entries, f"{Path(rel).name}.zip", root=root, uid=int(payload["uid"]), gid=int(payload["gid"])
+    )
 
 
 @app.get("/api/s/{token}/thumb", response_model=None)
@@ -2288,10 +2447,10 @@ def api_file_link_thumb(token: str):
     """JPEG preview image for a file link (og:image in iMessage, Slack, …)."""
     try:
         payload, root, rel, _sub = _link_target(token)
-        file_path, _name = _link_file(payload, root, rel)
+        opened = _link_file(payload, root, rel)
     except LinkError as e:
         return _file_link_error(e)
-    thumb_path = thumbs.get_or_create(file_path, 512)
+    thumb_path = _thumbnail_for(opened, 512)
     if thumb_path is None:
         raise HTTPException(status_code=404, detail="No thumbnail")
     return FileResponse(path=thumb_path, media_type="image/jpeg")
@@ -2306,8 +2465,12 @@ def _share_preview(token: str) -> tuple[str, str, str | None]:
             if listing is not None:
                 count = link_preview.item_count(len(listing["items"]))
                 return listing["name"], f"Folder · {count} · Shared from {link_preview.SITE}", None
-        file_path, name = _link_file(payload, root, rel)
-        size = link_preview.human_size(file_path.stat().st_size)
+        opened = _link_file(payload, root, rel)
+        try:
+            name = opened.name
+            size = link_preview.human_size(opened.stat.st_size)
+        finally:
+            opened.close()
     except LinkError as e:
         title = "This link has expired" if e.code == "expired" else "Link not available"
         return title, link_preview.SITE, None
