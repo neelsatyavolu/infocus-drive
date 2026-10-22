@@ -23,6 +23,9 @@ struct LivestreamSchedule: Decodable, Sendable {
     var defaultCapacity = 4
 
     func event(_ id: String) -> LivestreamEvent? { events.first { $0.id == id } }
+
+    /// Events where the signed-in person is the livestream manager.
+    var managedByMe: [LivestreamEvent] { events.filter { $0.isManaged(by: currentUserId) } }
 }
 
 struct LivestreamPerson: Decodable, Hashable, Sendable {
@@ -71,6 +74,7 @@ struct LivestreamEvent: Decodable, Hashable, Identifiable, Sendable {
     var arrivesAt: Date?
 
     func isOnCrew(_ userId: String) -> Bool { attendees.contains { $0.id == userId } }
+    func isManaged(by userId: String) -> Bool { manager?.id == userId }
 }
 
 enum SignupStatus: String, Decodable, Sendable {

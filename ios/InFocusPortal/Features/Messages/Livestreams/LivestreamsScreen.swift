@@ -130,6 +130,11 @@ private struct EventRow: View {
                     Text([FeatureDates.clock(event.startsAt), event.location].filter { !$0.isEmpty }.joined(separator: " · "))
                         .font(.small)
                         .foregroundStyle(Brand.secondary)
+                    if let manager = event.manager, !event.isManaged(by: schedule.currentUserId) {
+                        Text("Manager: \(manager.label)")
+                            .font(.small)
+                            .foregroundStyle(Brand.muted)
+                    }
                     LivestreamTags(event: event, schedule: schedule)
                 }
                 Spacer(minLength: 0)
@@ -147,8 +152,13 @@ private struct MyRequestsList: View {
 
     var body: some View {
         let requests = schedule.mySignups.sorted { $0.createdAt > $1.createdAt }
+        let managing = LivestreamsModel.split(schedule.managedByMe)
         VStack(alignment: .leading, spacing: 10) {
-            if requests.isEmpty {
+            if !managing.upcoming.isEmpty || !managing.earlier.isEmpty {
+                SectionHeader(title: "You manage")
+                ForEach(managing.upcoming + managing.earlier) { EventRow(event: $0, schedule: schedule) }
+                if !requests.isEmpty { SectionHeader(title: "My requests").padding(.top, 8) }
+            } else if requests.isEmpty {
                 EmptyStateView(title: "No requests yet",
                                message: "Open a livestream on the schedule and request to crew it.")
             }

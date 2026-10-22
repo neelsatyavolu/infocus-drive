@@ -66,6 +66,13 @@ final class MessagesGearLivestreamTests: XCTestCase {
         XCTAssertEqual(split.earlier.map(\.id), ["e3"])
     }
 
+    func testFindsTheLivestreamsIManage() throws {
+        let schedule = try decode(LivestreamSchedule.self, scheduleJSON.replacingOccurrences(of: #""currentUserId":"me""#, with: #""currentUserId":"m""#))
+        XCTAssertEqual(schedule.managedByMe.map(\.id), ["e1"])
+        XCTAssertTrue(schedule.event("e1")!.isManaged(by: "m"))
+        XCTAssertFalse(schedule.event("e2")!.isManaged(by: "m"))
+    }
+
     func testSignupAndReviewRequests() async throws {
         StubProtocol.handler = { _ in (201, Data(#"{"data":{"id":"s9","status":"PENDING"}}"#.utf8)) }
         let service = LivestreamService.live(client)

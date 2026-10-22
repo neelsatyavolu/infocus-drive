@@ -15,6 +15,9 @@ struct LivestreamTags: View {
             if event.status == .scheduled {
                 StatusTag(text: crewText, tone: crewTone)
             }
+            if event.isManaged(by: schedule.currentUserId) {
+                StatusTag(text: "You manage", tone: .success)
+            }
             if event.isOnCrew(schedule.currentUserId) {
                 StatusTag(text: "On crew", tone: .success)
             } else if let mine = event.mySignup?.status, mine != .approved {
