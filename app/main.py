@@ -217,8 +217,12 @@ def _origin_allowed(request: Request, origin: str) -> bool:
 
 @app.middleware("http")
 async def block_cross_site_writes(request: Request, call_next):  # type: ignore[no-untyped-def]
-    """Cookie mutations must come from this site. Bearer calls are not cookies."""
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+    """Cookie mutations must come from this site. Bearer calls are not cookies.
+
+    /api/service/* never reads the cookie (service bearer or signed file token),
+    and the Portal's browser uploads reach it from another origin.
+    """
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.url.path.startswith("/api/service/"):
         auth = request.headers.get("authorization") or ""
         if not auth.lower().startswith("bearer "):
             site = (request.headers.get("sec-fetch-site") or "").lower()

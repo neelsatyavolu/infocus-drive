@@ -387,6 +387,18 @@ def test_bearer_write_skips_the_origin_check(files_client, files_root):
     assert (files_root / "cli-dir").is_dir()
 
 
+@pytest.mark.parametrize("site", ["same-site", "cross-site"])
+def test_portal_file_token_upload_skips_the_origin_check(files_client, site):
+    # The Portal's browser uploads straight to /api/service/upload* with a signed
+    # file token, never the Drive cookie, so the cookie guard must not stop them.
+    res = files_client.post(
+        "/api/service/upload/init",
+        data={"path": "Package Storage/clip.mov", "token": "rw.1.bad", "size": "1"},
+        headers={"Origin": "https://infocuspaly.com", "Sec-Fetch-Site": site},
+    )
+    assert res.json().get("detail") != "Cross-site request blocked"
+
+
 def test_cross_site_get_still_downloads(files_client):
     res = files_client.get(
         "/api/download",
