@@ -110,16 +110,23 @@ func TestPutResumesInterruptedUpload(t *testing.T) {
 	if code := h.run("put", local, "big.mov"); code != ExitError {
 		t.Fatalf("interrupted upload: exit %d", code)
 	}
-	if h.drive.aborts != 0 {
+	h.drive.mu.Lock()
+	aborts := h.drive.aborts
+	h.drive.mu.Unlock()
+	if aborts != 0 {
 		t.Fatal("an interrupted upload must not be aborted on the Drive")
 	}
 	if states, _ := filepath.Glob(filepath.Join(h.env.ConfigDir, "uploads", "*.json")); len(states) != 1 {
 		t.Fatalf("resume state files: %v", states)
 	}
 
+	h.drive.mu.Lock()
 	delete(h.drive.failAlways, 2)
 	h.drive.chunkPuts = 0
+	h.drive.mu.Unlock()
 	h.mustRun(t, "put", local, "big.mov")
+	h.drive.mu.Lock()
+	defer h.drive.mu.Unlock()
 	if h.drive.chunkPuts != 1 {
 		t.Fatalf("resume re-sent %d pieces, want 1", h.drive.chunkPuts)
 	}

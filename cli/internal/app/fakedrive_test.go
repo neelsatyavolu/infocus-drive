@@ -338,7 +338,11 @@ func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
 			fail(w, 502, "bad gateway")
 			return
 		}
-		data, _ := io.ReadAll(r.Body)
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			fail(w, 400, "Incomplete chunk")
+			return
+		}
 		if _, ok := d.chunks[q.Get("upload_id")]; !ok {
 			fail(w, 404, "Upload session not found or expired")
 			return
