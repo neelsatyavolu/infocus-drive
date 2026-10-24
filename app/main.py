@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import mimetypes
+import os
 import re
 import secrets
 import time
@@ -120,7 +121,10 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app):
     require_strong_session_secret(settings.session_secret)
-    personal_folders.start_worker()
+    # Upload workers (scripts/entrypoint.sh) only take chunk bodies; the main
+    # process owns background jobs.
+    if os.environ.get("IFD_UPLOAD_WORKER") != "1":
+        personal_folders.start_worker()
     try:
         yield
     finally:

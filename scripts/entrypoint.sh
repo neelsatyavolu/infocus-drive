@@ -20,7 +20,49 @@ uvicorn main:app \
   --limit-concurrency 200 &
 UV_PID=$!
 
+# Upload workers: extra processes for chunk bodies (nginx upstream ifd_upload),
+# so uploads aren't capped by one Python process's core. Loopback only.
+UPLOAD_WORKERS="${IFD_UPLOAD_WORKERS:-3}"
+UPLOAD_PORT_BASE="${IFD_UPLOAD_PORT_BASE:-8793}"
+UPLOAD_PIDS=""
+
+start_upload_worker() {
+  IFD_UPLOAD_WORKER=1 uvicorn main:app \
+    --host 127.0.0.1 \
+    --port "$1" \
+    --proxy-headers \
+    --timeout-keep-alive 120 \
+    --limit-concurrency 64 &
+}
+
+i=0
+while [ "$i" -lt "$UPLOAD_WORKERS" ]; do
+  port=$((UPLOAD_PORT_BASE + i))
+  start_upload_worker "$port"
+  UPLOAD_PIDS="$UPLOAD_PIDS $port:$!"
+  i=$((i + 1))
+done
+
+# Restart any upload worker that died (nginx falls back to the main app meanwhile).
+revive_upload_workers() {
+  alive=""
+  for entry in $UPLOAD_PIDS; do
+    port="${entry%%:*}"
+    pid="${entry#*:}"
+    if ! kill -0 "$pid" 2>/dev/null; then
+      echo "watchdog: upload worker :$port exited — restarting" >&2
+      start_upload_worker "$port"
+      pid=$!
+    fi
+    alive="$alive $port:$pid"
+  done
+  UPLOAD_PIDS="$alive"
+}
+
 cleanup() {
+  for entry in $UPLOAD_PIDS; do
+    kill -TERM "${entry#*:}" 2>/dev/null || true
+  done
   if kill -0 "$UV_PID" 2>/dev/null; then
     kill -TERM "$UV_PID" 2>/dev/null || true
     # Brief grace, then force
@@ -50,6 +92,7 @@ while kill -0 "$UV_PID" 2>/dev/null; do
       exit 1
     fi
   fi
+  revive_upload_workers
   sleep "$INTERVAL"
 done
 

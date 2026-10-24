@@ -1,3 +1,14 @@
+# Upload workers (scripts/entrypoint.sh): one Python process tops out near one
+# core, so chunk bodies spread over extra processes. The main app is the fallback.
+upstream ifd_upload {
+    least_conn;
+    server 127.0.0.1:8793;
+    server 127.0.0.1:8794;
+    server 127.0.0.1:8795;
+    server 127.0.0.1:8787 backup;
+    keepalive 32;
+}
+
 server {
     listen 8790;
     server_name _;
@@ -127,6 +138,30 @@ server {
         proxy_connect_timeout 60s;
         proxy_send_timeout 120s;
         proxy_read_timeout 120s;
+
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+    }
+
+    # Upload bodies — streamed to the upload worker pool.
+    location ~ ^/api/(upload/chunk|service/upload/chunk|speedtest/upload)$ {
+        proxy_pass http://ifd_upload;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Connection "";
+
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_max_temp_file_size 0;
+
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+        client_max_body_size 50g;
 
         proxy_hide_header Cache-Control;
         add_header Cache-Control "private, no-store, no-cache, must-revalidate" always;

@@ -271,7 +271,6 @@ export function speedtestDownloadUrl(size) {
 }
 
 /** Max bytes per speed-test / chunked-upload piece (must match server). */
-export const SPEEDTEST_PIECE_MAX = 32 * 1024 * 1024;
 export const UPLOAD_CHUNK_SIZE = 32 * 1024 * 1024;
 
 /** Concurrent streams for multi-part speed tests — saturates the tunnel better. */
@@ -414,7 +413,8 @@ export function speedtestUploadPiece(size, onProgress) {
  * @returns {{ promise: Promise<{ bytes: number, sec: number, mbps: number }>, abort: () => void }}
  */
 export function speedtestUploadMulti(totalBytes, onProgress) {
-  const pieceSize = SPEEDTEST_PIECE_MAX;
+  // Same piece sizes as a real upload, so small tests still use every stream.
+  const pieceSize = uploadChunkSize(totalBytes);
   const pieces = [];
   let left = totalBytes;
   while (left > 0) {

@@ -108,8 +108,10 @@ Original Google flow:
 - **Streamed** simple path: async reader → bounded queue → `write_upload_stream` under `as_user`.
 - Writes `.<name>.partial` then `os.replace`. Cap **2 GiB**.
 - **Chunked multi-stream** (files ≥ 8 MiB): `POST /api/upload/init` → parallel `PUT /api/upload/chunk` (≤32 MiB) → `POST /api/upload/complete`. Staging under `/tmp/ifd-chunk-uploads/`. Client keeps `upload_id` in `localStorage` for **resume** after drop.
-- Client runs **3 files in parallel**; each large file uses up to **6 chunk streams**.
+- Client runs **4 files in parallel**; each large file uses up to **8 chunk streams**.
 - nginx: `proxy_request_buffering off`, `proxy_buffering off`, long timeouts — critical for large files through tunnel.
+- **Upload workers:** one uvicorn process tops out near one CPU core (~850 Mbps on the NAS). `scripts/entrypoint.sh` also starts `IFD_UPLOAD_WORKERS` (default 3) loopback-only processes on `IFD_UPLOAD_PORT_BASE`+ (default 8793–8795) with `IFD_UPLOAD_WORKER=1`, which skips background jobs. nginx sends only the body routes (`/api/upload/chunk`, `/api/service/upload/chunk`, `/api/speedtest/upload`) to `upstream ifd_upload` (least-conn, main app as `backup`). These routes are stateless across processes (signed cookie, SQLite CLI tokens, on-disk upload sessions). Everything with in-memory state (sign-in lockouts, SSO flows, background jobs) stays on the main process. The watchdog restarts a dead worker.
+- **Browser protocol:** measured Chrome uploads through Cloudflare are ~2× faster over HTTP/2 than HTTP/3 (QUIC), e.g. 520–640 vs 270–370 Mbps.
 
 ### Downloads / preview
 
@@ -124,7 +126,7 @@ Original Google flow:
 |--|--|
 | Download | `GET /api/speedtest/download?size=` streams zeros (2 MiB chunks), max **512 MiB** |
 | Upload piece | `POST /api/speedtest/upload` max **32 MiB** per request |
-| Client | **6 parallel streams**; upload split into ≤32 MiB pieces + retry |
+| Client | **8 parallel streams**; upload split like a real file (`uploadChunkSize`, ≤32 MiB pieces) + retry |
 | Sizes UI | 32 / 64 / 128 / 256 / 512 MB |
 
 Measures **browser → CF Tunnel → NAS**, not raw LAN iPerf.
