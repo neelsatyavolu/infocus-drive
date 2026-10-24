@@ -270,12 +270,17 @@ extension PortalWebController: WKUIDelegate {
         Presenter.present(alert) { completionHandler(nil) }
     }
 
-    /// Camera and microphone for Portal pages only (video notes, uploads); iOS still asks the person.
+    /// Camera and microphone for Portal pages only (meetings, video notes, uploads). Granted without
+    /// WebKit's own prompt, which came back on every page load and every toggle in a call; iOS's
+    /// camera and microphone permission (asked once) still decides.
     func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
                  initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        decisionHandler(Self.mediaCaptureDecision(scheme: origin.protocol, host: origin.host, portal: portal))
+    }
+
+    nonisolated static func mediaCaptureDecision(scheme: String, host: String, portal: URL) -> WKPermissionDecision {
         let portalHost = portal.host?.lowercased() ?? ""
-        decisionHandler(origin.protocol == portal.scheme && PortalNavigation.isPortal(origin.host, portalHost: portalHost)
-                        ? .prompt : .deny)
+        return scheme == portal.scheme && PortalNavigation.isPortal(host, portalHost: portalHost) ? .grant : .deny
     }
 }

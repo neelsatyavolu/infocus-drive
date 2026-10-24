@@ -7,9 +7,10 @@ struct MeetingCall: Identifiable, Hashable {
     let id: String
 }
 
-/// The call: the Portal's `/meet/<id>?app=1` page full screen (no tab bar, dark),
-/// in the same signed-in web view setup as every Portal page. The page renders its
-/// own Leave flow and then navigates to `/meetings?left=1`, which closes this screen.
+/// The call: the Portal's `/meet/<id>?app=1&join=1` page full screen (no tab bar, dark),
+/// in the same signed-in web view setup as every Portal page. `join=1` skips the page's
+/// pre-join: the Join tap that opened this screen joins. The page renders its own Leave
+/// and Close, then navigates to `/meetings?left=1`, which closes this screen.
 struct MeetingCallScreen: View {
     let meetingId: String
     var onClose: (() -> Void)?
@@ -33,12 +34,15 @@ struct MeetingCallScreen: View {
             if let failure = call.web.failure {
                 OfflineView(failure: failure) { call.web.retry(fallback: call.url) }
                     .background(Brand.background)
-                // The page's own Leave isn't there when it failed to load.
+            }
+            // The page's own Leave and Close aren't there until it loads, or when it failed to.
+            if call.web.failure != nil || !call.hasLoaded {
                 Button(action: close) {
                     Image(systemName: "xmark")
                         .font(.lexend(17, .semibold))
-                        .foregroundStyle(Brand.foreground)
+                        .foregroundStyle(call.web.failure != nil ? Brand.foreground : .white)
                         .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Close meeting")
                 .padding(.leading, 8)
@@ -96,7 +100,7 @@ final class MeetingCallController: ObservableObject {
     nonisolated static func callURL(portal: URL, meetingId: String) -> URL {
         var parts = URLComponents(url: portal.appendingPathComponent("meet").appendingPathComponent(meetingId),
                                   resolvingAgainstBaseURL: false)!
-        parts.queryItems = [URLQueryItem(name: "app", value: "1")]
+        parts.queryItems = [URLQueryItem(name: "app", value: "1"), URLQueryItem(name: "join", value: "1")]
         return parts.url!
     }
 

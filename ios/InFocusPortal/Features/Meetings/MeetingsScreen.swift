@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// More → Meetings (producers): the live meeting with a big Join, upcoming meetings
-/// by Pacific day, and past meetings (each opens its notes).
+/// by Pacific day, and past meetings (each opens its notes). Refreshes every 30 s and
+/// after a call.
 struct MeetingsScreen: View {
     @Environment(\.portalClient) private var client
     @Environment(Router.self) private var router
@@ -24,6 +25,14 @@ struct MeetingsScreen: View {
             let model = self.model ?? MeetingsModel(service: .resolve(client))
             self.model = model
             await model.load()
+            // A meeting that goes live, or ends, shows up without a pull.
+            while (try? await Task.sleep(for: .seconds(30))) != nil {
+                await model.load()
+            }
+        }
+        // Back from a call: it may have ended.
+        .onChange(of: router.activeCall) { _, call in
+            if call == nil, let model { Task { await model.load() } }
         }
     }
 

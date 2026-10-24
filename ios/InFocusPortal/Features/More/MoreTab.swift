@@ -53,6 +53,9 @@ struct MoreTab: View {
                     Section("Production") {
                         row("Equipment", "camera", .messages(.equipment))
                         row("Livestreams", "dot.radiowaves.left.and.right", .messages(.livestreams))
+                        if !user.sampleOnly { // the class's scripts; the web sidebar has it for everyone else
+                            row("Teleprompter", "text.alignleft", .calendar(.teleprompter(showDate: nil, docId: nil)))
+                        }
                     }
                     if !user.sampleOnly { // class tools; the sample account has none of them
                         Section("Admin and tools") {

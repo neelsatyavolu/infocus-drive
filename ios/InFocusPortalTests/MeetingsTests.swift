@@ -118,9 +118,16 @@ final class MeetingsDeepLinkTests: XCTestCase {
 
     func testCallURLAndLeaveDetection() {
         XCTAssertEqual(MeetingCallController.callURL(portal: portal, meetingId: "cmeet123").absoluteString,
-                       "https://portal.example.edu/meet/cmeet123?app=1")
+                       "https://portal.example.edu/meet/cmeet123?app=1&join=1", "the app's Join skips the page's pre-join")
         XCTAssertTrue(MeetingCallController.isLeaveURL(URL(string: "https://portal.example.edu/meetings?left=1")!, portal: portal))
         XCTAssertFalse(MeetingCallController.isLeaveURL(URL(string: "https://portal.example.edu/meet/cmeet123?app=1")!, portal: portal))
         XCTAssertFalse(MeetingCallController.isLeaveURL(URL(string: "https://evil.test/meetings?left=1")!, portal: portal))
+    }
+
+    func testCameraAndMicAreGrantedToThePortalOnly() {
+        XCTAssertEqual(PortalWebController.mediaCaptureDecision(scheme: "https", host: "portal.example.edu", portal: portal), .grant,
+                       "no WebKit prompt on every call")
+        XCTAssertEqual(PortalWebController.mediaCaptureDecision(scheme: "http", host: "portal.example.edu", portal: portal), .deny)
+        XCTAssertEqual(PortalWebController.mediaCaptureDecision(scheme: "https", host: "evil.test", portal: portal), .deny)
     }
 }
