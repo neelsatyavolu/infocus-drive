@@ -10,9 +10,13 @@ export class ApiError extends Error {
     this.status = status;
   }
 
-  /** NAS said no — surface the permission-denied UI rather than a generic toast. */
+  /**
+   * NAS said no — surface the permission-denied UI rather than a generic toast.
+   * fsops reports every filesystem denial as exactly "Permission denied"; other
+   * 403s are Drive policy refusals whose message should be shown as-is.
+   */
   get isPermission() {
-    return this.status === 403;
+    return this.status === 403 && this.message === "Permission denied";
   }
 
   get isAuth() {

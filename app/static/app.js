@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261006-linkpreview";
-import * as api from "./api.js?v=20261006-linkpreview";
-import { ApiError } from "./api.js?v=20261006-linkpreview";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261023-denied";
+import * as api from "./api.js?v=20261023-denied";
+import { ApiError } from "./api.js?v=20261023-denied";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261006-linkpreview";
-import { $, el, icon, show } from "./dom.js?v=20261006-linkpreview";
+} from "./format.js?v=20261023-denied";
+import { $, el, icon, show } from "./dom.js?v=20261023-denied";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261006-linkpreview";
+} from "./quick.js?v=20261023-denied";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -2401,7 +2401,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261006-linkpreview").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261023-denied").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
