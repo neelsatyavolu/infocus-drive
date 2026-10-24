@@ -141,6 +141,8 @@ app.include_router(scribe_internal_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://infocusportal.com",
+        "https://www.infocusportal.com",
         "https://infocuspaly.com",
         "https://www.infocuspaly.com",
         "http://localhost:3000",
