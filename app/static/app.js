@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261023-uploadpool";
-import * as api from "./api.js?v=20261023-uploadpool";
-import { ApiError } from "./api.js?v=20261023-uploadpool";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261023-dotfiles";
+import * as api from "./api.js?v=20261023-dotfiles";
+import { ApiError } from "./api.js?v=20261023-dotfiles";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261023-uploadpool";
-import { $, el, icon, show } from "./dom.js?v=20261023-uploadpool";
+} from "./format.js?v=20261023-dotfiles";
+import { $, el, icon, show } from "./dom.js?v=20261023-dotfiles";
 import {
   setQuickScope,
   listFavorites,
@@ -30,11 +30,12 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261023-uploadpool";
+} from "./quick.js?v=20261023-dotfiles";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
 const DENSITY_KEY = "ifd-density";
+const HIDE_DOTFILES_KEY = "ifd-hide-dotfiles";
 const SORT_KEY = "ifd-sort-key";
 const SORT_DIR_KEY = "ifd-sort-dir";
 const SHARE_KEY = "ifd-share";
@@ -99,6 +100,8 @@ const state = {
   query: "",
   view: readStored(VIEW_KEY, "list"),
   density: readStored(DENSITY_KEY, "comfortable"),
+  /** Hide names starting with "." (dot files) from the listing. */
+  hideDotfiles: readStored(HIDE_DOTFILES_KEY, "0") === "1",
   sortKey: storedSortKey(),
   sortAsc: readStored(SORT_DIR_KEY, "1") !== "0",
   openMenu: null,
@@ -191,9 +194,9 @@ function setSort(key) {
 /** Items after search filter + folders-first sort — the order the user sees. */
 function visibleItems() {
   const query = state.query.trim().toLowerCase();
-  const filtered = query
-    ? state.items.filter((item) => item.name.toLowerCase().includes(query))
-    : state.items.slice();
+  const filtered = state.items.filter((item) =>
+    (!state.hideDotfiles || !item.name.startsWith("."))
+    && (!query || item.name.toLowerCase().includes(query)));
   return filtered.sort(compareVisible);
 }
 
@@ -1750,6 +1753,13 @@ function renderActionBar() {
   $("btn-view-list").setAttribute("aria-pressed", String(state.view === "list"));
   $("btn-view-grid").setAttribute("aria-pressed", String(state.view === "grid"));
 
+  const hiddenBtn = $("btn-hidden");
+  const hiddenLabel = state.hideDotfiles ? "Show dot files" : "Hide dot files";
+  hiddenBtn.setAttribute("aria-pressed", String(state.hideDotfiles));
+  hiddenBtn.title = hiddenLabel;
+  hiddenBtn.setAttribute("aria-label", hiddenLabel);
+  hiddenBtn.querySelector("use").setAttribute("href", state.hideDotfiles ? "#i-eye-off" : "#i-eye");
+
   const rows = $("rows");
   rows.dataset.density = state.density;
   rows.dataset.sort = state.sortAsc ? "asc" : "desc";
@@ -2401,7 +2411,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261023-uploadpool").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261023-dotfiles").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -4843,6 +4853,18 @@ function bindEvents() {
   $("btn-density").addEventListener("click", () => {
     state.density = state.density === "compact" ? "comfortable" : "compact";
     store(DENSITY_KEY, state.density);
+    render();
+  });
+
+  $("btn-hidden").addEventListener("click", () => {
+    state.hideDotfiles = !state.hideDotfiles;
+    store(HIDE_DOTFILES_KEY, state.hideDotfiles ? "1" : "0");
+    if (state.hideDotfiles) {
+      // Don't leave now-invisible dot files selected for bulk actions.
+      state.selection = new Set([...state.selection]
+        .filter((path) => !path.split("/").pop().startsWith(".")));
+      state.cursorIndex = null;
+    }
     render();
   });
 
