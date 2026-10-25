@@ -200,3 +200,37 @@ final class PushAndWebTests: XCTestCase {
         XCTAssertNotNil(PortalWebController.userAgentSuffix.range(of: "InFocusiOSApp/", options: .caseInsensitive))
     }
 }
+
+final class DomainMoveTests: XCTestCase {
+    let config = AppConfig(info: [
+        "InFocusPortalURL": "https://new.example.com",
+        "InFocusDriveURL": "https://drive.new.example.com",
+        "InFocusPortalLegacyHosts": "old.example.org",
+    ])
+
+    func testOldDomainLinksOpenOnTheNewOne() {
+        XCTAssertEqual(config.legacyPortalHosts, ["old.example.org"])
+        XCTAssertEqual(config.onPortal(URL(string: "https://meet.old.example.org/abc?x=1")!).absoluteString,
+                       "https://meet.new.example.com/abc?x=1")
+        XCTAssertEqual(config.onPortal(URL(string: "https://drive.old.example.org/")!).absoluteString,
+                       "https://drive.new.example.com/")
+        XCTAssertEqual(config.onPortal(URL(string: "https://notold.example.org/")!).absoluteString,
+                       "https://notold.example.org/")
+        XCTAssertEqual(AppConfig(info: [:]).legacyPortalHosts, [])
+    }
+
+    func testPushesAndDeepLinksNamingTheOldDomain() {
+        let portal = URL(string: "https://new.example.com")!
+        let destination = NotificationRouter.destination(for: ["url": "https://meet.old.example.org/abc"], portal: portal,
+                                                         legacyHosts: ["old.example.org"])
+        XCTAssertEqual(destination.absoluteString, "https://meet.new.example.com/abc")
+        let match = DeepLink.resolve(URL(string: "https://old.example.org/dashboard")!, portal: portal, legacyHosts: ["old.example.org"])
+        XCTAssertEqual(match.tab, .home)
+    }
+
+    func testCookieDomainsMove() {
+        XCTAssertEqual(PortalCookies.movedDomain(".old.example.org", to: "new.example.com", from: ["old.example.org"]), ".new.example.com")
+        XCTAssertEqual(PortalCookies.movedDomain("meet.old.example.org", to: "new.example.com", from: ["old.example.org"]), "meet.new.example.com")
+        XCTAssertNil(PortalCookies.movedDomain(".new.example.com", to: "new.example.com", from: ["old.example.org"]))
+    }
+}

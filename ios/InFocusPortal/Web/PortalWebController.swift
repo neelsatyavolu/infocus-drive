@@ -174,6 +174,13 @@ extension PortalWebController: WKNavigationDelegate {
         guard action.targetFrame?.isMainFrame ?? true, let url = action.request.url else {
             return decisionHandler(.allow)
         }
+        // A link to the Portal's old domain: the same page on its current one.
+        let moved = AppConfig.shared.onPortal(url)
+        if moved != url {
+            decisionHandler(.cancel)
+            webView.load(URLRequest(url: moved))
+            return
+        }
         switch route(url) {
         case .inApp?, nil:
             decisionHandler(.allow)

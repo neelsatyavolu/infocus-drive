@@ -96,10 +96,28 @@ final class DriveController: ObservableObject {
     }
 
     private func start() async {
+        await moveFromLegacyAddresses()
         guard hasServer else { return }
         cleanUpStaleVolumes()
         await refreshAccount()
         if wantsConnected { await ensureConnected() }
+    }
+
+    /// After a domain move (AppConfig.legacyHosts): the Portal sign-in and a
+    /// saved Drive address on an old domain follow to this build's addresses,
+    /// keeping the Drive sign-in (`infocus move-server`). A failure leaves the
+    /// old address in place, which keeps working until it's retired; the next
+    /// launch tries again.
+    private func moveFromLegacyAddresses() async {
+        let config = AppConfig.shared
+        if let portal = config.portalURL {
+            await PortalCookies.adoptLegacy(portal: portal, legacyHosts: config.legacyHosts)
+        }
+        guard let drive = config.driveURL, let saved = URL(string: serverURL), config.isLegacy(saved.host),
+              saved.host?.lowercased() != drive.host?.lowercased() else { return }
+        guard (try? await CLIRun(["--json", "--server", serverURL, "move-server", drive.absoluteString]).output()) != nil else { return }
+        serverURL = drive.absoluteString
+        defaults.set(serverURL, forKey: "serverURL")
     }
 
     /// Checks the sign-in and how the Drive responds (also fills the status

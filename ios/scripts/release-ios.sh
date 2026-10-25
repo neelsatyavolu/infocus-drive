@@ -16,6 +16,7 @@
 #   ASC_KEY_ITEM=<item holding "Key ID", "issuer id" and AuthKey_<KeyID>.p8>
 #   APPLE_TEAM_ID=<team>
 #   PORTAL_URL=https://portal.example.com   DRIVE_URL=https://drive.example.com
+#   LEGACY_PORTAL_HOSTS="old.example.com"   (optional: the Portal's old domains, space-separated)
 set -euo pipefail
 
 UPLOAD=1
@@ -45,6 +46,8 @@ host_of() {
   esac
 }
 PORTAL_HOST="$(host_of "$PORTAL_URL" PORTAL_URL)"
+LEGACY_PORTAL_HOSTS="${LEGACY_PORTAL_HOSTS:-}"
+if printf '%s' "$LEGACY_PORTAL_HOSTS" | grep -q '[^A-Za-z0-9. -]'; then echo "error: LEGACY_PORTAL_HOSTS: hostnames only" >&2; exit 2; fi
 DRIVE_HOST="$(host_of "${DRIVE_URL:-}" DRIVE_URL)"
 for value in "$PORTAL_HOST" "$DRIVE_HOST"; do
   if printf '%s' "$value" | grep -q '[^A-Za-z0-9.:-]'; then echo "error: unexpected characters in $value" >&2; exit 2; fi
@@ -108,6 +111,7 @@ xcodebuild -project InFocusPortal.xcodeproj -scheme InFocusPortal -configuration
   -destination 'generic/platform=iOS' -archivePath "$WORK/InFocusPortal.xcarchive" \
   CURRENT_PROJECT_VERSION="$BUILD_NUMBER" ${VERSION_ARGS[@]+"${VERSION_ARGS[@]}"} \
   INFOCUS_PORTAL_HOST="$PORTAL_HOST" INFOCUS_DRIVE_HOST="$DRIVE_HOST" INFOCUS_TEAM_ID="$APPLE_TEAM_ID" \
+  INFOCUS_PORTAL_LEGACY_HOSTS="$LEGACY_PORTAL_HOSTS" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Distribution" PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
   OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN" \
   archive -quiet

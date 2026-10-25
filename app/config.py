@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     # Public origin, e.g. https://drive.example.com (Cloudflare Tunnel)
     public_base_url: str = "http://localhost:8787"
+    # Old public hostnames (comma-separated, e.g. after a domain move) that still reach this app.
+    # Browser pages there 308 to public_base_url; API calls, bearer clients and sign-in callbacks stay.
+    legacy_public_hosts: str = ""
     # Direct LAN origin for the same app (nginx gateway). When reachable from
     # the browser, the UI session-handoffs here to skip the tunnel hop.
     # Empty string disables LAN prefer. Example: http://192.168.1.50:8790 (NAS IP + gateway port).

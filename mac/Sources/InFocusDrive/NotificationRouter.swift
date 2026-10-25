@@ -11,7 +11,9 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     weak var drive: DriveController?
 
     static func destination(for userInfo: [AnyHashable: Any], portal: URL) -> URL {
-        guard let raw = userInfo["url"] as? String, let url = URL(string: raw),
+        // Pushes may still name the Portal's old domain.
+        guard let raw = userInfo["url"] as? String, let parsed = URL(string: raw),
+              case let url = AppConfig.moved(parsed, to: portal.host?.lowercased() ?? "", from: AppConfig.shared.legacyHosts),
               url.scheme?.lowercased() == portal.scheme?.lowercased(),
               PortalNavigation.isPortal(url.host, portalHost: portal.host?.lowercased() ?? "") else {
             return portal

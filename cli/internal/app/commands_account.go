@@ -238,3 +238,50 @@ Exit codes: 0 ok · 1 error · 2 bad usage · 3 not signed in (ask the human to 
 (also a locked personal folder: ask the human to run "infocus unlock") · 6 the NAS
 wants the folder owner's sign-in first ("infocus unlock --nas-sign-in").
 `
+
+// cmdMoveServer follows the Drive to a new address: the saved sign-in moves to the new
+// host and becomes the default server. The token itself is the same (the Drive issued it).
+func cmdMoveServer(ctx context.Context, r *runner, args []string) error {
+	if len(args) != 1 {
+		return usagef("usage: infocus move-server NEW_URL")
+	}
+	from, err := config.ParseServer(r.serverURLString())
+	if err != nil {
+		return usageError{err.Error()}
+	}
+	to, err := config.ParseServer(args[0])
+	if err != nil {
+		return usageError{err.Error()}
+	}
+	moved := false
+	if from.Host != to.Host {
+		token, err := r.env.Tokens.Get(from.Host)
+		switch {
+		case errors.Is(err, config.ErrNoToken):
+		case err != nil:
+			return err
+		default:
+			if err := r.env.Tokens.Set(to.Host, token); err != nil {
+				return err
+			}
+			if err := r.env.Tokens.Delete(from.Host); err != nil {
+				return err
+			}
+			moved = true
+		}
+	}
+	if r.cfg.Server != to.String() {
+		r.cfg.Server = to.String()
+		if err := config.Save(r.env.ConfigDir, r.cfg); err != nil {
+			return err
+		}
+	}
+	out := map[string]any{"server": to.String(), "moved_sign_in": moved}
+	return r.emit(out, func(w io.Writer) {
+		if moved {
+			fmt.Fprintf(w, "Moved your sign-in from %s to %s.\n", from.Host, to.Host)
+		} else {
+			fmt.Fprintf(w, "Now using %s.\n", to.Host)
+		}
+	})
+}

@@ -281,3 +281,35 @@ final class NotificationPromptTests: XCTestCase {
         XCTAssertFalse(PushRegistrar.shouldAskAtLaunch(.denied, background: false))
     }
 }
+
+final class DomainMoveTests: XCTestCase {
+    let config = AppConfig(info: [
+        "InFocusPortalURL": "https://new.example.com",
+        "InFocusDriveURL": "https://drive.new.example.com",
+        "InFocusLegacyHosts": "old.example.org",
+    ])
+
+    func testOldDomainLinksOpenOnTheNewOne() {
+        XCTAssertEqual(config.onPortal(URL(string: "https://meet.old.example.org/abc?x=1")!).absoluteString,
+                       "https://meet.new.example.com/abc?x=1")
+        XCTAssertEqual(config.onPortal(URL(string: "https://drive.old.example.org/")!).absoluteString,
+                       "https://drive.new.example.com/")
+        XCTAssertEqual(config.onPortal(URL(string: "https://notold.example.org/")!).absoluteString,
+                       "https://notold.example.org/")
+        XCTAssertTrue(config.isLegacy("drive.old.example.org"))
+        XCTAssertFalse(config.isLegacy("drive.new.example.com"))
+        XCTAssertEqual(AppConfig(info: ["InFocusLegacyHosts": "__LEGACY_HOSTS__"]).legacyHosts, [])
+    }
+
+    func testPushesNamingTheOldDomainOpenInTheApp() {
+        let legacy = AppConfig(info: ["InFocusLegacyHosts": "old.example.org"]).legacyHosts
+        let moved = AppConfig.moved(URL(string: "https://old.example.org/groups/1")!, to: "new.example.com", from: legacy)
+        XCTAssertEqual(moved.absoluteString, "https://new.example.com/groups/1")
+    }
+
+    func testCookieDomainsMove() {
+        XCTAssertEqual(PortalCookies.movedDomain(".old.example.org", to: "new.example.com", from: ["old.example.org"]), ".new.example.com")
+        XCTAssertEqual(PortalCookies.movedDomain("meet.old.example.org", to: "new.example.com", from: ["old.example.org"]), "meet.new.example.com")
+        XCTAssertNil(PortalCookies.movedDomain(".new.example.com", to: "new.example.com", from: ["old.example.org"]))
+    }
+}

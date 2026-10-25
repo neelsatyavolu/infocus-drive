@@ -73,6 +73,35 @@ enum PortalCookies {
         return all.filter { matches($0, host: host) && (!$0.isSecure || portal.scheme == "https") }
     }
 
+    /// After a domain move: copies the Portal cookies saved for an old domain
+    /// (the session among them) to the same names on the Portal's domain, so
+    /// nobody signs in again. The session token isn't tied to a domain.
+    /// Cookies the Portal's domain already has win; the old ones are removed.
+    @MainActor
+    static func adoptLegacy(portal: URL, legacyHosts: [String], now: Date = Date()) async {
+        guard let host = portal.host?.lowercased(), !legacyHosts.isEmpty else { return }
+        let store = WKWebsiteDataStore.default().httpCookieStore
+        let all = await store.allCookies()
+        let existing = Set(all.filter { belongsToPortal($0.domain, portalHost: host) }.map(\.name))
+        for cookie in all {
+            guard let domain = movedDomain(cookie.domain, to: host, from: legacyHosts) else { continue }
+            // Moved once, then gone: a later Sign out can't be undone by copying it back.
+            await store.deleteCookie(cookie)
+            guard !existing.contains(cookie.name), cookie.expiresDate.map({ $0 > now }) ?? true,
+                  var properties = cookie.properties else { continue }
+            properties[.domain] = domain
+            if let copy = HTTPCookie(properties: properties) { await store.setCookie(copy) }
+        }
+    }
+
+    /// ".old.com" → ".new.com", "meet.old.com" → "meet.new.com"; nil if not on an old domain.
+    static func movedDomain(_ domain: String, to host: String, from legacyHosts: [String]) -> String? {
+        let dot = domain.hasPrefix(".") ? "." : ""
+        let bare = domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        guard let legacy = legacyHosts.first(where: { bare == $0 || bare.hasSuffix("." + $0) }) else { return nil }
+        return dot + String(bare.dropLast(legacy.count)) + host
+    }
+
     /// The signed-in session's value, if there is one that hasn't expired.
     @MainActor
     static func session(_ portal: URL, now: Date = Date()) async -> String? {

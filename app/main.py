@@ -221,6 +221,32 @@ def _origin_allowed(request: Request, origin: str) -> bool:
     return parsed.scheme in ("http", "https") and parsed.netloc.lower() == host
 
 
+def _legacy_page_redirect(request: Request) -> str | None:
+    """A browser page on an old public hostname → the same page on PUBLIC_BASE_URL, or None.
+
+    Only GET/HEAD pages without a bearer token move (sign-in starts too: its cookie must be
+    on the host Google returns to). API calls, callbacks and CLI/app requests keep working
+    on the old hostname until it is retired.
+    """
+    legacy = {h.strip().lower() for h in (settings.legacy_public_hosts or "").split(",") if h.strip()}
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host not in legacy or request.method not in {"GET", "HEAD"}:
+        return None
+    path = request.url.path
+    if path.startswith("/api/") or path in ("/auth/callback", "/auth/lan-handoff") or (request.headers.get("authorization") or "").lower().startswith("bearer "):
+        return None
+    query = f"?{request.url.query}" if request.url.query else ""
+    return settings.public_base_url.rstrip("/") + path + query
+
+
+@app.middleware("http")
+async def move_legacy_host(request: Request, call_next):  # type: ignore[no-untyped-def]
+    target = _legacy_page_redirect(request)
+    if target:
+        return RedirectResponse(target, status_code=308)
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def block_cross_site_writes(request: Request, call_next):  # type: ignore[no-untyped-def]
     """Cookie mutations must come from this site. Bearer calls are not cookies.

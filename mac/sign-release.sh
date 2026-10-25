@@ -36,6 +36,7 @@ VERSION="${TAG#cli-v}"
 if [ "${ALLOW_NO_PORTAL:-}" != 1 ]; then
   export PORTAL_URL="${PORTAL_URL:-$(gh variable get PORTAL_URL 2>/dev/null || true)}"
   export DRIVE_URL="${DRIVE_URL:-$(gh variable get DRIVE_URL 2>/dev/null || true)}"
+  export LEGACY_HOSTS="${LEGACY_HOSTS:-$(gh variable get LEGACY_HOSTS 2>/dev/null || true)}"
 fi
 if [ -z "${PORTAL_URL:-}" ] && [ "${ALLOW_NO_PORTAL:-}" != 1 ]; then
   echo "set PORTAL_URL (and DRIVE_URL) for the release build, or ALLOW_NO_PORTAL=1 for a Drive-only app" >&2

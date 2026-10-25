@@ -13,8 +13,9 @@ enum DeepLink {
         PackageCyclesRoute.deepLink, PublishingRoute.deepLink, MeetingsRoute.deepLink, ReviewRoute.deepLink, CommunityRoute.deepLink, AdminRoute.deepLink, MoreRoute.deepLink,
     ]
 
-    static func resolve(_ url: URL, portal: URL) -> DeepLinkMatch {
+    static func resolve(_ url: URL, portal: URL, legacyHosts: [String] = AppConfig.shared.legacyPortalHosts) -> DeepLinkMatch {
         let portalHost = portal.host?.lowercased() ?? ""
+        let url = AppConfig.moved(url, to: portalHost, from: legacyHosts)
         guard let host = url.host?.lowercased(), PortalNavigation.isPortal(host, portalHost: portalHost) else {
             return DeepLinkMatch(tab: nil, route: .portal(PortalPage(url: url)))
         }

@@ -65,6 +65,7 @@ final class AppModel: ObservableObject {
             return
         }
         #endif
+        await PortalCookies.adoptLegacy(portal: portal, legacyHosts: config.legacyPortalHosts)
         PushRegistrar.shared.start()
         if await PortalCookies.session(portal) != nil {
             await enterApp()
@@ -75,6 +76,7 @@ final class AppModel: ObservableObject {
 
     /// A notification tap: show its page now, or right after sign-in.
     func open(_ url: URL) {
+        let url = config.onPortal(url)
         if phase == .signedIn {
             router.open(url)
         } else {

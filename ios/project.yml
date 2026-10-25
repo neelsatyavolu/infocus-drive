@@ -30,6 +30,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         InFocusPortalURL: https://$(INFOCUS_PORTAL_HOST)
+        InFocusPortalLegacyHosts: $(INFOCUS_PORTAL_LEGACY_HOSTS)
         InFocusDriveURL: https://$(INFOCUS_DRIVE_HOST)
         ITSAppUsesNonExemptEncryption: false
         LSRequiresIPhoneOS: true

@@ -8,10 +8,13 @@ import UserNotifications
 final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationRouter()
 
-    static func destination(for userInfo: [AnyHashable: Any], portal: URL) -> URL {
+    static func destination(for userInfo: [AnyHashable: Any], portal: URL,
+                            legacyHosts: [String] = AppConfig.shared.legacyPortalHosts) -> URL {
         guard let raw = userInfo["url"] as? String,
               // Some pushes carry a Portal path ("/meet/<id>") instead of a full URL.
-              let url = raw.hasPrefix("/") && !raw.hasPrefix("//") ? URL(string: raw, relativeTo: portal)?.absoluteURL : URL(string: raw),
+              let parsed = raw.hasPrefix("/") && !raw.hasPrefix("//") ? URL(string: raw, relativeTo: portal)?.absoluteURL : URL(string: raw),
+              // Pushes may still name the Portal's old domain.
+              case let url = AppConfig.moved(parsed, to: portal.host?.lowercased() ?? "", from: legacyHosts),
               url.scheme?.lowercased() == portal.scheme?.lowercased(),
               PortalNavigation.isPortal(url.host, portalHost: portal.host?.lowercased() ?? "") else {
             return portal

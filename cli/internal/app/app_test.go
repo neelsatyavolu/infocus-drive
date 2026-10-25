@@ -340,3 +340,18 @@ func TestWhoamiAndSharesUnderstandShareObjects(t *testing.T) {
 		t.Fatalf("share header %q, want the id ~student1", h.drive.lastShare)
 	}
 }
+
+func TestMoveServerKeepsTheSignIn(t *testing.T) {
+	h := newHarness(t)
+	h.mustRun(t, "move-server", "http://localhost:4321")
+	if h.tokens["localhost:4321"] != testToken || len(h.tokens) != 1 {
+		t.Fatalf("tokens=%v", h.tokens)
+	}
+	cfg, err := config.Load(h.env.ConfigDir)
+	if err != nil || cfg.Server != "http://localhost:4321" {
+		t.Fatalf("server=%q err=%v", cfg.Server, err)
+	}
+	if code := h.run("move-server"); code != ExitUsage {
+		t.Fatalf("no URL: exit %d", code)
+	}
+}

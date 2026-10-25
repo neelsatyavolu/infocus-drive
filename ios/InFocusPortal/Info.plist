@@ -24,6 +24,8 @@
 	<false/>
 	<key>InFocusDriveURL</key>
 	<string>https://$(INFOCUS_DRIVE_HOST)</string>
+	<key>InFocusPortalLegacyHosts</key>
+	<string>$(INFOCUS_PORTAL_LEGACY_HOSTS)</string>
 	<key>InFocusPortalURL</key>
 	<string>https://$(INFOCUS_PORTAL_HOST)</string>
 	<key>LSRequiresIPhoneOS</key>

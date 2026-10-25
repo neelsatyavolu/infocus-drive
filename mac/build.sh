@@ -16,6 +16,9 @@ VERSION="${VERSION:-0.0.0-dev}"
 CONFIGURATION="${CONFIGURATION:-release}"
 PORTAL_URL="${PORTAL_URL:-}"
 DRIVE_URL="${DRIVE_URL:-}"
+# Old domains (space-separated hosts) whose links, Drive address and sign-in move to these.
+LEGACY_HOSTS="${LEGACY_HOSTS:-}"
+if printf '%s' "$LEGACY_HOSTS" | grep -q '[^A-Za-z0-9. -]'; then echo "LEGACY_HOSTS: hostnames only" >&2; exit 2; fi
 for url in "$PORTAL_URL" "$DRIVE_URL"; do
   case "$url" in
     "" | https://* | http://localhost*) ;;
@@ -44,7 +47,7 @@ lipo -create -output "$APP/Contents/MacOS/infocus" build/cli/infocus-arm64 build
 swift build $SWIFT_FLAGS
 # shellcheck disable=SC2086
 cp "$(swift build $SWIFT_FLAGS --show-bin-path)/InFocusDrive" "$APP/Contents/MacOS/"
-sed -e "s/__VERSION__/$VERSION/g" -e "s|__PORTAL_URL__|$PORTAL_URL|g" -e "s|__DRIVE_URL__|$DRIVE_URL|g" \
+sed -e "s/__VERSION__/$VERSION/g" -e "s|__PORTAL_URL__|$PORTAL_URL|g" -e "s|__DRIVE_URL__|$DRIVE_URL|g" -e "s|__LEGACY_HOSTS__|$LEGACY_HOSTS|g" \
   Info.plist > "$APP/Contents/Info.plist"
 cp -R Resources/Fonts "$APP/Contents/Resources/"
 cp Resources/wordmark-dark.png Resources/wordmark-light.png Resources/brand-mark.png \
