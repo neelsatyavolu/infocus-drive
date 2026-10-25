@@ -12,6 +12,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Error is a non-2xx response from the Drive.
@@ -38,6 +39,16 @@ type Client struct {
 	Bulk      *http.Client
 	UserAgent string
 	LAN       *LANRoute // optional: use the Drive's LAN address when set
+}
+
+// movedTo: Drive host → the current address it named in an X-Drive-Moved-To header.
+var movedTo sync.Map
+
+// MovedTo is the address the Drive at host said it moved to (X-Drive-Moved-To), or "".
+func MovedTo(host string) string {
+	moved, _ := movedTo.Load(host)
+	s, _ := moved.(string)
+	return s
 }
 
 type bulkKey struct{}
@@ -200,6 +211,9 @@ func (c *Client) do(req *http.Request) (*http.Response, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("can't reach %s: %w", c.Base.Host, err)
+	}
+	if moved := res.Header.Get("X-Drive-Moved-To"); moved != "" {
+		movedTo.Store(c.Base.Host, moved)
 	}
 	if res.StatusCode >= 200 && res.StatusCode < 300 {
 		return res, nil

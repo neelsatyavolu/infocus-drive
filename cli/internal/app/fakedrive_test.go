@@ -40,6 +40,7 @@ type fakeDrive struct {
 	aborts     int
 	shares     []map[string]any
 	lastShare  string
+	movedTo    string // sent as X-Drive-Moved-To when set
 	loggedOut  bool
 	revoked    bool           // token rejected with 401
 	rangeReads int            // downloads that asked for a byte range
@@ -114,6 +115,9 @@ func join(dir, name string) string {
 }
 
 func (d *fakeDrive) serve(w http.ResponseWriter, r *http.Request) {
+	if d.movedTo != "" {
+		w.Header().Set("X-Drive-Moved-To", d.movedTo)
+	}
 	if r.URL.Path == "/api/me" || r.URL.Path == "/api/upload/chunk" {
 		d.mu.Lock()
 		delay := d.meDelay

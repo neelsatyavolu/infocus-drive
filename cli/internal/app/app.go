@@ -153,6 +153,7 @@ func Run(ctx context.Context, argv []string, env Env) int {
 	r.cfg = cfg
 	err = cmd.run(ctx, r, args)
 	if err == nil {
+		r.followMovedDrive()
 		r.maybeAutoUpdate(ctx, name)
 	}
 	return r.fail(err)

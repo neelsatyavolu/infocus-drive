@@ -35,3 +35,14 @@ def test_the_public_host_is_untouched(monkeypatch):
     monkeypatch.setattr(main.settings, "legacy_public_hosts", "drive.old.test")
     response = TestClient(main.app, base_url="https://drive.new.test", follow_redirects=False).get("/")
     assert response.status_code != 308
+
+
+def test_clients_on_the_old_host_learn_the_new_address(client):
+    assert client.get("/api/me").headers["x-drive-moved-to"] == "https://drive.new.test"
+
+
+def test_the_new_host_sends_no_move(monkeypatch):
+    monkeypatch.setattr(main.settings, "public_base_url", "https://drive.new.test")
+    monkeypatch.setattr(main.settings, "legacy_public_hosts", "drive.old.test")
+    response = TestClient(main.app, base_url="https://drive.new.test").get("/api/me")
+    assert "x-drive-moved-to" not in response.headers

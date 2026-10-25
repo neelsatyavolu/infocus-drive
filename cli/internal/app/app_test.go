@@ -355,3 +355,26 @@ func TestMoveServerKeepsTheSignIn(t *testing.T) {
 		t.Fatalf("no URL: exit %d", code)
 	}
 }
+
+func TestFollowsTheDriveToItsNewAddress(t *testing.T) {
+	h := newHarness(t)
+	h.drive.movedTo = "https://drive.new.test"
+	h.mustRun(t, "whoami")
+	if h.tokens["drive.new.test"] != testToken || len(h.tokens) != 1 {
+		t.Fatalf("tokens=%v", h.tokens)
+	}
+	cfg, _ := config.Load(h.env.ConfigDir)
+	if cfg.Server != "https://drive.new.test" || !strings.Contains(h.stderr.String(), "drive.new.test") {
+		t.Fatalf("server=%q stderr=%q", cfg.Server, h.stderr)
+	}
+}
+
+func TestAnExplicitServerIsNotMoved(t *testing.T) {
+	h := newHarness(t)
+	h.drive.movedTo = "https://drive.new.test"
+	cfg, _ := config.Load(h.env.ConfigDir)
+	h.mustRun(t, "--server", cfg.Server, "whoami")
+	if _, moved := h.tokens["drive.new.test"]; moved {
+		t.Fatalf("moved despite --server: %v", h.tokens)
+	}
+}

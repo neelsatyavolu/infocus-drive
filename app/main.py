@@ -244,7 +244,12 @@ async def move_legacy_host(request: Request, call_next):  # type: ignore[no-unty
     target = _legacy_page_redirect(request)
     if target:
         return RedirectResponse(target, status_code=308)
-    return await call_next(request)
+    response = await call_next(request)
+    legacy = {h.strip().lower() for h in (settings.legacy_public_hosts or "").split(",") if h.strip()}
+    if (request.headers.get("host") or "").split(":")[0].lower() in legacy:
+        # The CLI follows this to the current address (cli/internal/app: followMovedDrive).
+        response.headers["X-Drive-Moved-To"] = settings.public_base_url.rstrip("/")
+    return response
 
 
 @app.middleware("http")

@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 
+	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/auth"
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/config"
 )
@@ -253,28 +255,9 @@ func cmdMoveServer(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return usageError{err.Error()}
 	}
-	moved := false
-	if from.Host != to.Host {
-		token, err := r.env.Tokens.Get(from.Host)
-		switch {
-		case errors.Is(err, config.ErrNoToken):
-		case err != nil:
-			return err
-		default:
-			if err := r.env.Tokens.Set(to.Host, token); err != nil {
-				return err
-			}
-			if err := r.env.Tokens.Delete(from.Host); err != nil {
-				return err
-			}
-			moved = true
-		}
-	}
-	if r.cfg.Server != to.String() {
-		r.cfg.Server = to.String()
-		if err := config.Save(r.env.ConfigDir, r.cfg); err != nil {
-			return err
-		}
+	moved, err := r.moveServer(from, to)
+	if err != nil {
+		return err
 	}
 	out := map[string]any{"server": to.String(), "moved_sign_in": moved}
 	return r.emit(out, func(w io.Writer) {
@@ -284,4 +267,57 @@ func cmdMoveServer(ctx context.Context, r *runner, args []string) error {
 			fmt.Fprintf(w, "Now using %s.\n", to.Host)
 		}
 	})
+}
+
+// moveServer moves the saved sign-in from one Drive address to another and saves the new one
+// as the default server. Reports whether there was a sign-in to move.
+func (r *runner) moveServer(from, to *url.URL) (bool, error) {
+	moved := false
+	if from.Host != to.Host {
+		token, err := r.env.Tokens.Get(from.Host)
+		switch {
+		case errors.Is(err, config.ErrNoToken):
+		case err != nil:
+			return false, err
+		default:
+			if err := r.env.Tokens.Set(to.Host, token); err != nil {
+				return false, err
+			}
+			if err := r.env.Tokens.Delete(from.Host); err != nil {
+				return false, err
+			}
+			moved = true
+		}
+	}
+	if r.cfg.Server != to.String() {
+		r.cfg.Server = to.String()
+		if err := config.Save(r.env.ConfigDir, r.cfg); err != nil {
+			return false, err
+		}
+	}
+	return moved, nil
+}
+
+// followMovedDrive: after a command that reached the saved Drive on an old address, the Drive
+// said where it lives now (X-Drive-Moved-To); later commands use that, signed in as before.
+// Only for the saved server, never one given with --server or INFOCUS_SERVER.
+func (r *runner) followMovedDrive() {
+	if r.g.server != "" || r.env.Getenv("INFOCUS_SERVER") != "" || r.cfg.Server == "" {
+		return
+	}
+	from, err := config.ParseServer(r.cfg.Server)
+	if err != nil {
+		return
+	}
+	moved := api.MovedTo(from.Host)
+	if moved == "" {
+		return
+	}
+	to, err := config.ParseServer(moved)
+	if err != nil || to.Host == from.Host || to.Scheme != "https" {
+		return
+	}
+	if _, err := r.moveServer(from, to); err == nil {
+		fmt.Fprintf(r.env.Stderr, "The Drive moved to %s; this terminal uses it from now on.\n", to.Host)
+	}
 }
