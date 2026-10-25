@@ -14,7 +14,7 @@ import ugos_sso
 from config import get_settings
 
 DRIVE = "https://drive.infocuspaly.com"
-UGOS = "https://ugos.infocuspaly.com"
+UGOS = "https://ugos.infocusportal.com"
 IDENTITY = {"username": "student", "uid": 1001, "gid": 100, "email": "student@pausd.us", "auth_provider": "google", "google_sub": "google-user-id"}
 LOGIN = {"token": "secret-native-session", "username": "student", "uid": 1001, "public_key": "cHVibGljLWtleQ==", "role": "user"}
 

@@ -27,7 +27,7 @@ auth required pam_permit.so
 '''
 NGINX_BRIDGE = f'''{MARKER}
 location ^~ /infocus-sso/ {{
-    if ($host != ugos.infocuspaly.com) {{ return 404; }}
+    if ($host != ugos.infocusportal.com) {{ return 404; }}
     proxy_pass http://127.0.0.1:8787;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto https;
@@ -38,7 +38,7 @@ location ^~ /infocus-sso/ {{
 }}
 '''
 OLD_ROOT = 'ngx.header["Location"] = "/desktop/?os=ugospro"'
-NEW_ROOT = 'ngx.header["Location"] = (ngx.var.host == "ugos.infocuspaly.com") and "/infocus-sso/" or "/desktop/?os=ugospro"'
+NEW_ROOT = 'ngx.header["Location"] = (ngx.var.host == "ugos.infocusportal.com") and "/infocus-sso/" or "/desktop/?os=ugospro"'
 
 
 def pam_config(original):

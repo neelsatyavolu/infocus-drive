@@ -14,7 +14,7 @@ function run(data, initial = {}) {
     document: { getElementById: id => id === "ugos-login-data" ? { textContent: JSON.stringify(data), remove() { removed = true; } } : status },
     localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)) },
     atob: x => Buffer.from(x, "base64").toString(),
-    location: { hostname: "ugos.infocuspaly.com", port: "", replace(x) { redirect = x; } },
+    location: { hostname: "ugos.infocusportal.com", port: "", replace(x) { redirect = x; } },
   };
   context.window.top = context.window;
   vm.runInNewContext(source, context);

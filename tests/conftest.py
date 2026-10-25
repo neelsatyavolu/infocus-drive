@@ -11,7 +11,7 @@ from config import get_settings  # noqa: E402
 # Set at import time too: main reads settings when it is first imported.
 TEST_ENV = {
     "PUBLIC_BASE_URL": "https://drive.infocuspaly.com",
-    "UGOS_ADMIN_PATH": "https://ugos.infocuspaly.com/",
+    "UGOS_ADMIN_PATH": "https://ugos.infocusportal.com/",
     "ALLOWED_EMAIL_DOMAINS": "pausd.org,pausd.us",
     "GOOGLE_HOSTED_DOMAIN": "pausd.org",
 }
