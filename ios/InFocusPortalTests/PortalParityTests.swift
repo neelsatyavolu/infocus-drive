@@ -12,7 +12,7 @@ final class PortalParityTests: XCTestCase {
         "groups", "groups/row1", "groups/row1/final-cut",
         "package-progress", "package-cycles", "members", "participation",
         "grades", "grade-editor", "extensions", "extension-requests",
-        "master-calendar", "show-roles", "teleprompter",
+        "master-calendar", "show-roles", "teleprompter", "editing",
         "announcements", "announcements/pa", "announcements/submitted", "submit-announcement",
         "equipment", "equipment/request", "equipment/manage", "livestreams",
         "publishing-queue", "publishing-queue/row1",

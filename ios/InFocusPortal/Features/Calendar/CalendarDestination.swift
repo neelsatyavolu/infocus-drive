@@ -14,6 +14,8 @@ struct CalendarDestination: View {
             ShowUploadView(date: date)
         case .teleprompter(let showDate, let docId):
             TeleprompterScreen(showDate: showDate, docId: docId)
+        case .editing(let date):
+            EditingScreen(date: date)
         }
     }
 }

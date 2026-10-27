@@ -69,6 +69,11 @@ struct CalendarTab: View {
         VStack(spacing: 0) {
             QuickLink(title: "The Show", detail: "Upcoming shows and who's on them", systemImage: "tv", route: .calendar(.theShow))
             Divider().overlay(Brand.line)
+            if session.user?.isProducer == true {
+                QuickLink(title: "Editing", detail: "Automatic editing for each show", systemImage: "wand.and.stars",
+                          route: .calendar(.editing(date: nil)))
+                Divider().overlay(Brand.line)
+            }
             QuickLink(title: "Announcements",
                       detail: feed.unreadCount > 0 ? "\(feed.unreadCount) unread" : "Class announcements",
                       systemImage: "megaphone", route: .announcements(.feed), badge: feed.unreadCount)

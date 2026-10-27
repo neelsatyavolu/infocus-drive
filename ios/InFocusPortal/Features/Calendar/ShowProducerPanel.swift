@@ -155,12 +155,16 @@ struct ShowProducerPanel: View {
     }
 
     private func actions(_ show: ShowOverview) -> some View {
-        HStack(spacing: 8) {
-            Button(show.teleprompterDocId == nil ? "Create script" : "Open script") {
-                router.push(.calendar(CalendarRoute.teleprompter(href: show.teleprompterHref)))
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button(show.teleprompterDocId == nil ? "Create script" : "Open script") {
+                    router.push(.calendar(CalendarRoute.teleprompter(href: show.teleprompterHref)))
+                }
+                .buttonStyle(.brandSecondary)
+                Button("Upload show") { router.push(.calendar(.showUpload(date: show.date))) }
+                    .buttonStyle(.brandSecondary)
             }
-            .buttonStyle(.brandSecondary)
-            Button("Upload show") { router.push(.calendar(.showUpload(date: show.date))) }
+            Button("Automatic editing", systemImage: "wand.and.stars") { router.push(.calendar(.editing(date: show.date))) }
                 .buttonStyle(.brandSecondary)
         }
     }

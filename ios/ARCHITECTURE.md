@@ -15,7 +15,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Session/` | `PortalUser` (roles and flags), `SessionStore`, `Preferences` (appearance) | shell |
 | `Navigation/` | `AppTab`, `Route`, `DeepLink`, `Router`, `BadgeCenter`, `RouteDestination`, `MainTabView` | shell |
 | `Features/Work/` | `HomeTab`, `WorkTab`, `WorkRoute`, `WorkDestination`; `Packages/` (student stages: cycle guide, brainstorming, A-roll/B-roll, Initial Cut, Final Cut, uploads), `Groups/` (producer review of every stage, Final Cut grading, Package of the Cycle), `Shared/` (stage feedback thread, media views) | **Work agent** (Home, my packages and stages, Groups review) |
-| `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination`, `DayNotesEditor` and `CalendarNotesDocument` (notes, package pills, scenic image; formatted notes kept byte for byte), `ShowUploadView` (whole-show upload to Drive and YouTube), `TeleprompterScreen` and `TeleprompterRunView` (scripts and the full-screen prompter) | **Calendar agent** (Master Calendar, The Show, show upload, teleprompter) |
+| `Features/Calendar/` | `CalendarTab`, `CalendarRoute`, `CalendarDestination`, `DayNotesEditor` and `CalendarNotesDocument` (notes, package pills, scenic image; formatted notes kept byte for byte), `ShowUploadView` (whole-show upload to Drive and YouTube), `TeleprompterScreen` and `TeleprompterRunView` (scripts and the full-screen prompter), `Editing/` (Show > Editing for producers: one show's automatic edit from `api/show-roles/edits`: start from the Drive recordings, follow it, watch it, approve or send back) | **Calendar agent** (Master Calendar, The Show, show upload, teleprompter) |
 | `Features/Grades/` | `GradesScreen`, `ExtensionsScreen`, `GrantExtensionSheet`, `Members/`, `ParticipationScreen` (reuses the Grade Editor's `ParticipationEntryView`), `GradesRoute`, `GradesDestination` | **Grades agent** (grades, extension requests and exec grants, Members notes, Participation) |
 | `Features/Messages/` | `MessagesTab`, `MessagesRoute`, `MessagesDestination`, `Equipment/` (checkout requests, my gear, Manage: requests, out, inventory, managers), `Livestreams/` (sign-ups, event editor, credit, managers), `Shared/` (person picker, avatars) | **Messages agent** (chats, equipment, livestreams) |
 | `Features/Announcements/` | `AnnouncementsRoute`, `AnnouncementsDestination`, feed/detail/compose views, `SubmitAnnouncementView`, `SlackPostCard` (attachments open in Quick Look; `SlackFiles` downloads them with `PortalClient.download`) | **Announcements agent** (class feed, submit form, submitted announcements, PA script) |
@@ -46,7 +46,7 @@ The route enums and the Portal links each one opens:
 | Enum | Cases | Deep links parsed today |
 |---|---|---|
 | `WorkRoute` | `group(rowId:stage:)`, `studentStage(StudentStage)` | `/groups` (Work root), `/groups/<rowId>[/<stage>]`, `/information`, `/brainstorming`, `/a-roll`, `/initial-cut`, `/final-cut` |
-| `CalendarRoute` | `day(date:)`, `theShow`, `showUpload(date:)`, `teleprompter(showDate:docId:)` | `/master-calendar[?date=]`, `/show-roles`, `/teleprompter[?showDate=&doc=]` (and `teleprompter.` host) |
+| `CalendarRoute` | `day(date:)`, `theShow`, `showUpload(date:)`, `teleprompter(showDate:docId:)`, `editing(date:)` | `/master-calendar[?date=]`, `/show-roles`, `/teleprompter[?showDate=&doc=]` (and `teleprompter.` host), `/editing[?date=]` (`?view=machines\|settings\|howto` and `?link=` stay web pages) |
 | `GradesRoute` | `grades`, `extensions`, `extensionRequest(id:)`, `members`, `participation` | `/grades` (and `grades.` host), `/extensions[/<id>]`, `/extension-requests[/<id>]`, `/members`, `/participation` (and `grades.` host) (all on More) |
 | `MessagesRoute` | `conversation(id:)`, `equipment`, `equipmentAt(EquipmentSection)`, `livestreams`, `livestream(id:)` | `/equipment` (and `equipment.` host), `/equipment/request`, `/equipment/manage`, `/livestreams[/<id>]` (on More) |
 | `AnnouncementsRoute` | `feed`, `announcement(id:)`, `submitted`, `pa`, `submit` | `/announcements` (Calendar tab), `/announcements/submitted`, `/announcements/pa`, `/submit-announcement` (More) |
@@ -68,6 +68,7 @@ Every signed-in Portal page has a native screen; `PortalParityTests` checks that
 - The equipment checkout kiosk and equipment passkeys (the Equipment toolbar menu).
 - Admin > School year and Admin > System (integrations and reset), the Instagram Post Maker, the password vault's CSV import, and the browser- or Mac-only Settings sections.
 - Package of the Cycle certificate downloads, and Publishing Queue final-cut downloads.
+- Editing's Machines, Settings and How to views, a machine's link approval, recording previews, debug-log downloads and Change details (the upload dialog with the edited file).
 - Formatting in Master Calendar notes (bold, italics, underline, lists): the native editor shows it and keeps it exactly, edits only plain paragraphs and pills, and links to the Portal to change formatted parts.
 
 ## Talking to the Portal

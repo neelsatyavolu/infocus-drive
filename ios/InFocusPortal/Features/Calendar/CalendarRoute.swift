@@ -12,6 +12,8 @@ enum CalendarRoute: Hashable {
     case showUpload(date: String)
     /// The teleprompter (`/teleprompter[?showDate=&doc=]`, or the `teleprompter.` host).
     case teleprompter(showDate: String?, docId: String?)
+    /// Show > Editing (`/editing[?date=]`, producers): one show's automatic edit.
+    case editing(date: String?)
 
     static func deepLink(_ path: [String], _ query: [URLQueryItem]) -> DeepLinkMatch? {
         switch path {
@@ -23,6 +25,11 @@ enum CalendarRoute: Hashable {
             let doc = query.first { $0.name == "doc" }?.value?.trimmingCharacters(in: .whitespaces)
             return DeepLinkMatch(tab: .calendar, route: .calendar(.teleprompter(showDate: dateKey("showDate", in: query),
                                                                                 docId: doc?.isEmpty == false ? doc : nil)))
+        case ["editing"]:
+            // Machines, Settings, How to and a machine's link approval (`?link=`) stay on the Portal.
+            let view = query.first { $0.name == "view" }?.value ?? "show"
+            guard view == "show", query.first(where: { $0.name == "link" }) == nil else { return nil }
+            return DeepLinkMatch(tab: .calendar, route: .calendar(.editing(date: dateKey("date", in: query))))
         default:
             return nil
         }
