@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     packages_roster_url: str = ""
     # Last-seen packages emails; used to delete NAS users who left the roster.
     packages_roster_snapshot_path: str = "/config/packages_roster.json"
+    # The Portal's news site (https://, WordPress). Drive relays the Portal's
+    # /wp-json calls to it (app/wordpress_relay.py). Empty turns the relay off.
+    wordpress_url: str = ""
 
     # Meetings Scribe (docs/MEETINGS-SCRIBE.md): localhost notes service and
     # where finished notes land, relative to drive_root.

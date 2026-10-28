@@ -41,6 +41,7 @@ import cli_tokens
 import personal_folders
 from email_auth import check_origin, router as email_auth_router
 from meetings_service import internal_router as scribe_internal_router, router as meetings_router
+from wordpress_relay import router as wordpress_router
 from ugos_sso import router as ugos_sso_router
 from file_links import (
     DEFAULT_DAYS,
@@ -136,6 +137,7 @@ app.include_router(email_auth_router)
 app.include_router(ugos_sso_router)
 app.include_router(meetings_router)
 app.include_router(scribe_internal_router)
+app.include_router(wordpress_router)
 
 # Allow infocus-packages (and local dev) browsers to upload/play Package Cycles media.
 app.add_middleware(

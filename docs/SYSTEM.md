@@ -277,6 +277,7 @@ infocus-packages can store cycle media on the NAS via a **service API** (not end
 | `PACKAGES_SERVICE_USER` | NAS user for writes | e.g. `admin` |
 | `PACKAGES_ROOT` | Extra allowed path prefix (Cycles + Storage are always allowed) | `Package Cycles` |
 | `SHOWS_ROOT` | Read-only folder for the automatic show editor (switcher recordings). Empty turns it off | `Shows` |
+| `WORDPRESS_URL` | News site the Portal posts packages to. Drive relays the Portal's `/wp-json` calls to it at `/api/service/wordpress/wp-json/...` (the site's Cloudflare challenges Workers). Empty turns the relay off | `https://infocusnews.tv` |
 
 `docker-compose.yml` must pass these into the container (`env_file: .env` **and** explicit `environment:` entries). A host-only `.env` without compose wiring left the API unconfigured until fixed.
 
