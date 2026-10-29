@@ -19,14 +19,18 @@ It was built for InFocus, a student news program. It runs in production on the p
 - **Roster sync (optional):** provisions and removes NAS accounts from an external roster through a localhost-only helper, with protected-account lists.
 - Alternative sign-in: email codes (Resend) and NAS username + password with UGOS 2FA.
 - **InFocus for Mac (optional):** a Swift app that mounts the Drive in Finder over a local WebDAV helper, and can also show the program's Portal web app in native windows with Mac notifications ([docs/MAC-APP.md](docs/MAC-APP.md)).
-- **InFocus Portal for iPhone and iPad (optional):** a SwiftUI shell around the program's Portal web app, with the same browser sign-in hand-off and iOS notifications ([ios/README.md](ios/README.md)).
+- **InFocus Portal for iPhone and iPad (optional):** a native SwiftUI app for the program's Portal, with native screens for the signed-in pages, a signed-in web view for the rest, the same browser sign-in hand-off, and iOS notifications ([ios/README.md](ios/README.md)).
+- **`infocus` CLI (optional):** a Go command-line tool for macOS and Windows that uses the Drive with the permissions of your Drive account, for people and for AI coding agents ([docs/CLI.md](docs/CLI.md)).
+- **Portal service API (optional):** a token-authenticated API the Portal uses to store package media on the NAS, read the Shows folder for the automatic show editor, and relay its posts to the news site.
+- **Meetings Scribe (optional):** a separate container that joins the Portal's producer meetings as a silent listener, transcribes with faster-whisper, summarizes with Cloudflare Workers AI or a local Ollama model, and writes the notes to the Drive ([docs/MEETINGS-SCRIBE.md](docs/MEETINGS-SCRIBE.md)).
 
 ## Architecture
 
 ```
 browser ──► Cloudflare Tunnel ──► nginx gateway :8790 ──► FastAPI app :8787 ──► /volume*/ (as the signed-in NAS user)
                                         │                         │
-                                        └── /admin/ → UGOS        └── infocus-userd (127.0.0.1:8791, useradd on the host)
+                                        └── /admin/ → UGOS        ├── infocus-userd (127.0.0.1:8791, useradd on the host)
+                                                                  └── infocus-scribe (127.0.0.1:8792, meeting notes)
 ```
 
 The full design is in [docs/SYSTEM.md](docs/SYSTEM.md).
@@ -55,7 +59,10 @@ Deployment details are in [docs/DEPLOY.md](docs/DEPLOY.md). The UI is branded fo
 python3 -m venv .venv && .venv/bin/pip install -r app/requirements.txt pytest
 .venv/bin/python -m pytest -q          # backend tests
 node --test tests/*.cjs                # frontend module tests
+(cd cli && go test ./...)              # CLI tests
 ```
+
+The Markdown preview test (`tests/test_markdown_preview.cjs`) also needs `jsdom` resolvable from the repo, for example with `npm install --no-save jsdom`.
 
 Contributor and coding-agent conventions are in [AGENTS.md](AGENTS.md) and [CLAUDE.md](CLAUDE.md).
 
@@ -64,7 +71,7 @@ Contributor and coding-agent conventions are in [AGENTS.md](AGENTS.md) and [CLAU
 The app runs as root inside its container so it can `setuid` to each NAS user, and the `infocus-userd` helper is privileged. Treat the deployment as security-sensitive:
 
 - Use a long random `SESSION_SECRET`; the app refuses weak ones.
-- Keep ports 8787/8791 off the internet; expose only the gateway through the tunnel.
+- Keep ports 8787, 8791 and 8792 off the internet; expose only the gateway through the tunnel.
 - The LAN fast path uses plain HTTP on the local network. Disable it (`LAN_ORIGIN=`) if you don't trust that network.
 - Public share links last until they expire (up to 30 days) and can't be revoked early yet.
 
