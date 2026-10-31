@@ -47,6 +47,26 @@ def test_as_root_takes_the_lock_and_elevates(root_process_mid_switch):
     assert not fsops._as_user_lock.locked()
 
 
+def test_as_user_without_name_reads_host_passwd_when_container_copy_is_stale(root_process_mid_switch, monkeypatch, tmp_path):
+    """A NAS user created after the container started is missing from its /etc/passwd
+    file bind; the name (and so the share groups) must come from /host-etc/passwd."""
+    passwd = tmp_path / "passwd"
+    passwd.write_text("student3:x:1003:100::/:/sbin/nologin\n", encoding="utf-8")
+    group = tmp_path / "group"
+    group.write_text("users:x:100:\nInFocus Members:x:1000:student1,student3\n", encoding="utf-8")
+    monkeypatch.setattr(fsops, "_HOST_PASSWD", passwd)
+    monkeypatch.setattr(fsops, "_HOST_GROUP", group)
+
+    def stale_getpwuid(uid):
+        raise KeyError(uid)
+
+    monkeypatch.setattr(fsops.pwd, "getpwuid", stale_getpwuid)
+    with fsops.as_user(1003, 100):
+        pass
+    groups = [args for name, args in root_process_mid_switch["calls"] if name == "setgroups"]
+    assert sorted(groups[0]) == [100, 1000]
+
+
 def test_non_root_process_skips_switching(monkeypatch):
     monkeypatch.setattr(fsops.os, "getuid", lambda: 1000)
     monkeypatch.setattr(fsops.os, "seteuid", lambda uid: pytest.fail("must not switch"))

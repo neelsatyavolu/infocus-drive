@@ -30,6 +30,20 @@ _as_user_lock = threading.Lock()
 # Bound wait so a stuck holder cannot fill the thread pool forever (site-wide hang).
 _AS_USER_LOCK_TIMEOUT_S = 90.0
 _HOST_GROUP = Path("/host-etc/group")
+_HOST_PASSWD = Path("/host-etc/passwd")
+
+
+def _host_username_for_uid(uid: int) -> str | None:
+    """Name for uid from host /etc/passwd (the container's file bind goes stale after useradd)."""
+    try:
+        text = _HOST_PASSWD.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        parts = line.split(":")
+        if len(parts) >= 3 and parts[2] == str(uid) and parts[0]:
+            return parts[0]
+    return None
 
 
 def _host_group_rows() -> list[tuple[str, int, list[str]]]:
@@ -271,7 +285,7 @@ def as_user(uid: int, gid: int, username: str | None = None) -> Iterator[None]:
         except OSError:
             old_groups = []
 
-        name = (username or "").strip() or None
+        name = (username or "").strip() or _host_username_for_uid(uid)
         if not name:
             try:
                 name = pwd.getpwuid(uid).pw_name
