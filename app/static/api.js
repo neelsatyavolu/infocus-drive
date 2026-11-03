@@ -926,12 +926,25 @@ function parseContentDisposition(header) {
   return null;
 }
 
-/** Open the Chromium save-file picker during a user gesture (click). */
+/**
+ * Some Chromium browsers (e.g. Aside) expose showSaveFilePicker but reject it
+ * with AbortError within a few ms without ever showing a dialog. No person can
+ * open and cancel a dialog that fast, so an abort this quick means "no picker".
+ */
+export const PICKER_INSTANT_ABORT_MS = 500;
+
+/**
+ * Open the Chromium save-file picker during a user gesture (click).
+ * Resolves to null when the browser refuses the picker outright, so callers
+ * fall back to a native browser download; a real user cancel still rejects.
+ */
 export function saveFilePicker(filename) {
   if (typeof window.showSaveFilePicker !== "function") return null;
+  const opened = Date.now();
+  const refusedByBrowser = (err) => err?.name === "AbortError" && Date.now() - opened < PICKER_INSTANT_ABORT_MS;
   const zip = /\.zip$/i.test(filename || "");
   try {
-    return window.showSaveFilePicker({
+    return Promise.resolve(window.showSaveFilePicker({
       suggestedName: filename || "download",
       ...(zip
         ? {
@@ -943,6 +956,9 @@ export function saveFilePicker(filename) {
             ],
           }
         : {}),
+    })).catch((err) => {
+      if (refusedByBrowser(err)) return null;
+      throw err;
     });
   } catch {
     return null;
@@ -1082,17 +1098,12 @@ export function downloadTransfer(url, { filename = "download", onProgress, saveH
   const promise = (async () => {
     // Picker must be opened during the click (see saveFilePicker). Awaiting
     // a promise that was started in that gesture is still valid.
-    const picker =
-      saveHandlePromise ||
-      (typeof window.showSaveFilePicker === "function"
-        ? window.showSaveFilePicker({
-            suggestedName: filename || "download",
-          })
-        : null);
+    const picker = saveHandlePromise || saveFilePicker(filename);
     if (picker) {
       try {
         const handle = await picker;
-        writer = await handle.createWritable();
+        // null: the browser refused the picker; use the native download below.
+        if (handle) writer = await handle.createWritable();
       } catch (err) {
         if (err && (err.name === "AbortError" || err.name === "NotAllowedError")) {
           throw new ApiError("Download cancelled.", 0);

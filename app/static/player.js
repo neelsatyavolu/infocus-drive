@@ -273,6 +273,15 @@ export function createMediaPlayer(kind, src, { fullscreenTarget, onError, sizeBy
     else media.pause();
   }
 
+  /** Stop playback and the multi-GB fetch, then let the host show its fallback. */
+  function failUndecodable() {
+    media.pause();
+    media.removeAttribute("src");
+    media.load();
+    hideSpinner();
+    if (onError) onError();
+  }
+
   function skip(seconds) {
     if (!Number.isFinite(media.duration)) return;
     media.currentTime = Math.min(media.duration, Math.max(0, media.currentTime + seconds));
@@ -491,6 +500,12 @@ export function createMediaPlayer(kind, src, { fullscreenTarget, onError, sizeBy
       speedBtn.textContent = `${media.playbackRate}×`;
     }],
     [media, "loadedmetadata", () => {
+      // Chrome plays the audio of a video it can't decode (e.g. ProRes .mov)
+      // with no picture and no error event. Treat that as unplayable.
+      if (isVideo && !media.videoWidth) {
+        failUndecodable();
+        return;
+      }
       timeTotal.textContent = formatTime(media.duration);
       syncProgress();
     }],

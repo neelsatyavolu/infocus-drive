@@ -4,7 +4,7 @@
 import { el, icon } from "./dom.js?v=20261002-foldershare";
 import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20261002-foldershare";
 import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20261002-foldershare";
-import { createMediaPlayer } from "./player.js?v=20261002-foldershare";
+import { createMediaPlayer } from "./player.js?v=20261102-prores";
 
 const THEME_KEY = "ifd-theme";
 const TEXT_LIMIT_BYTES = 1_500_000;

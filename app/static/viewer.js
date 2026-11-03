@@ -7,7 +7,7 @@
  */
 import { el, icon } from "./dom.js?v=20261002-foldershare";
 import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20261002-foldershare";
-import { createMediaPlayer } from "./player.js?v=20261002-foldershare";
+import { createMediaPlayer } from "./player.js?v=20261102-prores";
 import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20261002-foldershare";
 
 const TEXT_LIMIT_BYTES = 1_500_000;
