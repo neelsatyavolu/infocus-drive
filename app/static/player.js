@@ -5,7 +5,7 @@
  * match the InFocus design system: green scrub track, buffered range, hover
  * scrub tooltip, tabular time readout, speed / PiP / fullscreen.
  */
-import { el, icon } from "./dom.js?v=20261002-foldershare";
+import { el, icon } from "./dom.js?v=20261102-blackletter";
 
 const VOLUME_KEY = "ifd-volume";
 const MUTED_KEY = "ifd-muted";

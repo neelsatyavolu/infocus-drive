@@ -1,6 +1,6 @@
-import { el } from "./dom.js?v=20261002-foldershare";
-import { marked } from "./vendor/marked.js?v=20261002-foldershare";
-import DOMPurify from "./vendor/dompurify.js?v=20261002-foldershare";
+import { el } from "./dom.js?v=20261102-blackletter";
+import { marked } from "./vendor/marked.js?v=20261102-blackletter";
+import DOMPurify from "./vendor/dompurify.js?v=20261102-blackletter";
 
 export function isMarkdown(name) {
   return /\.(md|markdown)$/i.test(name);

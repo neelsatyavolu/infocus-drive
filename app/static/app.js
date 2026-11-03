@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261102-prores";
-import * as api from "./api.js?v=20261102-prores";
-import { ApiError } from "./api.js?v=20261102-prores";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261102-blackletter";
+import * as api from "./api.js?v=20261102-blackletter";
+import { ApiError } from "./api.js?v=20261102-blackletter";
 import {
   describeKind,
   displayName,
@@ -20,8 +20,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261102-prores";
-import { $, el, icon, show } from "./dom.js?v=20261102-prores";
+} from "./format.js?v=20261102-blackletter";
+import { $, el, icon, show } from "./dom.js?v=20261102-blackletter";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +30,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261102-prores";
+} from "./quick.js?v=20261102-blackletter";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -658,7 +658,7 @@ function applyTheme(theme) {
   const schemeMeta = document.getElementById("meta-color-scheme");
   const colorMeta = document.getElementById("meta-theme-color");
   if (schemeMeta) schemeMeta.setAttribute("content", light ? "light" : "dark");
-  if (colorMeta) colorMeta.setAttribute("content", light ? "#f4f6f5" : "#0f110f");
+  if (colorMeta) colorMeta.setAttribute("content", light ? "#fcfcfd" : "#000000");
 
   const icon = $("theme-icon");
   if (icon) icon.setAttribute("href", light ? "#i-moon" : "#i-sun");
@@ -2411,7 +2411,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261102-prores").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261102-blackletter").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -2896,7 +2896,6 @@ function openShareModal(item) {
 
   let days = 7;
   const PRESETS = [1, 7, 14, 30];
-  const kind = describeKind(item);
 
   const urlField = el("input", {
     class: "field",
@@ -2976,7 +2975,7 @@ function openShareModal(item) {
 
   const body = el("div", { class: "modal__body" }, [
     el("div", { class: "modal__lead" }, [
-      el("div", { class: "modal__badge", style: `color:${kind.color}` }, [icon("#i-share", 17)]),
+      el("div", { class: "modal__badge" }, [icon("#i-share", 17)]),
       el("div", {}, [
         el("h3", { text: item.is_dir ? "Share folder" : "Share file" }),
         el("p", { class: "modal__hint", text: displayName(item.name) }),

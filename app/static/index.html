@@ -4,61 +4,63 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="dark" id="meta-color-scheme" />
-  <meta name="theme-color" content="#0f110f" id="meta-theme-color" />
+  <meta name="theme-color" content="#000000" id="meta-theme-color" />
   <title>InFocus Drive</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=20261102-prores" />
-  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261102-prores" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=20261102-blackletter" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261102-blackletter" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="preload" as="image" href="/assets/infocus-wordmark.png?v=20261102-prores" />
-  <link rel="modulepreload" href="/assets/app.js?v=20261102-prores" />
-  <link rel="modulepreload" href="/assets/api.js?v=20261102-prores" />
-  <link rel="modulepreload" href="/assets/format.js?v=20261102-prores" />
-  <link rel="modulepreload" href="/assets/dom.js?v=20261102-prores" />
-  <link rel="modulepreload" href="/assets/quick.js?v=20261102-prores" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+  <link rel="preload" as="image" href="/assets/infocus-wordmark.png?v=20261102-blackletter" />
+  <link rel="modulepreload" href="/assets/app.js?v=20261102-blackletter" />
+  <link rel="modulepreload" href="/assets/api.js?v=20261102-blackletter" />
+  <link rel="modulepreload" href="/assets/format.js?v=20261102-blackletter" />
+  <link rel="modulepreload" href="/assets/dom.js?v=20261102-blackletter" />
+  <link rel="modulepreload" href="/assets/quick.js?v=20261102-blackletter" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+  <link rel="preload" href="/assets/geist-serif.woff2?v=1" as="font" type="font/woff2" crossorigin />
   <!-- Critical theme paint before app.css — stops reload FOUC (light sidebar / dark main). -->
   <style id="ifd-theme-critical">
-    html, body { margin: 0; background: #0f110f; color: #ecefea; color-scheme: dark; }
-    html.light, html.light body { background: #f4f6f5; color: #0f110f; color-scheme: light; }
+    html, body { margin: 0; background: #000000; color: #fcfdff; color-scheme: dark; }
+    html.light, html.light body { background: #fcfcfd; color: #0a0a0c; color-scheme: light; }
     /* Sidebar uses --sb-* once CSS loads; pin shell bg so sticky rail never flashes white. */
-    .sidebar { background: #0f110f !important; }
-    html.light .sidebar { background: #f4f6f5 !important; }
+    .sidebar { background: #000000 !important; }
+    html.light .sidebar { background: #fcfcfd !important; }
     /* Boot splash: paints before JS/CSS modules so cold loads aren't a blank black page. */
     .boot {
       position: fixed; inset: 0; z-index: 9999;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 18px; background: #0f110f; color: #ecefea;
-      font-family: "Lexend", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-      transition: opacity .18s cubic-bezier(0.16, 1, 0.3, 1), visibility .18s cubic-bezier(0.16, 1, 0.3, 1);
+      gap: 18px; background: #000000; color: #fcfdff;
+      font-family: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      transition: opacity .18s cubic-bezier(0.2, 0, 0, 1), visibility .18s cubic-bezier(0.2, 0, 0, 1);
     }
     .boot[hidden] { display: none !important; }
     .boot.is-done { opacity: 0; visibility: hidden; pointer-events: none; }
-    html.light .boot { background: #f4f6f5; color: #0f110f; }
+    html.light .boot { background: #fcfcfd; color: #0a0a0c; }
     .boot__mark { display: flex; align-items: center; gap: 12px; }
     .boot__mark img { height: 32px; width: auto; display: block; }
     .boot__mark span {
-      font-family: "Lexend", ui-sans-serif, system-ui, sans-serif;
+      font-family: "Geist", ui-sans-serif, system-ui, sans-serif;
       font-weight: 600; letter-spacing: -0.02em; font-size: 24px; line-height: 1; color: inherit;
     }
     .boot__label {
-      font-size: 13px; font-weight: 500; letter-spacing: 0.02em;
-      color: #a3ada7;
+      font-size: 13px; font-weight: 400;
+      color: #a1a4a5;
     }
-    html.light .boot__label { color: #525b55; }
+    html.light .boot__label { color: #5f6366; }
     .boot__spin {
       width: 22px; height: 22px; border-radius: 50%;
       border: 2px solid rgb(43 179 110 / 0.22);
       border-top-color: #2bb36e;
       animation: ifd-boot-spin .7s linear infinite;
     }
+    html.light .boot__spin { border-color: rgb(11 110 62 / 0.22); border-top-color: #0b6e3e; }
     @keyframes ifd-boot-spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) {
       .boot__spin { animation: none; border-top-color: #2bb36e; opacity: .7; }
       .boot { transition: none; }
     }
   </style>
-  <link rel="stylesheet" href="/assets/app.css?v=20261102-prores" />
+  <link rel="stylesheet" href="/assets/app.css?v=20261102-blackletter" />
   <script>
     // Sync theme class + browser color-scheme before first paint (and after bfcache).
     (function () {
@@ -71,7 +73,7 @@
         var scheme = document.getElementById("meta-color-scheme");
         var color = document.getElementById("meta-theme-color");
         if (scheme) scheme.setAttribute("content", light ? "light" : "dark");
-        if (color) color.setAttribute("content", light ? "#f4f6f5" : "#0f110f");
+        if (color) color.setAttribute("content", light ? "#fcfcfd" : "#000000");
       }
       try {
         apply(localStorage.getItem("ifd-theme") === "light" ? "light" : "dark");
@@ -94,8 +96,8 @@
 <!-- Visible until app.js finishes /api/me and shows login or browser. -->
 <div class="boot" id="screen-boot" role="status" aria-live="polite" aria-busy="true">
   <div class="boot__mark">
-    <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20261102-prores" alt="" width="75" height="32" fetchpriority="high" decoding="async" />
-    <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20261102-prores" alt="" width="75" height="32" loading="lazy" decoding="async" />
+    <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20261102-blackletter" alt="" width="75" height="32" fetchpriority="high" decoding="async" />
+    <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20261102-blackletter" alt="" width="75" height="32" loading="lazy" decoding="async" />
     <span>Drive</span>
   </div>
   <div class="boot__spin" aria-hidden="true"></div>
@@ -167,8 +169,8 @@
 <div class="login" id="screen-login" hidden>
   <div class="login__hero">
     <div class="wordmark">
-      <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20261102-prores" alt="InFocus" width="70" height="30" decoding="async" />
-      <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20261102-prores" alt="InFocus" width="70" height="30" loading="lazy" decoding="async" />
+      <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20261102-blackletter" alt="InFocus" width="70" height="30" decoding="async" />
+      <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20261102-blackletter" alt="InFocus" width="70" height="30" loading="lazy" decoding="async" />
       <span>Drive</span>
     </div>
     <div class="login__pitch">
@@ -256,8 +258,8 @@
 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar__brand">
-      <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20261102-prores" alt="InFocus" width="56" height="24" decoding="async" />
-      <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20261102-prores" alt="InFocus" width="56" height="24" loading="lazy" decoding="async" />
+      <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20261102-blackletter" alt="InFocus" width="56" height="24" decoding="async" />
+      <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20261102-blackletter" alt="InFocus" width="56" height="24" loading="lazy" decoding="async" />
       <span>Drive</span>
     </div>
     <div class="lan-badge" id="lan-badge" hidden aria-live="polite"></div>
@@ -520,6 +522,6 @@
 
 <input type="file" id="file-input" multiple hidden />
 <input type="file" id="folder-input" webkitdirectory directory multiple hidden />
-<script src="/assets/app.js?v=20261102-prores" type="module"></script>
+<script src="/assets/app.js?v=20261102-blackletter" type="module"></script>
 </body>
 </html>

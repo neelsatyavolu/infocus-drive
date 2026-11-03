@@ -27,7 +27,7 @@ This repo is **open source (MIT) and public**: https://github.com/neelsatyavolu/
 
 ## UI conventions
 
-- InFocus Design System 2026 (Portal `DESIGN.md` §10; Drive tokens in `DESIGN.md`): Lexend + Geist Mono (data only); InFocus Green `#0b6e3e` fills with white text, `#2bb36e` for text/small marks, Record Red only for a tiny dot, Danger vars for errors; 6px radius, flat (no gradients/shadows/blur).
+- Blackletter structure with InFocus Green as the one accent (`DESIGN.md`): true-black canvas, Geist UI + Geist Serif display (40px+ only) + Geist Mono (data only); ink-filled primary button, green for links/focus/selected tints (solid green only for `.btn--accent` and progress), Record Red only for a tiny dot, Danger vars for errors; 8px controls / 12px panels, flat (no gradients/shadows/blur), depth from luminance steps + `--line`/`--line-2` hairlines.
 - Wordmark on light-theme pages is an `.wm-dark` / `.wm-light` image pair (`DESIGN.md`).
 - Dark default; `.light` on `<html>` for light mode — include sidebar `--sb-*` tokens.
 - Folder click = open; checkbox = select; media click = preview.

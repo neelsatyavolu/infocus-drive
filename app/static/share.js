@@ -1,10 +1,10 @@
 /**
  * Public shared file / folder page. No Drive chrome, no session.
  */
-import { el, icon } from "./dom.js?v=20261002-foldershare";
-import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20261002-foldershare";
-import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20261002-foldershare";
-import { createMediaPlayer } from "./player.js?v=20261102-prores";
+import { el, icon } from "./dom.js?v=20261102-blackletter";
+import { describeKind, displayName, formatSize, previewKind } from "./format.js?v=20261102-blackletter";
+import { enhanceMarkdownPreview, isMarkdown } from "./markdown.js?v=20261102-blackletter";
+import { createMediaPlayer } from "./player.js?v=20261102-blackletter";
 
 const THEME_KEY = "ifd-theme";
 const TEXT_LIMIT_BYTES = 1_500_000;
@@ -38,7 +38,7 @@ function applyTheme(theme) {
   const scheme = document.getElementById("meta-color-scheme");
   const color = document.getElementById("meta-theme-color");
   if (scheme) scheme.setAttribute("content", light ? "light" : "dark");
-  if (color) color.setAttribute("content", light ? "#f4f6f5" : "#0f110f");
+  if (color) color.setAttribute("content", light ? "#fcfcfd" : "#000000");
   const use = document.getElementById("share-theme-icon");
   if (use) use.setAttribute("href", light ? "#i-moon" : "#i-sun");
   try {
