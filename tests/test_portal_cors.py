@@ -24,5 +24,25 @@ def test_both_portal_domains_may_upload(origin):
     assert response.headers.get("access-control-allow-origin") == origin
 
 
-def test_other_sites_may_not():
-    assert "access-control-allow-origin" not in preflight("https://evil.example").headers
+@pytest.mark.parametrize(
+    "origin",
+    ["https://teleprompter.infocusportal.com", "https://teleprompter.infocuspaly.com", "https://equipment.infocusportal.com"],
+)
+def test_portal_subdomains_may_upload(origin):
+    # Teleprompter run mode saves its Auto follow recordings to Drive from its own host.
+    response = preflight(origin)
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == origin
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://evil.example",
+        "https://evilinfocusportal.com",
+        "https://infocusportal.com.evil.example",
+        "http://teleprompter.infocusportal.com",
+    ],
+)
+def test_other_sites_may_not(origin):
+    assert "access-control-allow-origin" not in preflight(origin).headers

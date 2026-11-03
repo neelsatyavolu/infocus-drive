@@ -150,7 +150,8 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    # Portal subdomains too: teleprompter run mode saves its recordings here from its own host.
+    allow_origin_regex=r"https://([a-z0-9-]+\.infocus(portal|paly)\.com|.*\.vercel\.app)",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
