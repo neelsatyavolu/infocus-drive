@@ -46,6 +46,8 @@ struct StudentGates: Decodable, Sendable, Hashable {
     let statuses: [String: StageStatus]
     let unread: [String: Int]
     var remainingExecutiveSignoffs: Int? = nil
+    /// The two cycles a student held on the previous one may switch between (`studentCycleChoice`); nil otherwise.
+    var cycleChoices: [Int]? = nil
 
     func status(_ stage: StudentStage) -> StageStatus? { statuses[stage.rawValue] }
 

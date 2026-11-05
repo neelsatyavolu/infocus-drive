@@ -6,6 +6,8 @@ struct PackagesScreen: View {
     @Environment(\.portalClient) private var client
     @Environment(SessionStore.self) private var session
     @State private var state: Loadable<StudentGates> = .idle
+    @State private var switching = false
+    @State private var switchError: String?
 
     var body: some View {
         ScrollView {
@@ -13,6 +15,9 @@ struct PackagesScreen: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Nameplate(eyebrow: "Cycle \(gates.cycleNumber)", title: "Your package",
                               subtitle: gates.hasRow ? "Work through each stage in order." : nil)
+                    if let choices = gates.cycleChoices, choices.count > 1 {
+                        cycleSwitch(choices, current: gates.cycleNumber)
+                    }
                     if gates.hasRow {
                         ForEach(StudentStage.allCases.filter { $0 != .information }) { stage in
                             StageRowLink(stage: stage, gates: gates)
@@ -43,6 +48,40 @@ struct PackagesScreen: View {
         .navigationTitle("Packages")
         // Again on every visit: a stage page marks its feedback read and may change a status.
         .task { await load() }
+    }
+
+    /// "Cycle 2 | Cycle 3" for a student still owing the previous Final Cut while on the new roster.
+    private func cycleSwitch(_ choices: [Int], current: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Eyebrow("Cycle to work on", color: Brand.muted)
+            Picker("Cycle to work on", selection: Binding(get: { current }, set: { pick in
+                Task { await switchCycle(to: pick) }
+            })) {
+                ForEach(choices, id: \.self) { Text("Cycle \($0)").tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .disabled(switching)
+            Text("Your Cycle \(choices[0]) Final Cut isn't in yet. Pick the cycle your stages show. You can switch back anytime.")
+                .font(.small).foregroundStyle(Brand.muted).fixedSize(horizontal: false, vertical: true)
+            if let switchError {
+                Label(switchError, systemImage: "exclamationmark.circle").font(.small).foregroundStyle(Brand.danger)
+            }
+        }
+        .card()
+    }
+
+    /// Saves the pick (the web's cycle cookie), then reloads so the stages follow it.
+    private func switchCycle(to cycle: Int) async {
+        guard !switching, cycle != state.value?.cycleNumber else { return }
+        switching = true
+        switchError = nil
+        defer { switching = false }
+        await StudentCycleChoice.choose(cycle, portal: client.portal)
+        await load()
+        await session.load(using: client)
+        if let shown = state.value?.cycleNumber, shown != cycle {
+            switchError = "Cycle \(cycle) isn't open to you right now."
+        }
     }
 
     private func load() async {
