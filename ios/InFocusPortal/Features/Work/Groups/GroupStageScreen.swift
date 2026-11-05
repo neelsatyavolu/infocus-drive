@@ -19,6 +19,7 @@ struct GroupStageScreen: View {
     @State private var brainstorm: BrainstormPackage?
     @State private var playing: StageMedia?
     @State private var watchingClip: StageMedia?
+    @State private var downloader = FootageDownloader()
     @State private var viewingProof: ProofView?
     @State private var approving = false
     @State private var confirmUndo = false
@@ -100,6 +101,7 @@ struct GroupStageScreen: View {
                 stage = next
                 bundle = nil
                 actionError = nil
+                downloader.stopSelecting()
                 if next != .initialCut { reviewStage = nil }
                 Task { await loadStage(row) }
             }
@@ -276,7 +278,12 @@ struct GroupStageScreen: View {
                         Text("No videos uploaded yet.").font(.small).foregroundStyle(Brand.muted)
                             .frame(maxWidth: .infinity, alignment: .leading).card()
                     } else {
-                        ForEach(media) { item in StageMediaCard(media: item) { watchingClip = item } }
+                        FootageDownloadBar(rowId: rowId, topic: row.topic, media: media, downloader: downloader)
+                        ForEach(media) { item in
+                            StageMediaCard(media: item, ticked: downloader.selecting ? downloader.selected.contains(item.id) : nil) {
+                                if downloader.selecting { downloader.toggle(item.id) } else { watchingClip = item }
+                            }
+                        }
                     }
                 }
                 GroupFeedbackSection(rowId: rowId, stage: stage.rawValue, canPost: view.canComment,

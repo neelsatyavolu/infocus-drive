@@ -12,6 +12,7 @@ struct StudentStageScreen: View {
     @Environment(Router.self) private var router
     @State private var state: Loadable<StageView> = .idle
     @State private var uploader = StageUploader()
+    @State private var downloader = FootageDownloader()
     @State private var playing: StageMedia?
     @State private var openClip: StageMedia?
     @State private var pickedItems: [PhotosPickerItem] = []
@@ -172,6 +173,9 @@ struct StudentStageScreen: View {
     private func mediaSection(_ view: StageView, media: [StageMedia], row: StageRow) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: stage == .aRoll ? "Footage" : stage == .initialCut ? "Versions" : "Your Final Cut")
+            if stage == .aRoll {
+                FootageDownloadBar(rowId: row.id, topic: row.groupTopic, media: media, downloader: downloader)
+            }
             if media.isEmpty {
                 Text(StageGuide.emptyMediaTitle(stage)).font(.small).foregroundStyle(Brand.muted)
                     .frame(maxWidth: .infinity, alignment: .leading).card()
@@ -192,7 +196,11 @@ struct StudentStageScreen: View {
             let group = media.filter { ($0.rollKind ?? "") == kind }
             if !group.isEmpty {
                 Eyebrow("\(kind == "a-roll" ? "A-roll" : kind == "b-roll" ? "B-roll" : "Other clips") · \(group.count)", color: Brand.muted)
-                ForEach(group) { clip in StudentMediaRow(media: clip) { openClip = clip } }
+                ForEach(group) { clip in
+                    StudentMediaRow(media: clip, ticked: downloader.selecting ? downloader.selected.contains(clip.id) : nil) {
+                        if downloader.selecting { downloader.toggle(clip.id) } else { openClip = clip }
+                    }
+                }
             }
         }
     }

@@ -66,6 +66,8 @@ struct StudentMediaRow: View {
     let media: StageMedia
     var result: (label: String, tone: StatusTag.Tone)?
     var current = false
+    /// Set while picking clips to download: the tap ticks instead of opening.
+    var ticked: Bool?
     let onOpen: () -> Void
 
     var body: some View {
@@ -83,15 +85,22 @@ struct StudentMediaRow: View {
                     FlowTags(media: media, result: result, current: current)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: media.playbackUrl == nil ? "film" : "play.circle.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(media.playbackUrl == nil ? Brand.muted : Brand.green)
-                    .accessibilityHidden(true)
+                if let ticked {
+                    ClipTick(ticked: ticked, enabled: media.isReady)
+                } else {
+                    Image(systemName: media.playbackUrl == nil ? "film" : "play.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(media.playbackUrl == nil ? Brand.muted : Brand.green)
+                        .accessibilityHidden(true)
+                }
             }
             .card(padding: 12)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(media.title), \(media.playbackUrl == nil ? "not ready to play" : "play")")
+        .disabled(ticked != nil && !media.isReady)
+        .opacity(ticked != nil && !media.isReady ? 0.5 : 1)
+        .accessibilityLabel(ClipTick.accessibilityLabel(media, ticked: ticked))
+        .accessibilityAddTraits(ticked == true ? .isSelected : [])
     }
 
     @ViewBuilder private var poster: some View {
@@ -135,6 +144,7 @@ struct ClipScreen: View {
     let api: WorkAPI
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var downloader = FootageDownloader()
 
     var body: some View {
         NavigationStack {
@@ -151,6 +161,7 @@ struct ClipScreen: View {
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .clipShape(RoundedRectangle(cornerRadius: Brand.radius))
                     if let roll = media.rollLabel { StatusTag(text: roll) }
+                    DownloadOriginalButton(rowId: rowId, clip: media, downloader: downloader)
                     StageCommentsSection(rowId: rowId, stage: StudentStage.aRoll.rawValue, canPost: false, api: api, clipId: media.id)
                 }
                 .padding(Brand.gutter)
@@ -167,6 +178,9 @@ struct ClipScreen: View {
             try? AVAudioSession.sharedInstance().setCategory(.playback)
             player = AVPlayer(url: url)
         }
-        .onDisappear { player?.pause() }
+        .onDisappear {
+            player?.pause()
+            downloader.cancel()
+        }
     }
 }
