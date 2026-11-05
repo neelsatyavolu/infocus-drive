@@ -65,13 +65,23 @@ enum FootageFile {
         defer { try? FileManager.default.removeItem(at: temporary) }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            throw PortalError.from(status: status, message: PortalJSON.errorMessage(errorBody(temporary)))
+            throw refusal(status: status, portalHost: request.url?.host, answeredBy: response.url?.host,
+                          message: PortalJSON.errorMessage(errorBody(temporary)))
         }
         let name = filename(suggested: response.suggestedFilename, fallback: fallbackName, mimeType: response.mimeType)
         let destination = folder.appendingPathComponent(UUID().uuidString, isDirectory: true).appendingPathComponent(name)
         try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: temporary, to: destination)
         return destination
+    }
+
+    /// A single clip redirects to Drive, so a 401 from another host is an expired download link,
+    /// not a signed-out Portal (which would end the session).
+    static func refusal(status: Int, portalHost: String?, answeredBy host: String?, message: String?) -> PortalError {
+        if status == 401, let host, host != portalHost {
+            return .server(status: status, message: "The download link expired. Try again.")
+        }
+        return PortalError.from(status: status, message: message)
     }
 
     /// The start of a refusal's body (the Portal's `{ error: { message } }`), without reading a big file.

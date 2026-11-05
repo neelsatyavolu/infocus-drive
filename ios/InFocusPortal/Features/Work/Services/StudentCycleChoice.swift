@@ -24,6 +24,8 @@ enum StudentCycleChoice {
             .domain: host,
             .path: "/",
             .maximumAge: String(maxAge),
+            // Max-Age alone can leave a session cookie that a relaunch drops; the date keeps it 90 days.
+            .expires: Date(timeIntervalSinceNow: TimeInterval(maxAge)),
             .sameSitePolicy: HTTPCookieStringPolicy.sameSiteLax,
         ]
         if portal.scheme == "https" { properties[.secure] = "TRUE" }

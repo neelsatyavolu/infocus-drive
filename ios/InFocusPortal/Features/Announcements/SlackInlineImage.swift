@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import ImageIO
 
 /// A Slack image attachment drawn inline at its own shape, inside 400×320 like the web feed
 /// (`AttachmentImage` in `components/announcements/slack-feed.tsx`). It loads signed in through the
@@ -53,7 +54,7 @@ struct SlackInlineImage<Fallback: View>: View {
         }
         do {
             let url = try await AnnouncementsAPI.current(client).slackFile(file.id, file.title)
-            guard let image = UIImage(contentsOfFile: url.path) else {
+            guard let image = await Self.thumbnail(url, fitting: Self.fit(size)) else {
                 failed = true
                 return
             }
@@ -63,6 +64,23 @@ struct SlackInlineImage<Fallback: View>: View {
         } catch {
             failed = true
         }
+    }
+
+    /// A decoded copy no bigger than the box at screen scale, off the main thread: a full 12 MP
+    /// photo is ~48 MB in memory, and the feed caches dozens. Quick Look still opens the original.
+    static func thumbnail(_ url: URL, fitting box: CGSize) async -> UIImage? {
+        let pixels = max(box.width, box.height) * 3
+        return await Task.detached(priority: .userInitiated) {
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceShouldCacheImmediately: true,
+                kCGImageSourceThumbnailMaxPixelSize: pixels,
+            ]
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+            return UIImage(cgImage: cg)
+        }.value
     }
 
     /// The image's size scaled down (never up) to fit 400×320 points.

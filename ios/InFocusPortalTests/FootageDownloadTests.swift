@@ -117,4 +117,27 @@ final class FootageDownloadTests: XCTestCase {
         await fulfillment(of: [signedOut], timeout: 5)
         XCTAssertEqual(downloader.phase, .idle)
     }
+
+    func testAnExpiredDriveLinkIsAFailedDownloadNotASignOut() {
+        let drive = FootageFile.refusal(status: 401, portalHost: "portal.example.edu", answeredBy: "drive.example.edu", message: nil)
+        XCTAssertEqual(drive.localizedDescription, "The download link expired. Try again.")
+        if case .unauthorized = drive { XCTFail("Drive's 401 must not end the Portal session") }
+        let portal = FootageFile.refusal(status: 401, portalHost: "portal.example.edu", answeredBy: "portal.example.edu", message: nil)
+        guard case .unauthorized = portal else { return XCTFail("the Portal's own 401 still signs out") }
+    }
+
+    func testCancelThenRestartKeepsTheNewDownload() async {
+        StubProtocol.handler = { _ in (200, Data("zip".utf8)) }
+        let shared = expectation(description: "the second download is shared")
+        let downloader = FootageDownloader(onUnauthorized: {})
+        downloader.start(rowId: "r1", ids: [], label: "All footage", fallbackName: "a.zip", client: client(),
+                         session: stubSession) { _ in }
+        downloader.cancel()
+        XCTAssertFalse(downloader.isBusy)
+        downloader.start(rowId: "r1", ids: [], label: "All footage", fallbackName: "b.zip", client: client(),
+                         session: stubSession) { _ in shared.fulfill() }
+        XCTAssertTrue(downloader.isBusy, "the cancelled task's late finish mustn't clear the new one")
+        await fulfillment(of: [shared], timeout: 5)
+        XCTAssertEqual(downloader.phase, .idle)
+    }
 }
