@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Participation for one class day: full marks save at once; a lower score waits
-/// for another producer to approve it (the Portal decides, `POST api/participation`).
+/// Participation for one class day: full marks save at once; a lower score waits for the
+/// adviser or another executive producer to approve it (the Portal decides, `POST api/participation`).
 /// Docked scores from others are reviewed in Pending.
 struct ParticipationEntryView: View {
     @Environment(\.portalClient) private var client
@@ -14,6 +14,12 @@ struct ParticipationEntryView: View {
     @State private var error: String?
     @State private var showPending = false
     @State private var pendingDiscard: (() -> Void)?
+    /// Set while there are scores that aren't saved yet (the Grade Editor asks before leaving).
+    @Binding var unsaved: Bool
+
+    init(unsaved: Binding<Bool> = .constant(false)) {
+        _unsaved = unsaved
+    }
 
     private var service: GradeEditorService { GradeEditorService(client: client) }
 
@@ -22,7 +28,7 @@ struct ParticipationEntryView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     weekBar(week)
-                    Label("Full marks count right away. A lower score goes to another producer to approve before it counts.",
+                    Label("Full marks post now. Docked scores wait for the adviser or another executive producer to approve.",
                           systemImage: "info.circle")
                         .font(.small).foregroundStyle(Brand.secondary)
                     if let error { GradeEditorError(message: error) }
@@ -43,6 +49,7 @@ struct ParticipationEntryView: View {
             .safeAreaInset(edge: .bottom) { saveBar(week) }
         }
         .task { if state.value == nil { await load() } }
+        .onChange(of: edits.isEmpty) { _, empty in unsaved = !empty }
         .sheet(isPresented: $showPending, onDismiss: { Task { await load() } }) {
             ParticipationRequestsSheet()
         }
@@ -152,7 +159,7 @@ struct ParticipationEntryView: View {
             let result = try await service.saveParticipation(entries)
             edits = [:]
             message = result.pending
-                ? "Saved \(result.saved). \(result.itemCount) lower score\(result.itemCount == 1 ? "" : "s") sent to another producer to approve."
+                ? "Saved \(result.saved). Sent \(result.itemCount) docked score\(result.itemCount == 1 ? "" : "s") for the adviser or another executive producer to approve."
                 : "Saved \(result.saved) score\(result.saved == 1 ? "" : "s")."
             await load()
         } catch {

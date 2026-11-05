@@ -57,14 +57,13 @@ enum PortalPagesCatalog {
         var producers: [PortalPageLink] = []
         if producer {
             producers += [page("Groups", "person.3", "groups"),
-                          page("Members", "person.text.rectangle", "members"),
+                          page("People", "person.text.rectangle", "members"),
                           page("Package Cycle", "tablecells", "package-progress"),
                           page("Publishing Queue", "tray.full", "publishing-queue")]
         }
         if user.canManageGrades { producers.append(page("Grade Editor", "pencil.and.list.clipboard", "grade-editor")) }
         if producer {
-            producers += [page("The Show", "tv", "show-roles"),
-                          page("Participation", "checklist", "participation")]
+            producers.append(page("The Show", "tv", "show-roles"))
         }
         producers.append(page("Extension Requests", "calendar.badge.clock", "extension-requests"))
         sections.append(PortalPageSection(title: "Producers", links: producers))

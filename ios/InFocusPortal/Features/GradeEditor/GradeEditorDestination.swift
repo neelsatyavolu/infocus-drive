@@ -6,9 +6,10 @@ struct GradeEditorDestination: View {
     let route: GradeEditorRoute
 
     var body: some View {
-        GradeEditorAccessGate {
+        GradeEditorAccessGate(page: route == .participation ? "Participation" : "The Grade Editor") {
             switch route {
             case .home: GradeEditorScreen()
+            case .participation: GradeEditorScreen(mode: .participation)
             case .cycleStudent(let cycle, let userId): StudentCycleEditor(cycleNumber: cycle, userId: userId)
             case .gradebook(let userId): StudentGradebookView(userId: userId)
             }
@@ -17,9 +18,12 @@ struct GradeEditorDestination: View {
 }
 
 /// Executives, the adviser and the super admin only (`canManageGrades`, the web's
-/// EXECUTIVE_PRODUCER check). Everyone else gets a quiet "not available".
+/// EXECUTIVE_PRODUCER check). Everyone else, associate producers included (they no
+/// longer see participation), gets a quiet "not available".
 struct GradeEditorAccessGate<Content: View>: View {
     @Environment(SessionStore.self) private var session
+    /// What the person tried to open, for the message.
+    var page = "The Grade Editor"
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -27,7 +31,7 @@ struct GradeEditorAccessGate<Content: View>: View {
             content
         } else {
             EmptyStateView(title: "Not available",
-                           message: "The Grade Editor is for executive producers, the adviser and the super admin.")
+                           message: "\(page) is for executive producers, the adviser and the super admin.")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .brandBackground()
                 .navigationTitle("Grade Editor")

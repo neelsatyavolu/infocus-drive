@@ -12,7 +12,6 @@ struct GradesDestination: View {
         case .extensionRequest(let id): ExtensionRequestScreen(id: id)
         // Producer pages (the web sidebar's `producersOnly`); the Portal refuses everyone else too.
         case .members: producersOnly("Members") { MembersScreen() }
-        case .participation: producersOnly("Participation") { ParticipationScreen() }
         }
     }
 

@@ -21,11 +21,11 @@ struct MoreTab: View {
                         if user.seesStudentGrades {
                             row("Grades", "chart.bar", .grades(.grades))
                         }
-                        row(user.isProducer ? "Extension requests" : "Extensions", "calendar.badge.clock", .grades(.extensions))
+                        row("Extension Requests", "calendar.badge.clock", .grades(.extensions))
                             .badge(badges.count(.more))
                         if !user.isProducer {
                             // Cycle dates and Package of the Cycle winners are for everyone.
-                            row("Package cycles", "person.3", .packageCycles(.home))
+                            row("Cycle Dates", "person.3", .packageCycles(.home))
                         }
                         // Anyone can read it; the week's announcers can edit it (the PA screen asks the Portal).
                         row("PA script", "mic", .announcements(.pa))
@@ -33,9 +33,8 @@ struct MoreTab: View {
                     if user.isProducer {
                         Section("Producer tools") {
                             row("Meetings", "video", .meetings(.home))
-                            row("Package Cycles", "person.3", .packageCycles(.home))
-                            row("Members", "person.text.rectangle", .grades(.members))
-                            row("Participation", "checklist", .grades(.participation))
+                            row("Package Cycle", "person.3", .packageCycles(.home))
+                            row("People", "person.text.rectangle", .grades(.members))
                             row("Publishing Queue", "play.rectangle.on.rectangle", .publishing(.home))
                             if user.canManageGrades {
                                 row("Grade Editor", "checklist", .gradeEditor(.home))
@@ -45,14 +44,14 @@ struct MoreTab: View {
                     }
                     if !user.sampleOnly {
                         Section("Class") {
-                            row("Story ideas", "lightbulb", .community(.ideas(date: nil)))
+                            row("Ideas", "lightbulb", .community(.ideas(date: nil)))
                             row("Submit an announcement", "megaphone", .announcements(.submit))
                             row("Class Board", "rectangle.split.3x1", .community(.classBoard))
                         }
                     }
                     Section("Production") {
                         row("Equipment", "camera", .messages(.equipment))
-                        row("Livestreams", "dot.radiowaves.left.and.right", .messages(.livestreams))
+                        row("Livestream Tracker", "dot.radiowaves.left.and.right", .messages(.livestreams))
                         if !user.sampleOnly { // the class's scripts; the web sidebar has it for everyone else
                             row("Teleprompter", "text.alignleft", .calendar(.teleprompter(showDate: nil, docId: nil)))
                         }
@@ -60,7 +59,7 @@ struct MoreTab: View {
                     if !user.sampleOnly { // class tools; the sample account has none of them
                         Section("Admin and tools") {
                             if user.canManageAccounts {
-                                row("Admin", "shield", .admin(.home))
+                                row("Admin Dashboard", "shield", .admin(.home))
                             }
                             row("Managers", "person.2.badge.gearshape", .admin(.managers))
                             if vaultAccess?.canOpen ?? user.isProducer {

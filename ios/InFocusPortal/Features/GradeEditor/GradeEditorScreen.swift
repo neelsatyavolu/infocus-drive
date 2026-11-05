@@ -8,8 +8,17 @@ struct GradeEditorScreen: View {
         var id: String { rawValue }
     }
 
-    @State private var mode: Mode = Self.initialMode
+    @State private var mode: Mode
+    /// Participation has scores that aren't saved yet: leaving that view asks first (like the web).
+    @State private var participationUnsaved = false
+    /// The view the person picked while Participation had unsaved scores.
+    @State private var leavingTo: Mode?
     @Environment(Router.self) private var router
+
+    /// `mode`: the view to open on (`/grade-editor?view=participation`); nil opens Cycle.
+    init(mode: Mode? = nil) {
+        _mode = State(initialValue: mode ?? Self.initialMode)
+    }
 
     /// DEBUG: `-InFocusGradeEditorMode totals|missing|participation` opens on that view (screenshots).
     private static var initialMode: Mode {
@@ -20,9 +29,22 @@ struct GradeEditorScreen: View {
         return .cycle
     }
 
+    /// Switching views; leaving Participation with unsaved scores asks first.
+    private var modeSelection: Binding<Mode> {
+        Binding {
+            mode
+        } set: { next in
+            if mode == .participation, next != .participation, participationUnsaved {
+                leavingTo = next
+            } else {
+                mode = next
+            }
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Grade Editor view", selection: $mode) {
+            Picker("Grade Editor view", selection: modeSelection) {
                 ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
@@ -33,7 +55,15 @@ struct GradeEditorScreen: View {
             case .cycle: CycleGradesView()
             case .totals: GradeTotalsView()
             case .missing: MissingGradesView()
-            case .participation: ParticipationEntryView()
+            case .participation: ParticipationEntryView(unsaved: $participationUnsaved)
+            }
+        }
+        .confirmationDialog("Discard unsaved scores?",
+                            isPresented: Binding(get: { leavingTo != nil }, set: { if !$0 { leavingTo = nil } }),
+                            titleVisibility: .visible) {
+            Button("Discard", role: .destructive) {
+                if let next = leavingTo { participationUnsaved = false; mode = next }
+                leavingTo = nil
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
