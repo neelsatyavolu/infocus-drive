@@ -51,6 +51,7 @@ struct SettingsScreen: View {
                 }
                 .pickerStyle(.segmented)
                 .listRowBackground(Color.clear)
+                SeasonalAppearanceRows() // November: the Thanksgiving theme and giant turkey
             }
             Section("About") {
                 LabeledContent("Version", value: "\(AppConfig.appVersion) (\(Self.build))")

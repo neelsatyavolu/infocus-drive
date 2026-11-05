@@ -24,6 +24,7 @@ struct RootView: View {
                             message: "Set INFOCUS_PORTAL_HOST in Config/Portal.local.xcconfig and build again.")
             }
         }
+        .harvestSeason() // Thanksgiving: harvest colors, the welcome, Home's visitors (Features/Seasonal)
         .overlay(alignment: .bottom) {
             if let notice = model.sampleNotice {
                 SampleNoticeView(text: notice)

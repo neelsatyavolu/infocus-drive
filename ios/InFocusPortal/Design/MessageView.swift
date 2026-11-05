@@ -16,7 +16,7 @@ struct MessageView: View {
                     .foregroundStyle(Brand.muted)
                     .frame(height: 64)
             } else {
-                Image("BrandMark").resizable().frame(width: 64, height: 64)
+                Image(HarvestArt.brandMark).resizable().frame(width: 64, height: 64)
             }
             Text(title)
                 .font(.lexend(20, .semibold, relativeTo: .title3))
