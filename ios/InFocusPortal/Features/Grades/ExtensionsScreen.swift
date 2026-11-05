@@ -28,7 +28,7 @@ struct ExtensionsScreen: View {
         .refreshable { await model.load(service) }
         .task { if model.state.value == nil { await model.load(service) } }
         .brandBackground()
-        .navigationTitle(session.user?.isProducer == true ? "Extension requests" : "Extensions")
+        .navigationTitle("Extension Requests") // the web page title, for students and producers alike
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbar }
         .sheet(isPresented: $requesting) {
