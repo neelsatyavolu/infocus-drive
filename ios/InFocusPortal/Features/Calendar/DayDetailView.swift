@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One school day: kind, who's anchoring / on PA / managing, packages airing, notes.
+/// One school day: kind, birthdays, who's anchoring / on PA / managing, packages airing, notes.
 /// Producers edit it natively (`DayEditorView`).
 struct DayDetailView: View {
     let date: String
@@ -61,6 +61,16 @@ struct DayDetailView: View {
         Nameplate(eyebrow: day.kind == .show ? "Show day" : day.kind.tag, title: CalendarDates.long(day.date),
                   subtitle: day.label.isEmpty ? nil : day.label) {
             DayKindTag(kind: day.kind)
+        }
+
+        if !day.birthdays.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Eyebrow("Birthdays", color: Brand.muted)
+                ForEach(Array(day.birthdays.enumerated()), id: \.offset) { Text($0.element.label).font(.lexend(17, .semibold, relativeTo: .headline)) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .card()
         }
 
         if !day.roles.isEmpty {

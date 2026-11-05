@@ -72,10 +72,18 @@ final class ShowEditModel {
         }
     }
 
-    func start(note: String, publish: Date?) async {
+    func start(note: String, publish: Date?, recomposite: Bool) async {
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         let slot = publish.flatMap { ShowEditRules.publishSlot($0, showDate: date) }
-        await send(.start(date: date, sources: selected, note: trimmed.isEmpty ? nil : trimmed, publish: slot),
+        await send(.start(date: date, sources: selected, note: trimmed.isEmpty ? nil : trimmed, publish: slot, recomposite: recomposite),
                    success: "Automatic editing queued.")
+    }
+
+    /// Redo with an optional note; `recomposite` starts as the old edit's choice (the Portal carries it over).
+    @discardableResult
+    func redo(_ job: ShowEditJob, note: String, recomposite: Bool) async -> Bool {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return await send(.redo(id: job.id, note: trimmed.isEmpty ? nil : trimmed, recomposite: recomposite),
+                          success: "Starting the edit over.")
     }
 }

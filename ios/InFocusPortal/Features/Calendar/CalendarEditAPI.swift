@@ -139,7 +139,7 @@ struct ShowOverview: Decodable, Sendable, Equatable {
     let assignments: [String: String]
     let showManager: Manager
     let showManagerPool: [String]
-    /// Who already anchors another show this month (can't be picked again).
+    /// Who already anchors another show this month (Randomize skips them; a hand pick may repeat them).
     let monthAnchors: [String]
     let packages: [Package]
     let teleprompterDocId: String?

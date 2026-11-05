@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// A Monday–Friday month grid. Each cell says what kind of day it is in words
-/// (SHOW, PA, OFF), marks the person's own days, and opens the day.
+/// (SHOW, PA, OFF), marks the person's own days and birthdays, and opens the day.
 struct MonthGrid: View {
     let monthKey: String
     let days: [CalendarDay]
@@ -39,7 +39,10 @@ struct MonthGrid: View {
     }
 
     private var legend: some View {
-        Label("You're on this day", systemImage: "person.fill")
+        HStack(spacing: 16) {
+            Label("You're on this day", systemImage: "person.fill")
+            if days.contains(where: { !$0.birthdays.isEmpty }) { Label("Birthday", systemImage: "gift.fill") }
+        }
         .font(.small)
         .foregroundStyle(Brand.muted)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -57,6 +60,9 @@ private struct DayCell: View {
                 Text(CalendarDates.dayNumber(day.date))
                     .font(.lexend(16, .semibold, relativeTo: .body))
                 Spacer(minLength: 0)
+                if !day.birthdays.isEmpty {
+                    Image(systemName: "gift.fill").font(.caption2).foregroundStyle(Brand.secondary)
+                }
                 if mine {
                     Image(systemName: "person.fill").font(.caption2).foregroundStyle(Brand.green)
                 }
@@ -94,6 +100,7 @@ private struct DayCell: View {
         if isToday { parts.insert("Today", at: 0) }
         if mine { parts.append("You're on this day") }
         if !day.label.isEmpty { parts.append(day.label) }
+        if !day.birthdays.isEmpty { parts.append("birthday: " + day.birthdays.map(\.label).joined(separator: ", ")) }
         return parts.joined(separator: ", ")
     }
 }

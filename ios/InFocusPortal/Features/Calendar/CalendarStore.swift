@@ -70,7 +70,7 @@ final class CalendarStore {
     }
 
     /// The month's school days with their cell content parsed, the resolved show manager
-    /// (the Portal's rotation unless the cell names one) and the packages queued to air.
+    /// (the Portal's rotation unless the cell names one), the packages queued to air and birthdays.
     nonisolated static func days(from month: CalendarMonth) -> [CalendarDay] {
         let entries = Dictionary(month.entries.map { ($0.date, $0.content) }, uniquingKeysWith: { first, _ in first })
         return month.schedule.map { day in
@@ -81,7 +81,8 @@ final class CalendarStore {
                 roles.append(DayContent.Section(heading: "Show Manager", lines: [manager], isPeople: true))
             }
             return CalendarDay(date: day.date, kind: day.kind, label: day.label, roles: roles, notes: parsed.notes,
-                               packages: month.queuedPackages.filter { $0.date == day.date })
+                               packages: month.queuedPackages.filter { $0.date == day.date },
+                               birthdays: month.birthdays?[day.date] ?? [])
         }
     }
 }

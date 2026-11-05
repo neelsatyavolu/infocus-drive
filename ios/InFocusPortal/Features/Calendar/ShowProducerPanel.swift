@@ -68,8 +68,7 @@ struct ShowProducerPanel: View {
     }
 
     private func anchors(_ show: ShowOverview) -> some View {
-        let taken = Set(show.monthAnchors.map { $0.lowercased() })
-        return VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             CastSectionHeader(title: "Anchors", detail: show.label,
                               action: ("Randomize", "sparkles", { edit { await $0.randomizeAnchors() } }), disabled: busy)
             ForEach(0..<2, id: \.self) { slot in
@@ -77,7 +76,7 @@ struct ShowProducerPanel: View {
                 let other = slot == 0 ? (show.anchors.count > 1 ? show.anchors[1] : "") : (show.anchors.first ?? "")
                 CastSlotRow(placeholder: "Anchor \(slot + 1)", value: value, disabled: busy) {
                     picker = NamePickerRequest(title: "Anchor \(slot + 1)", names: show.members, current: value,
-                                               block: { CastEligibility.anchorBlock($0, otherSlot: other, monthAnchors: taken) },
+                                               block: { CastEligibility.pairBlock($0, otherSlot: other) },
                                                onPick: { name in
                                                    let names = CastEligibility.pair(show.anchors, setting: slot, to: name)
                                                    edit { await $0.setAnchors(names) }

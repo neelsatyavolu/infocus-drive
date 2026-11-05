@@ -66,6 +66,7 @@ enum CalendarStubData {
                                   queuedPackages: queued, showManagers: managers, members: members, showManagerPool: managerPool,
                                   canViewCastCounts: canEdit && stubKind != "associate",
                                   spiritWeek: Dictionary(uniqueKeysWithValues: spiritWeek.filter { $0.key.hasPrefix(key) }.map { ($0.key, $0.value) }))
+        if days.count > 2 { month.birthdays = [days[2]: [.init(name: "Abby", actualDate: nil)]] }
         guard applyingEdits else { return month }
         for date in days {
             if let content = CalendarStubEdits.shared.content(for: date) { month = month.replacing(date, content: content) }
@@ -92,9 +93,9 @@ enum CalendarStubData {
         let manager = month.showManagers[chosen]
         return ShowOverview(
             date: chosen, label: CalendarDates.long(chosen), members: members + ["Ms. Adviser"],
-            roles: ["Show Director", "Graphics Director", "Tech Director", "Teleprompter", "Floor Director"],
+            roles: ["Show Director", "Tech Director", "Teleprompter", "Floor Director"],
             anchors: day?.names(for: "Anchors") ?? [], paAnnouncers: [],
-            assignments: ["Show Director": "Juno", "Graphics Director": "Mira", "Tech Director": "Tess"],
+            assignments: ["Show Director": "Juno", "Tech Director": "Tess", "Teleprompter": "Mira"],
             showManager: .init(name: manager?.name ?? "Sage", source: manager?.source ?? "rotation"),
             showManagerPool: managerPool, monthAnchors: ["Abby", "Otto"],
             packages: (day?.packages ?? []).map { .init(id: $0.id, cycleNumber: $0.cycleNumber, groupTopic: $0.groupTopic,

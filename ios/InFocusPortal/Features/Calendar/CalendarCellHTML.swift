@@ -55,13 +55,11 @@ enum CalendarCellHTML {
 enum CastEligibility {
     enum Block: Equatable {
         case otherSlot
-        case anchoredThisMonth
         case alreadyListed
 
         var reason: String {
             switch self {
             case .otherSlot: "In the other slot"
-            case .anchoredThisMonth: "Anchors another show this month"
             case .alreadyListed: "Already on this list"
             }
         }
@@ -72,20 +70,8 @@ enum CastEligibility {
         value.isEmpty || pool.contains(value) ? pool : [value] + pool
     }
 
-    /// Nobody anchors twice in a month: names on the month's other show days.
-    static func monthAnchors(in days: [CalendarDay], excluding date: String) -> Set<String> {
-        let month = CalendarDates.monthKey(of: date)
-        return Set(days.filter { $0.kind == .show && $0.date != date && CalendarDates.monthKey(of: $0.date) == month }
-            .flatMap { $0.names(for: "Anchors") }
-            .map { $0.lowercased() })
-    }
-
-    static func anchorBlock(_ name: String, otherSlot: String, monthAnchors: Set<String>) -> Block? {
-        if !otherSlot.isEmpty, name.caseInsensitiveCompare(otherSlot) == .orderedSame { return .otherSlot }
-        if monthAnchors.contains(name.lowercased()) { return .anchoredThisMonth }
-        return nil
-    }
-
+    /// A slot can't take the other slot's name. Someone who already anchored this month can
+    /// still be picked by hand; only the Portal's Randomize skips them (`setShowAnchors`).
     static func pairBlock(_ name: String, otherSlot: String) -> Block? {
         !otherSlot.isEmpty && name.caseInsensitiveCompare(otherSlot) == .orderedSame ? .otherSlot : nil
     }

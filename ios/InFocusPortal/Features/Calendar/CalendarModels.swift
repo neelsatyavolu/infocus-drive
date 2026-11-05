@@ -35,6 +35,19 @@ struct CalendarMonth: Decodable, Sendable, Equatable {
         let crewRoles: [String]
     }
 
+    /// A birthday from Settings → Profile on the class day it's celebrated (src/lib/birthdays.ts).
+    struct Birthday: Decodable, Sendable, Equatable {
+        let name: String
+        /// The real birthday when it moved back from a weekend or a day off; nil when it's this day.
+        let actualDate: String?
+
+        /// "Abby", or "Otto (Sun, Nov 8)" when the birthday moved to an earlier day (the Portal's `birthdayLabel`).
+        var label: String {
+            guard let actualDate else { return name }
+            return "\(name) (\(CalendarDates.weekdayMonthDay(actualDate)))"
+        }
+    }
+
     let month: String
     let canEdit: Bool
     var entries: [Entry]
@@ -48,6 +61,8 @@ struct CalendarMonth: Decodable, Sendable, Equatable {
     /// Anchors & PA counts are exec-only.
     var canViewCastCounts: Bool? = nil
     var spiritWeek: [String: SpiritWeekDay]? = nil
+    /// Birthdays by the class day they're celebrated on (absent from older Portals).
+    var birthdays: [String: [Birthday]]? = nil
 
     func content(of date: String) -> String { entries.first { $0.date == date }?.content ?? "" }
 
@@ -91,6 +106,8 @@ struct CalendarDay: Identifiable, Sendable, Equatable {
     /// Lines that aren't under a role heading.
     let notes: [String]
     let packages: [CalendarMonth.QueuedPackage]
+    /// Birthdays celebrated this day (some moved here from a weekend or a day off).
+    var birthdays: [CalendarMonth.Birthday] = []
 
     var id: String { date }
 
