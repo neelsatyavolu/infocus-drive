@@ -22,6 +22,10 @@ struct HomeTab: View {
         .brandBackground()
         .navigationTitle("Home")
         .task { if state.value == nil { await load() } }
+        // A held student picked the other cycle on Packages: Home follows it.
+        .onReceive(NotificationCenter.default.publisher(for: StudentCycleChoice.changed)) { _ in
+            Task { await load() }
+        }
     }
 
     private var greeting: some View {

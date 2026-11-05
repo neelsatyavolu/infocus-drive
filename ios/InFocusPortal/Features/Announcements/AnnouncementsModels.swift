@@ -12,9 +12,16 @@ struct SlackFeed: Decodable, Sendable, Equatable {
 /// One Slack post. `parts` is the text split into plain runs and safe links.
 struct SlackPost: Decodable, Identifiable, Sendable, Equatable {
     struct Attachment: Decodable, Identifiable, Sendable, Equatable {
+        /// A raster image's pixel size, from Slack; the feed shows these inline.
+        struct ImageSize: Decodable, Sendable, Equatable {
+            let width: Double
+            let height: Double
+        }
+
         let id: String
         let title: String
         let prettyType: String?
+        var image: ImageSize? = nil
     }
 
     enum Part: Decodable, Sendable, Equatable {

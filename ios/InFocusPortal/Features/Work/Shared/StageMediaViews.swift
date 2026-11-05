@@ -4,6 +4,8 @@ import SwiftUI
 /// A clip or cut on a stage: poster, title, roll and comment counts. Tapping plays it.
 struct StageMediaCard: View {
     let media: StageMedia
+    /// Set while picking clips to download: the tap ticks instead of playing.
+    var ticked: Bool?
     var onPlay: () -> Void
 
     var body: some View {
@@ -31,16 +33,22 @@ struct StageMediaCard: View {
                     }
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 26))
-                    .foregroundStyle(media.playbackUrl == nil ? Brand.muted : Brand.green)
-                    .accessibilityHidden(true)
+                if let ticked {
+                    ClipTick(ticked: ticked, enabled: media.isReady)
+                } else {
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(media.playbackUrl == nil ? Brand.muted : Brand.green)
+                        .accessibilityHidden(true)
+                }
             }
             .card(padding: 12)
         }
         .buttonStyle(.plain)
-        .disabled(media.playbackUrl == nil)
-        .accessibilityLabel("\(media.title), \(media.playbackUrl == nil ? "not ready to play" : "play")")
+        .disabled(ticked == nil ? media.playbackUrl == nil : !media.isReady)
+        .opacity(ticked != nil && !media.isReady ? 0.5 : 1)
+        .accessibilityLabel(ClipTick.accessibilityLabel(media, ticked: ticked))
+        .accessibilityAddTraits(ticked == true ? .isSelected : [])
     }
 
     @ViewBuilder private var poster: some View {
@@ -56,6 +64,26 @@ struct StageMediaCard: View {
                 Image(systemName: "film").foregroundStyle(Brand.muted)
             }
         }
+    }
+}
+
+/// The tick at a clip row's end while picking clips to download (the row itself is the toggle).
+struct ClipTick: View {
+    let ticked: Bool
+    let enabled: Bool
+
+    var body: some View {
+        Image(systemName: ticked ? "checkmark.square.fill" : "square")
+            .font(.system(size: 24))
+            .foregroundStyle(ticked ? Brand.green : Brand.muted)
+            .opacity(enabled ? 1 : 0.5)
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityHidden(true)
+    }
+
+    static func accessibilityLabel(_ media: StageMedia, ticked: Bool?) -> String {
+        guard ticked != nil else { return "\(media.title), \(media.playbackUrl == nil ? "not ready to play" : "play")" }
+        return media.isReady ? media.title : "\(media.title), not ready to download"
     }
 }
 

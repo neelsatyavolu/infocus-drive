@@ -1,8 +1,9 @@
 import QuickLook
 import SwiftUI
 
-/// One #announcements post: avatar, author, time, text with tappable links, and attachments
-/// (downloaded signed in through the Portal's Slack file proxy, then shown in Quick Look).
+/// One #announcements post: avatar, author, time, text with tappable links (the Portal already
+/// turns Slack shortcodes into emoji), images inline, and other attachments (downloaded signed in
+/// through the Portal's Slack file proxy, then shown in Quick Look).
 struct SlackPostCard: View {
     let post: SlackPost
     var unread = false
@@ -35,13 +36,11 @@ struct SlackPostCard: View {
                     .textSelection(.enabled)
             }
             ForEach(post.attachments) { file in
-                Button {
-                    Task { await open(file) }
-                } label: {
-                    AttachmentRow(file: file, opening: openingID == file.id)
+                if let size = file.image {
+                    SlackInlineImage(file: file, size: size, open: { preview = $0 }) { attachmentButton(file) }
+                } else {
+                    attachmentButton(file)
                 }
-                .buttonStyle(.plain)
-                .disabled(openingID != nil)
             }
         }
         .card()
@@ -54,6 +53,16 @@ struct SlackPostCard: View {
         } message: {
             Text(openError ?? "")
         }
+    }
+
+    private func attachmentButton(_ file: SlackPost.Attachment) -> some View {
+        Button {
+            Task { await open(file) }
+        } label: {
+            AttachmentRow(file: file, opening: openingID == file.id)
+        }
+        .buttonStyle(.plain)
+        .disabled(openingID != nil)
     }
 
     private func open(_ file: SlackPost.Attachment) async {

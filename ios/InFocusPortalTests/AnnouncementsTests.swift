@@ -1,3 +1,4 @@
+import SwiftUI
 import XCTest
 @testable import InFocusPortal
 
@@ -43,6 +44,29 @@ final class SlackFeedTests: XCTestCase {
         let days = AnnouncementDays.group(feed.items)
         XCTAssertEqual(days.map(\.label), ["Thursday, October 1"])
         XCTAssertEqual(days[0].posts.count, 2)
+    }
+
+    func testImagesCarryTheirSizeAndEmojiArriveConverted() throws {
+        let feed = try decode(SlackFeed.self, """
+        {"data":{"configured":true,"error":null,"items":[
+          {"id":"3","ts":"1791000000.0003","authorName":"Sage Example","authorImageUrl":null,"text":"Done ✅ 👍🏼",
+           "parts":[{"type":"text","value":"Done ✅ 👍🏼 :partyparrot:"}],
+           "attachments":[{"id":"F02","title":"birthday.gif","prettyType":"GIF","image":{"width":1200,"height":800}},
+                          {"id":"F03","title":"Notes","prettyType":"PDF"}],
+           "postedAt":"2026-10-02T16:12:00.000Z","dateLabel":"Friday, October 2","timeLabel":"9:12 AM",
+           "permalink":"https://example.slack.com/p3"}]}}
+        """)
+        let post = feed.items[0]
+        XCTAssertEqual(post.attachments[0].image, .init(width: 1200, height: 800))
+        XCTAssertNil(post.attachments[1].image, "files that aren't raster images stay cards")
+        // The Portal converts Slack shortcodes; custom workspace emoji stay as typed.
+        XCTAssertEqual(String(SlackText.attributed(post.bodyParts).characters), "Done ✅ 👍🏼 :partyparrot:")
+    }
+
+    func testInlineImagesKeepTheirShapeInside400By320() {
+        XCTAssertEqual(SlackInlineImage<EmptyView>.fit(.init(width: 1200, height: 800)), CGSize(width: 400, height: 267))
+        XCTAssertEqual(SlackInlineImage<EmptyView>.fit(.init(width: 300, height: 1000)), CGSize(width: 96, height: 320))
+        XCTAssertEqual(SlackInlineImage<EmptyView>.fit(.init(width: 120, height: 60)), CGSize(width: 120, height: 60), "never scaled up")
     }
 }
 

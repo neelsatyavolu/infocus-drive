@@ -11,6 +11,7 @@ struct ClipReviewScreen: View {
 
     @Environment(\.dismiss) private var dismiss
     @State private var player: AVPlayer?
+    @State private var downloader = FootageDownloader()
 
     var body: some View {
         NavigationStack {
@@ -30,6 +31,7 @@ struct ClipReviewScreen: View {
                         if let roll = clip.rollLabel { StatusTag(text: roll) }
                         if clip.isNew == true { StatusTag(text: "New since your request", tone: .success) }
                     }
+                    DownloadOriginalButton(rowId: rowId, clip: clip, downloader: downloader)
                     GroupFeedbackSection(rowId: rowId, stage: GroupStage.aRoll.rawValue, canPost: canComment, clip: clip,
                                          title: "Notes on this clip",
                                          composerHint: "Posting a note asks the group for changes. Students are emailed.",
@@ -49,6 +51,9 @@ struct ClipReviewScreen: View {
             try? AVAudioSession.sharedInstance().setCategory(.playback)
             player = AVPlayer(url: url)
         }
-        .onDisappear { player?.pause() }
+        .onDisappear {
+            player?.pause()
+            downloader.cancel()
+        }
     }
 }
