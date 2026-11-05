@@ -120,6 +120,8 @@ struct ShowEditJob: Decodable, Sendable, Equatable, Identifiable {
     let stage: String?
     let message: String?
     let note: String?
+    /// "Re-set the anchors on the virtual set" was ticked for this edit; nil from an older Portal.
+    let recomposite: Bool?
     /// The publish time picked with the instructions; nil means the usual 8:30 AM on show day.
     let publishAt: Date?
     let decisions: [Decision]
@@ -255,9 +257,11 @@ enum ShowEditAction: Encodable, Sendable, Equatable {
         let time: String
     }
 
-    case start(date: String, sources: [ShowEditSource], note: String?, publish: PublishSlot?)
+    /// `recomposite` is sent only when ticked, like the Portal.
+    case start(date: String, sources: [ShowEditSource], note: String?, publish: PublishSlot?, recomposite: Bool)
     case cancel(id: String)
-    case redo(id: String, note: String?)
+    /// `recomposite` is always sent: the old edit's choice, or what the producer changed it to.
+    case redo(id: String, note: String?, recomposite: Bool)
     case fix(id: String, text: String, remember: Bool)
     case approve(id: String, publishAt: String)
 
@@ -271,22 +275,24 @@ enum ShowEditAction: Encodable, Sendable, Equatable {
         }
     }
 
-    private enum Keys: String, CodingKey { case action, date, sources, note, publish, id, text, remember, publishAt }
+    private enum Keys: String, CodingKey { case action, date, sources, note, publish, recomposite, id, text, remember, publishAt }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: Keys.self)
         try container.encode(name, forKey: .action)
         switch self {
-        case .start(let date, let sources, let note, let publish):
+        case .start(let date, let sources, let note, let publish, let recomposite):
             try container.encode(date, forKey: .date)
             try container.encode(sources, forKey: .sources)
             try container.encodeIfPresent(note, forKey: .note)
             try container.encodeIfPresent(publish, forKey: .publish)
+            if recomposite { try container.encode(true, forKey: .recomposite) }
         case .cancel(let id):
             try container.encode(id, forKey: .id)
-        case .redo(let id, let note):
+        case .redo(let id, let note, let recomposite):
             try container.encode(id, forKey: .id)
             try container.encodeIfPresent(note, forKey: .note)
+            try container.encode(recomposite, forKey: .recomposite)
         case .fix(let id, let text, let remember):
             try container.encode(id, forKey: .id)
             try container.encode(text, forKey: .text)

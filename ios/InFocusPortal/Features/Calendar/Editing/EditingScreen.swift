@@ -142,8 +142,11 @@ private struct EditStatusCard: View {
     @State private var instructions = false
     @State private var note = ""
     @State private var publishAt = Date()
+    @State private var recomposite = false
     @State private var redoing = false
     @State private var redoNote = ""
+    /// Redo starts with the old edit's re-composite choice.
+    @State private var redoRecomposite = false
 
     var body: some View {
         let summary = ShowEditRules.summary(state)
@@ -156,6 +159,7 @@ private struct EditStatusCard: View {
             statusBody
             if let job = state.job, !state.canStart {
                 if let note = job.note { EditNote(text: "Instructions: “\(note)”") }
+                if job.recomposite == true { EditNote(text: ShowEditRules.recompositeUsed, warning: true) }
                 if let publishAt = job.publishAt {
                     EditNote(text: "Goes public: \(ShowEditRules.pacific(publishAt)) (picked with the instructions)")
                 }
@@ -166,6 +170,13 @@ private struct EditStatusCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .card()
         .onAppear { publishAt = ShowEditRules.usualPublishDate(showDate: model.date) }
+        // A new edit closes Redo, so its choice starts from that edit (the Portal's `key={job.id}`),
+        // and Start's tick doesn't carry over to a later start (the Portal's Start row remounts).
+        .onChange(of: state.job?.id) { _, _ in
+            recomposite = false
+            redoing = false
+            redoNote = ""
+        }
     }
 
     @ViewBuilder
@@ -209,7 +220,7 @@ private struct EditStatusCard: View {
         let packages = ShowEditRules.packageNote(state.packages)
         return VStack(alignment: .leading, spacing: 10) {
             Button {
-                Task { await model.start(note: instructions ? note : "", publish: instructions ? publishAt : nil) }
+                Task { await model.start(note: instructions ? note : "", publish: instructions ? publishAt : nil, recomposite: recomposite) }
             } label: {
                 if model.busy == "start" { ProgressView() } else { Label("Start automatic editing", systemImage: "wand.and.stars") }
             }
@@ -233,6 +244,7 @@ private struct EditStatusCard: View {
                              : "This show goes public at this time instead of 8:30 AM on show day.")
                 }
             }
+            RecompositeToggle(isOn: $recomposite, disabled: model.busy != nil)
             EditNote(text: announcements.text, warning: announcements.warning)
             if announcements.warning {
                 Button("Open the script") { router.push(.calendar(.teleprompter(showDate: model.date, docId: nil))) }
@@ -249,17 +261,20 @@ private struct EditStatusCard: View {
 
     @ViewBuilder
     private func redo(_ job: ShowEditJob) -> some View {
-        Button("Redo automatic edit", systemImage: "arrow.counterclockwise") { redoing.toggle() }
-            .buttonStyle(.brandSecondary)
-            .disabled(model.busy != nil)
+        Button("Redo automatic edit", systemImage: "arrow.counterclockwise") {
+            if !redoing { redoRecomposite = job.recomposite == true }
+            redoing.toggle()
+        }
+        .buttonStyle(.brandSecondary)
+        .disabled(model.busy != nil)
         if redoing {
             NoteField(label: "Note for the editor (optional)",
                       placeholder: "What should it do differently? e.g. Use the later take of the close.",
                       text: $redoNote, max: ShowEditRules.noteMax)
+            RecompositeToggle(isOn: $redoRecomposite, disabled: model.busy != nil)
             Button {
                 Task {
-                    let trimmed = redoNote.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if await model.send(.redo(id: job.id, note: trimmed.isEmpty ? nil : trimmed), success: "Starting the edit over.") {
+                    if await model.redo(job, note: redoNote, recomposite: redoRecomposite) {
                         redoing = false
                         redoNote = ""
                     }

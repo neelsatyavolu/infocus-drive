@@ -12,6 +12,10 @@ enum ShowEditRules {
     static let usualPublishTime = "08:30"
     static let autoScheduleNote = "If nobody approves, it's scheduled automatically at 8:00 AM on show day."
     static let offlineNote = "The editing machine is offline. The job will start when it's back."
+    /// "Re-set the anchors on the virtual set" (the Portal's `RECOMPOSITE_*`): experimental and fragile.
+    static let recompositeLabel = "Re-set the anchors on the virtual set (Experimental)"
+    static let recompositeHelp = "Fragile: cuts the anchors out and re-seats them on the set. Slower edit; check every shot before publishing."
+    static let recompositeUsed = "Anchors re-set on the virtual set (experimental): check every shot before publishing."
 
     static let stageLabels = [
         "download": "Downloading the recording",

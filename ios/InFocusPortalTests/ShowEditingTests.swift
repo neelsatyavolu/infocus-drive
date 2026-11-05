@@ -153,14 +153,14 @@ final class ShowEditingTests: XCTestCase {
         XCTAssertEqual(ShowEditRules.editorStatus(state).label, "No editor linked")
 
         try await api.send(.start(date: "2026-10-28", sources: [.init(path: "Shows/a.mov", role: .M)], note: "Later take",
-                                  publish: .init(date: "2026-10-28", time: "09:00")))
+                                  publish: .init(date: "2026-10-28", time: "09:00"), recomposite: false))
         XCTAssertEqual(StubProtocol.lastRequest?.url?.path, "/api/show-roles/edits")
         XCTAssertEqual(try jsonBody(StubProtocol.lastRequest) as NSDictionary, [
             "action": "start", "date": "2026-10-28", "sources": [["path": "Shows/a.mov", "role": "M"]],
             "note": "Later take", "publish": ["date": "2026-10-28", "time": "09:00"],
         ])
 
-        try await api.send(.start(date: "2026-10-28", sources: [], note: nil, publish: nil))
+        try await api.send(.start(date: "2026-10-28", sources: [], note: nil, publish: nil, recomposite: false))
         XCTAssertEqual(try jsonBody(StubProtocol.lastRequest) as NSDictionary, ["action": "start", "date": "2026-10-28", "sources": []],
                        "no note or publish time when none was given")
 

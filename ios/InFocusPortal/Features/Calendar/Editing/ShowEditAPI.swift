@@ -43,7 +43,7 @@ enum ShowEditFixtures {
          "waitingFor":null,"settings":{"autoStart":false,"autoPublish":false},"commands":[],"pairings":[],
          "recordings":[{"path":"Shows/\(name)","name":"\(name)","size":4200000000,"modifiedAt":"2026-10-27T14:10:00Z","stable":true,"folder":null}],
          "recordingsError":null,"packages":[{"title":"Club Fair","ready":true}],"announcements":4,
-         "job":{"id":"job1","showDate":"\(date)","status":"REVIEW","stage":null,"message":null,"note":null,"publishAt":null,
+         "job":{"id":"job1","showDate":"\(date)","status":"REVIEW","stage":null,"message":null,"note":null,"recomposite":false,"publishAt":null,
                 "decisions":[{"kind":"package","detail":"Used the Club Fair final cut.","flagged":false},
                              {"kind":"structure","detail":"1 recording: switched program.","flagged":false}],
                 "checks":{"chapters":[{"title":"Intro","start":0},{"title":"Announcements","start":42},{"title":"Club Fair","start":180}]},
