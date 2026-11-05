@@ -1,10 +1,13 @@
 import Foundation
 
-/// `GET|PATCH api/profile`: the nickname, beside the Google account it can't overwrite.
+/// `GET|PATCH api/profile`: the nickname, beside the Google account it can't overwrite, and
+/// the birthday (month and day, no year; nil on a Portal from before birthdays).
 struct ProfileInfo: Decodable, Sendable, Equatable {
     let email: String?
     let name: String?
     let nickname: String?
+    let birthdayMonth: Int?
+    let birthdayDay: Int?
 
     static let nicknameMax = 60
 }
@@ -156,6 +159,11 @@ struct SettingsService {
             enum CodingKeys: String, CodingKey { case nickname }
         }
         return try await client.patch("api/profile", body: Body(nickname: nickname))
+    }
+
+    /// `PATCH api/profile` with `{ birthday: { month, day } }`, or `{ birthday: null }` to remove it.
+    func saveBirthday(_ birthday: Birthday?) async throws -> ProfileInfo {
+        try await client.patch("api/profile", body: BirthdayBody(birthday: birthday))
     }
 
     func notifications() async throws -> NotificationPreferences {

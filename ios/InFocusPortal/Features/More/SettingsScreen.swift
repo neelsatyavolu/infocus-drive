@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Settings, the native `/settings`: profile (nickname), notifications on this iPhone and
+/// Settings, the native `/settings`: profile (nickname, birthday), notifications on this iPhone and
 /// by email, kiosk PINs and signature (for those who have them), appearance, about, sign out.
 struct SettingsScreen: View {
     @EnvironmentObject private var model: AppModel
@@ -53,6 +53,7 @@ struct SettingsScreen: View {
                 .listRowBackground(Color.clear)
             }
             Section("About") {
+                AboutPortalText()
                 LabeledContent("Version", value: "\(AppConfig.appVersion) (\(Self.build))")
                 if let portal = AppConfig.shared.portalURL {
                     Link("Privacy policy", destination: portal.appendingPathComponent("privacy"))

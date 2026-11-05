@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// Settings → Profile: the nickname the Portal shows everyone, beside the Google
-/// account name and email (which sign-in keeps and the nickname never overwrites).
+/// account name and email (which sign-in keeps and the nickname never overwrites),
+/// then the birthday (`BirthdaySection`).
 struct ProfileSection: View {
     @Environment(\.portalClient) private var client
     @Environment(SessionStore.self) private var session
@@ -42,6 +43,7 @@ struct ProfileSection: View {
             Text("Your nickname shows on rosters, calendars and comments. Signing in with Google won't overwrite it.")
         }
         .task { await load() }
+        BirthdaySection(profile: $profile)
     }
 
     private func load() async {
