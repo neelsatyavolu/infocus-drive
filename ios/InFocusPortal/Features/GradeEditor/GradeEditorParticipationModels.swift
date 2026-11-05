@@ -59,7 +59,7 @@ struct ParticipationPerson: Decodable, Equatable, Sendable {
     var displayName: String { GradeEditorText.name(nickname ?? name, email: email) }
 }
 
-/// `GET api/participation?weekStart=YYYY-MM-DD` (producers).
+/// `GET api/participation?weekStart=YYYY-MM-DD` (executive producers and up).
 struct ParticipationWeek: Decodable, Equatable, Sendable {
     struct Entry: Decodable, Equatable, Sendable {
         let userId: String
@@ -110,14 +110,14 @@ struct ParticipationEntryBody: Encodable, Equatable, Sendable {
     let notes: String
 }
 
-/// `POST api/participation`: full marks save at once; docked scores wait for another producer.
+/// `POST api/participation`: full marks save at once; docked scores wait for another executive producer.
 struct ParticipationSaveResult: Decodable, Equatable, Sendable {
     let saved: Int
     let pending: Bool
     let itemCount: Int
 }
 
-/// `GET api/participation/requests`: docked scores waiting for a second producer.
+/// `GET api/participation/requests`: docked scores waiting for a second executive producer.
 struct ParticipationRequests: Decodable, Equatable, Sendable {
     struct Item: Decodable, Equatable, Sendable {
         let userId: String

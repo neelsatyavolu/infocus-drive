@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Docked participation scores waiting for a second producer. You can approve
-/// or deny other producers' requests, never your own (`canReview` from the Portal).
+/// Docked participation scores waiting for a second executive producer (the adviser counts).
+/// You can approve or deny other executives' requests, never your own (`canReview` from the Portal).
 struct ParticipationRequestsSheet: View {
     @Environment(\.portalClient) private var client
     @Environment(\.dismiss) private var dismiss
@@ -62,7 +62,7 @@ struct ParticipationRequestsSheet: View {
             }
             .disabled(deciding != nil)
         } else {
-            Text("Another producer has to review your own docked scores.")
+            Text("Another executive producer has to review your own docked scores.")
                 .font(.small).foregroundStyle(Brand.muted)
         }
     }

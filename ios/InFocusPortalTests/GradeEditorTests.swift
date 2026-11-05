@@ -126,7 +126,15 @@ final class GradeEditorLogicTests: XCTestCase {
     func testDeepLinks() {
         XCTAssertEqual(GradeEditorRoute.deepLink(["grade-editor"], []), DeepLinkMatch(tab: .more, route: .gradeEditor(.home)))
         XCTAssertEqual(GradeEditorRoute.deepLink(["grades", "grade-editor"], []), DeepLinkMatch(tab: .more, route: .gradeEditor(.home)))
-        XCTAssertNil(GradeEditorRoute.deepLink(["participation"], []), "APs use Participation too; GradesRoute opens it")
+        XCTAssertEqual(GradeEditorRoute.deepLink(["grade-editor"], [URLQueryItem(name: "view", value: "participation")]),
+                       DeepLinkMatch(tab: .more, route: .gradeEditor(.participation)))
+        XCTAssertEqual(GradeEditorRoute.deepLink(["grade-editor"], [URLQueryItem(name: "view", value: "total")])?.route,
+                       .gradeEditor(.home))
+        XCTAssertEqual(GradeEditorRoute.deepLink(["participation"], []), DeepLinkMatch(tab: .more, route: .gradeEditor(.participation)))
+        XCTAssertEqual(GradeEditorRoute.deepLink(["grades", "participation"], [])?.route, .gradeEditor(.participation))
+        let portal = URL(string: "https://portal.example.edu")!
+        XCTAssertEqual(DeepLink.resolve(URL(string: "https://portal.example.edu/grade-editor?view=participation")!, portal: portal).route,
+                       .gradeEditor(.participation))
     }
 }
 

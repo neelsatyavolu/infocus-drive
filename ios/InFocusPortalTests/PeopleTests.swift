@@ -1,7 +1,7 @@
 import XCTest
 @testable import InFocusPortal
 
-/// Members notes, Participation and exec extension grants: decoding, the web page rules,
+/// Members notes and exec extension grants: decoding, the web page rules,
 /// deep links and the calls made. Fictional people only.
 final class MembersTests: XCTestCase {
     private func payload() throws -> MembersPayload {
@@ -51,15 +51,15 @@ final class MembersTests: XCTestCase {
 
     func testDeepLinks() {
         XCTAssertEqual(GradesRoute.deepLink(["members"], []), DeepLinkMatch(tab: .more, route: .grades(.members)))
-        XCTAssertEqual(GradesRoute.deepLink(["participation"], []), DeepLinkMatch(tab: .more, route: .grades(.participation)))
-        XCTAssertEqual(GradesRoute.deepLink(["grades", "participation"], [])?.route, .grades(.participation))
+        XCTAssertNil(GradesRoute.deepLink(["participation"], []), "Participation is a Grade Editor view now")
         XCTAssertNil(GradesRoute.deepLink(["members", "u-abby"], []))
         let portal = URL(string: "https://portal.example.edu")!
         XCTAssertEqual(DeepLink.resolve(URL(string: "https://portal.example.edu/members")!, portal: portal).route, .grades(.members))
+        // The Portal redirects /participation to /grade-editor?view=participation (executives only).
         XCTAssertEqual(DeepLink.resolve(URL(string: "https://grades.portal.example.edu/participation")!, portal: portal).route,
-                       .grades(.participation))
+                       .gradeEditor(.participation))
         XCTAssertEqual(DeepLink.resolve(URL(string: "https://portal.example.edu/participation")!, portal: portal).route,
-                       .grades(.participation))
+                       .gradeEditor(.participation))
     }
 }
 
