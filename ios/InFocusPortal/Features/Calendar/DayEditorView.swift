@@ -52,7 +52,7 @@ struct DayEditorView: View {
         let members = month.members ?? []
         switch day.kind {
         case .show:
-            anchors(day, members: members, monthDays: CalendarStore.days(from: month))
+            anchors(day, members: members)
             showManager(day, month: month)
             showDirector(day, members: members)
         case .pa:
@@ -69,18 +69,17 @@ struct DayEditorView: View {
 
     // MARK: Show day
 
-    private func anchors(_ day: CalendarDay, members: [String], monthDays: [CalendarDay]) -> some View {
+    private func anchors(_ day: CalendarDay, members: [String]) -> some View {
         let current = day.names(for: "Anchors")
-        let taken = CastEligibility.monthAnchors(in: monthDays, excluding: date)
         return VStack(alignment: .leading, spacing: 10) {
-            CastSectionHeader(title: "Anchors", detail: "Nobody anchors twice in a month",
+            CastSectionHeader(title: "Anchors",
                               action: ("Randomize", "sparkles", { Task { await editor?.randomizeAnchors() } }), disabled: busy)
             ForEach(0..<2, id: \.self) { slot in
                 let value = slot < current.count ? current[slot] : ""
                 let other = slot == 0 ? (current.count > 1 ? current[1] : "") : (current.first ?? "")
                 CastSlotRow(placeholder: "Anchor \(slot + 1)", value: value, disabled: busy) {
                     picker = NamePickerRequest(title: "Anchor \(slot + 1)", names: members, current: value,
-                                               block: { CastEligibility.anchorBlock($0, otherSlot: other, monthAnchors: taken) },
+                                               block: { CastEligibility.pairBlock($0, otherSlot: other) },
                                                onPick: { name in
                                                    Task { await editor?.setAnchors(CastEligibility.pair(current, setting: slot, to: name)) }
                                                })

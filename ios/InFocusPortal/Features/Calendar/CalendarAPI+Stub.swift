@@ -93,9 +93,9 @@ enum CalendarStubData {
         let manager = month.showManagers[chosen]
         return ShowOverview(
             date: chosen, label: CalendarDates.long(chosen), members: members + ["Ms. Adviser"],
-            roles: ["Show Director", "Graphics Director", "Tech Director", "Teleprompter", "Floor Director"],
+            roles: ["Show Director", "Tech Director", "Teleprompter", "Floor Director"],
             anchors: day?.names(for: "Anchors") ?? [], paAnnouncers: [],
-            assignments: ["Show Director": "Juno", "Graphics Director": "Mira", "Tech Director": "Tess"],
+            assignments: ["Show Director": "Juno", "Tech Director": "Tess", "Teleprompter": "Mira"],
             showManager: .init(name: manager?.name ?? "Sage", source: manager?.source ?? "rotation"),
             showManagerPool: managerPool, monthAnchors: ["Abby", "Otto"],
             packages: (day?.packages ?? []).map { .init(id: $0.id, cycleNumber: $0.cycleNumber, groupTopic: $0.groupTopic,

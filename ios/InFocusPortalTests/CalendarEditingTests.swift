@@ -38,22 +38,6 @@ final class CalendarCellHTMLTests: XCTestCase {
 }
 
 final class CastEligibilityTests: XCTestCase {
-    private func day(_ date: String, _ kind: DayKind, anchors: [String]) -> CalendarDay {
-        CalendarDay(date: date, kind: kind, label: "",
-                    roles: anchors.isEmpty ? [] : [DayContent.Section(heading: "Anchors", lines: [anchors.joined(separator: " & ")], isPeople: true)],
-                    notes: [], packages: [])
-    }
-
-    func testNobodyAnchorsTwiceInAMonth() {
-        let days = [day("2026-10-07", .show, anchors: ["Abby", "Otto"]), day("2026-10-09", .show, anchors: ["Sage"]),
-                    day("2026-10-12", .pa, anchors: []), day("2026-11-04", .show, anchors: ["Kai"])]
-        let taken = CastEligibility.monthAnchors(in: days, excluding: "2026-10-09")
-        XCTAssertEqual(taken, ["abby", "otto"], "the day being edited and other months don't count")
-        XCTAssertEqual(CastEligibility.anchorBlock("abby", otherSlot: "", monthAnchors: taken), .anchoredThisMonth)
-        XCTAssertEqual(CastEligibility.anchorBlock("Sage", otherSlot: "sage", monthAnchors: taken), .otherSlot)
-        XCTAssertNil(CastEligibility.anchorBlock("Kai", otherSlot: "Sage", monthAnchors: taken))
-    }
-
     func testPairsListsAndOptions() {
         XCTAssertEqual(CastEligibility.pair(["Abby", "Otto"], setting: 1, to: "Kai"), ["Abby", "Kai"])
         XCTAssertEqual(CastEligibility.pair(["Abby", "Otto"], setting: 0, to: ""), ["Otto"], "clearing a slot keeps the other")
