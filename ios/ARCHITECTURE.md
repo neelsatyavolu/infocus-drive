@@ -27,6 +27,7 @@ iOS 17+, Swift 5 mode, no third-party packages. Generate the project with `xcode
 | `Features/More/` | `MoreTab`, `SettingsScreen` (+ profile, email notifications, PINs, signature), `PortalPagesScreen`, `PortalPagesCatalog`, `MoreRoute` | shell |
 | `Features/Admin/` | `AdminRoute`, Admin dashboard (access requests, people, producer team, backups, View as from `api/auth/view-as/status`; `ViewAsBanner` is the "viewing as" banner and exit, also in Settings), Managers (`api/managers`), `Vault/` (Passwords; the level comes from `api/vault/access`) | **Admin and tools** |
 | `Features/Community/` | `CommunityRoute`, `CommunityDestination`, `IdeasScreen` (story ideas by run date, `GET api/ideas`), `ClassBoardScreen` and `ClassBoardSections` (lanes, gates, due next, livestreams, calendar; `GET api/class-board`, refreshed every 30 s), `ClassBoardSettingsSheet` (board cycle; the PIN is in Settings → PINs), `CommunityStubs` (sample data) | **Community** (class pages) |
+| `Features/Seasonal/` | Thanksgiving (November, local time; `HarvestSeasonStore`, DEBUG `-InFocusHarvest on\|off`, `-InFocusHarvestGiant YES`): harvest palette (`HarvestPalette`, read by `Brand`), seasonal wordmark/mark (`HarvestArt`), the yearly welcome, Home's visitors (`HarvestLayer`, `HarvestGame`) and their tally (`HarvestTally`, `POST api/thanksgiving`), the leaderboard (`GET api/thanksgiving`), the Appearance toggles; mounted by `.harvestSeason()` in `RootView` | **Seasonal** |
 | `Web/` | `PortalWebController` (one WKWebView), `PortalWebView`, `PortalPageScreen` (fallback page), `PortalNavigation` (link policy), `PortalBridge` (JS bridge), downloads, offline view | shell |
 | `Push/` | `PushRegistrar` (APNs token → `POST /api/push/native-device` with `platform: "ios"`), `NotificationRouter` (taps → deep links), `NotificationOfferView` | shell |
 | `SignIn/` | PKCE hand-off (`PortalSignIn`, `/app-sign-in` → `infocus://signed-in`), `PortalAPI`/`PortalCookies`, `WelcomeView`, `EmailSignInScreen` | shell |
@@ -57,6 +58,7 @@ The route enums and the Portal links each one opens:
 | `ReviewRoute` | `workspaces`, `project(id:folderId:)`, `media(projectId:mediaId:versionId:)`, `shareLinks(projectId:)` | `/workspaces`, `/projects/<id>[?folderId=]`, `/projects/<id>/review/<mediaId>[?version=]` (Home). `/g/<token>` guest pages stay web pages |
 | `AdminRoute` | `home`, `accessRequests`, `people`, `producerTeam`, `backups`, `viewAs`, `managers`, `socialMedia`, `passwords`, `vaultEntry(id:)` | `/admin`, `/managers`, `/managers/social-media`, `/passwords` (all More) |
 | `CommunityRoute` | `ideas(date:)`, `classBoard` | `/ideas[?date=]`, `/class-board` (More); `/activity` opens Settings |
+| `SeasonalRoute` | `leaderboard` | `/thanksgiving` (More) |
 | `MoreRoute` | `settings`, `portalPages` | `/settings` |
 
 `/` and `/dashboard` go to Home. Anything else becomes `.portal(PortalPage(url:))` on the current tab.

@@ -9,7 +9,7 @@ struct WelcomeView: View {
         VStack(spacing: 0) {
             Spacer(minLength: 48)
             VStack(alignment: .leading, spacing: 20) {
-                Image("Wordmark")
+                Image(HarvestArt.wordmark)
                     .accessibilityLabel("InFocus")
                 VStack(alignment: .leading, spacing: 10) {
                     Eyebrow(text: "Portal")

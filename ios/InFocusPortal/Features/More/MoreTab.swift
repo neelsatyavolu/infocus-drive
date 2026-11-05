@@ -47,6 +47,7 @@ struct MoreTab: View {
                             row("Ideas", "lightbulb", .community(.ideas(date: nil)))
                             row("Submit an announcement", "megaphone", .announcements(.submit))
                             row("Class Board", "rectangle.split.3x1", .community(.classBoard))
+                            SeasonalLeaderboardRow() // Thanksgiving, while it's on
                         }
                     }
                     Section("Production") {

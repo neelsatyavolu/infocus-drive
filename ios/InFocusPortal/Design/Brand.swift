@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import os
 
 /// InFocus Design System 2026 (DESIGN.md §2, §10, §13; same tokens as the
 /// Portal, the Mac app and the public InFocus app): Ink surfaces in dark,
@@ -12,8 +13,10 @@ enum Brand {
     static let gutter: CGFloat = 16
 
     // UIKit versions (web view, refresh control, bars).
-    static let uiFill = UIColor(hex: 0x0B6E3E)
-    static let uiGreen = UIColor.dynamic(dark: UIColor(hex: 0x2BB36E), light: UIColor(hex: 0x0B6E3E))
+    // In November these take the Portal's harvest colors (`HarvestPalette`, globals.css `:root.thanksgiving`).
+    static let uiFill = UIColor.seasonal(UIColor(hex: 0x0B6E3E), harvest: UIColor(hex: 0xA4471C))
+    static let uiGreen = UIColor.seasonal(.dynamic(dark: UIColor(hex: 0x2BB36E), light: UIColor(hex: 0x0B6E3E)),
+                                          harvest: .dynamic(dark: UIColor(hex: 0xF2A93B), light: UIColor(hex: 0x9A4A10)))
     static let uiBackground = UIColor.dynamic(dark: UIColor(hex: 0x0F110F), light: UIColor(hex: 0xF4F6F5))
     static let uiText = UIColor.dynamic(dark: UIColor(hex: 0xECEFEA), light: UIColor(hex: 0x0F110F))
 
@@ -34,10 +37,11 @@ enum Brand {
     static let ink = Color(hex: 0x0F110F)
     static let onBrand = Color(hex: 0xECEFEA)
     static let fill = Color(uiFill)
-    static let fillPressed = Color.dynamic(dark: 0x0E7D47, light: 0x085A32)
+    static let fillPressed = Color.seasonal(dark: 0x0E7D47, light: 0x085A32, harvestDark: 0xB55322, harvestLight: 0x8A3B14)
     /// Green for text, links, icons and small marks (never a large fill).
     static let green = Color(uiGreen)
-    static let greenTint = Color.dynamic(dark: 0x2BB36E, light: 0x0B6E3E, alpha: 0.14)
+    static let greenTint = Color.seasonal(dark: 0x2BB36E, light: 0x0B6E3E, harvestDark: 0xF2A93B, harvestLight: 0x9A4A10,
+                                          alpha: 0.14)
     static let recordRed = Color(hex: 0xEE3A2A)
 
     // Status (never Record Red for errors)
@@ -47,7 +51,27 @@ enum Brand {
     static let warningTint = Color.dynamic(dark: 0xF2A516, light: 0xB45309, alpha: 0.14)
 }
 
+/// The Thanksgiving season's colors (November, unless turned off on this device; `HarvestSeason`).
+/// Brand's seasonal colors read `isActive` every time they resolve; `HarvestSeasonStore` sets it and
+/// redraws the app when it changes.
+enum HarvestPalette {
+    private static let state = OSAllocatedUnfairLock(initialState: false)
+
+    static var isActive: Bool { state.withLock { $0 } }
+
+    static func set(_ active: Bool) {
+        state.withLock { $0 = active }
+    }
+}
+
 extension Color {
+    /// Green most of the year, the harvest color while `HarvestPalette` is active.
+    static func seasonal(dark: UInt32, light: UInt32, harvestDark: UInt32, harvestLight: UInt32, alpha: Double = 1) -> Color {
+        Color(uiColor: .seasonal(.dynamic(dark: UIColor(hex: dark, alpha: alpha), light: UIColor(hex: light, alpha: alpha)),
+                                 harvest: .dynamic(dark: UIColor(hex: harvestDark, alpha: alpha),
+                                                   light: UIColor(hex: harvestLight, alpha: alpha))))
+    }
+
     init(hex: UInt32, alpha: Double = 1) {
         self.init(uiColor: UIColor(hex: hex, alpha: alpha))
     }
@@ -67,5 +91,10 @@ extension UIColor {
 
     static func dynamic(dark: UIColor, light: UIColor) -> UIColor {
         UIColor { $0.userInterfaceStyle == .dark ? dark : light }
+    }
+
+    /// `normal`, or `harvest` while `HarvestPalette` is active, resolved for the traits.
+    static func seasonal(_ normal: UIColor, harvest: UIColor) -> UIColor {
+        UIColor { (HarvestPalette.isActive ? harvest : normal).resolvedColor(with: $0) }
     }
 }

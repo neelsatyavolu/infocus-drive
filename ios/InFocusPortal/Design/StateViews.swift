@@ -75,7 +75,7 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image("BrandMark")
+            Image(HarvestArt.brandMark)
                 .resizable()
                 .scaledToFit()
                 .frame(width: 56, height: 56)
