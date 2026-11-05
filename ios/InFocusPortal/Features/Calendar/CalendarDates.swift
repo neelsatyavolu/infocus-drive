@@ -54,6 +54,8 @@ enum CalendarDates {
     static func weekdayShort(_ key: String) -> String { date(key).map { formatter("EEE").string(from: $0) } ?? "" }
     /// "7".
     static func dayNumber(_ key: String) -> String { date(key).map { formatter("d").string(from: $0) } ?? "" }
+    /// "Sun, Nov 8".
+    static func weekdayMonthDay(_ key: String) -> String { date(key).map { formatter("EEE, MMM d").string(from: $0) } ?? key }
     /// "October 2026".
     static func monthTitle(_ monthKey: String) -> String { date(monthKey).map { formatter("MMMM yyyy").string(from: $0) } ?? monthKey }
 

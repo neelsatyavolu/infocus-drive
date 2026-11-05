@@ -66,6 +66,7 @@ enum CalendarStubData {
                                   queuedPackages: queued, showManagers: managers, members: members, showManagerPool: managerPool,
                                   canViewCastCounts: canEdit && stubKind != "associate",
                                   spiritWeek: Dictionary(uniqueKeysWithValues: spiritWeek.filter { $0.key.hasPrefix(key) }.map { ($0.key, $0.value) }))
+        if days.count > 2 { month.birthdays = [days[2]: [.init(name: "Abby", actualDate: nil)]] }
         guard applyingEdits else { return month }
         for date in days {
             if let content = CalendarStubEdits.shared.content(for: date) { month = month.replacing(date, content: content) }
