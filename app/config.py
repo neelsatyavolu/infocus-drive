@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     # Switcher recordings folder the service API may read (never write) for the
     # automatic show editor. Empty turns read access off.
     shows_root: str = "Shows"
+    # The package zips the automatic show editor installs (read-only, like shows_root). Empty turns it off.
+    graphics_root: str = "All Resources/Graphic Files"
     # infocus-packages origin for the Drive roster (same token as packages_service_token).
     packages_roster_url: str = ""
     # Last-seen packages emails; used to delete NAS users who left the roster.

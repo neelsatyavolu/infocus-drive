@@ -78,6 +78,12 @@ def _shows_root() -> str:
     return (get_settings().shows_root or "").strip().strip("/")
 
 
+def _read_only_roots() -> tuple[str, ...]:
+    """Folders the service API may read but never write: Shows/ and the package zips."""
+    roots = (_shows_root(), (get_settings().graphics_root or "").strip().strip("/"))
+    return tuple(r for r in roots if r)
+
+
 def _under(path: str, root: str) -> bool:
     return path == root or path.startswith(root + "/")
 
@@ -111,15 +117,15 @@ def assert_under_packages_root(rel: str) -> str:
 
 
 def assert_readable_service_path(rel: str) -> str:
-    """Read check: the package roots plus the read-only Shows root."""
+    """Read check: the package roots plus the read-only Shows and Graphic Files roots."""
     joined = _normalize_service_path(rel)
-    shows = _shows_root()
-    if joined and shows and _under(joined, shows):
+    read_only = _read_only_roots()
+    if joined and any(_under(joined, root) for root in read_only):
         return joined
     roots = _allowed_package_roots()
     if not (rel or "").strip().lstrip("/") or any(_under(joined, root) for root in roots):
         return assert_under_packages_root(rel)
-    shown = " or ".join(f"{root}/" for root in (*roots, *((shows,) if shows else ())))
+    shown = " or ".join(f"{root}/" for root in (*roots, *read_only))
     raise HTTPException(status_code=403, detail=f"Path must be under {shown}")
 
 
