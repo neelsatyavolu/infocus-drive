@@ -255,14 +255,15 @@ type failedUpload struct {
 }
 
 type batchResult struct {
-	Uploaded  []string       `json:"uploaded"`
-	Exists    []string       `json:"exists,omitempty"`
-	Conflicts []string       `json:"conflict,omitempty"`
-	Failed    []failedUpload `json:"failed,omitempty"`
-	Skipped   []string       `json:"skipped,omitempty"`
-	Unchanged []string       `json:"unchanged,omitempty"`
-	DriveOnly []string       `json:"drive_only,omitempty"`
-	Bytes     int64          `json:"bytes"`
+	Uploaded  []string             `json:"uploaded"`
+	Exists    []string             `json:"exists,omitempty"`
+	Conflicts []string             `json:"conflict,omitempty"`
+	Failed    []failedUpload       `json:"failed,omitempty"`
+	Skipped   []string             `json:"skipped,omitempty"`
+	Unchanged []string             `json:"unchanged,omitempty"`
+	DriveOnly []string             `json:"drive_only,omitempty"`
+	Bytes     int64                `json:"bytes"`
+	entries   map[string]api.Entry // Drive entry of each uploaded file, by remote path
 	authErr   error
 	elapsed   time.Duration
 }
@@ -288,11 +289,17 @@ func (r *runner) runUploads(ctx context.Context, client *api.Client, jobs []uplo
 		sem <- struct{}{}
 		go func(job uploadJob) {
 			defer func() { <-sem; wg.Done() }()
-			err := r.uploadJobFile(ctx, client, job, prog)
+			entry, err := r.uploadJobFile(ctx, client, job, prog)
 			prog.fileDone()
 			mu.Lock()
 			defer mu.Unlock()
 			result.classify(job, err)
+			if err == nil {
+				if result.entries == nil {
+					result.entries = map[string]api.Entry{}
+				}
+				result.entries[job.file.Remote] = entry
+			}
 		}(job)
 	}
 	wg.Wait()
@@ -301,19 +308,19 @@ func (r *runner) runUploads(ctx context.Context, client *api.Client, jobs []uplo
 	return result
 }
 
-func (r *runner) uploadJobFile(ctx context.Context, client *api.Client, job uploadJob, prog *progress) error {
+func (r *runner) uploadJobFile(ctx context.Context, client *api.Client, job uploadJob, prog *progress) (api.Entry, error) {
 	f, err := os.Open(job.file.Local)
 	if err != nil {
-		return err
+		return api.Entry{}, err
 	}
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
-		return err
+		return api.Entry{}, err
 	}
 	dir, name := api.SplitPath(job.file.Remote)
 	prog.fileStarted(job.file.Remote)
-	_, err = client.UploadFile(ctx, dir, name, f, api.UploadOptions{
+	return client.UploadFile(ctx, dir, name, f, api.UploadOptions{
 		ExpectMtimeNS: job.expect,
 		Resume:        r.resumeFor(client, job.file.Remote, job.file.Local, info),
 		Progress:      prog.add,
@@ -321,7 +328,6 @@ func (r *runner) uploadJobFile(ctx context.Context, client *api.Client, job uplo
 			prog.note("Resuming %s (%d%% already on the Drive)", job.file.Remote, done*100/max(total, 1))
 		},
 	})
-	return err
 }
 
 func (b *batchResult) classify(job uploadJob, err error) {

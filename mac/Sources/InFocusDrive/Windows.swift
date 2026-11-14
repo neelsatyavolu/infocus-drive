@@ -1,8 +1,7 @@
 import AppKit
 import SwiftUI
-import WebKit
 
-/// The app's windows (Portal, Drive, Help, Unlock), opened from the menu bar,
+/// The app's windows (Drive, Help, Unlock), opened from the menu bar,
 /// from a launch or reopen, or from each other. The app runs in the background
 /// with no Dock icon; while any of these windows is open it shows in the Dock
 /// and the app switcher like a normal app.
@@ -10,76 +9,14 @@ import WebKit
 final class Windows: NSObject, NSWindowDelegate {
     static let shared = Windows()
     private var open: [String: NSWindow] = [:]
-    private var portals: [PortalWindowController] = []
 
-    var hasOpenWindows: Bool {
-        !open.isEmpty || portals.contains { $0.window?.isVisible == true }
-    }
+    var hasOpenWindows: Bool { !open.isEmpty }
 
-    /// Any Portal window or tab, even minimized (an upload or video may be running).
-    var hasPortalWindows: Bool { !portals.isEmpty }
-
-    // MARK: Portal
-
-    /// Shows the frontmost Portal window (making one if needed), optionally at
-    /// `url`. False when this build has no Portal address.
-    @discardableResult
-    func showPortal(_ drive: DriveController, url: URL? = nil) -> Bool {
-        guard let portal = AppConfig.shared.portalURL else { return false }
-        let controller: PortalWindowController
-        if let existing = portals.first(where: { $0.window?.isKeyWindow == true }) ?? portals.last {
-            controller = existing
-            if let url { existing.web.load(url) }
-        } else {
-            controller = PortalWindowController(portal: portal, drive: drive, url: url)
-            portals.append(controller)
-        }
-        present(controller.window, drive: drive)
-        return true
-    }
-
-    /// File → New Window, or a new tab next to `tabbedWith` (Cmd+T).
-    func newPortalWindow(_ drive: DriveController, tabbedWith: PortalWindowController?) {
-        guard let portal = AppConfig.shared.portalURL else { return }
-        let controller = PortalWindowController(portal: portal, drive: drive, url: nil)
-        portals.append(controller)
-        if let host = tabbedWith?.window, let window = controller.window {
-            host.addTabbedWindow(window, ordered: .above)
-        }
-        present(controller.window, drive: drive)
-    }
-
-    func portalClosed(_ controller: PortalWindowController) {
-        portals.removeAll { $0 === controller }
-        backgroundIfIdle()
-        // A waiting automatic update was holding off for the Portal.
-        // Next run-loop turn: this can run inside applicationShouldTerminate (Quit to background).
-        if portals.isEmpty {
-            DispatchQueue.main.async { MenuActions.shared.drive?.updater.portalsClosed() }
-        }
-    }
-
-    /// Quit with "Keep Drive connected after Quit" on: really close every window
-    /// (Portal web views are released), then run on in the background.
+    /// Quit with "Keep Drive connected after Quit" on: close every window,
+    /// then run on in the background.
     func closeAllForQuit() {
         for window in Array(open.values) { window.close() }
-        for controller in portals { controller.window?.close() } // windowWillClose → portalClosed
-        portals.removeAll()
         backgroundIfIdle()
-    }
-
-    /// After signing in or out: other Portal windows pick up the new session.
-    func reloadPortals(except webView: WKWebView?) {
-        for controller in portals where controller.web.webView !== webView {
-            controller.web.webView.reload()
-        }
-    }
-
-    private func present(_ window: NSWindow?, drive: DriveController) {
-        MainMenu.install()
-        NSApp.setActivationPolicy(.regular)
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func backgroundIfIdle() {

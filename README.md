@@ -18,7 +18,7 @@ It was built for InFocus, a student news program. It runs in production on the p
 - **UGOS single sign-on:** Google sign-in carried into the UGOS admin portal through a narrowly scoped PAM bridge (one-use, 30-second, browser-bound credentials; see [docs/UGOS-GOOGLE-LOGIN.md](docs/UGOS-GOOGLE-LOGIN.md)).
 - **Roster sync (optional):** provisions and removes NAS accounts from an external roster through a localhost-only helper, with protected-account lists.
 - Alternative sign-in: email codes (Resend) and NAS username + password with UGOS 2FA.
-- **InFocus for Mac (optional):** a Swift app that mounts the Drive in Finder over a local WebDAV helper, and can also show the program's Portal web app in native windows with Mac notifications ([docs/MAC-APP.md](docs/MAC-APP.md)).
+- **InFocus for Mac (optional):** a Swift menu-bar app that mounts the Drive in Finder over a local WebDAV helper, with an optional hourly Mac backup to the Drive for chosen accounts ([docs/MAC-APP.md](docs/MAC-APP.md)).
 - **InFocus Portal for iPhone and iPad (optional):** a native SwiftUI app for the program's Portal, with native screens for the signed-in pages, a signed-in web view for the rest, the same browser sign-in hand-off, and iOS notifications ([ios/README.md](ios/README.md)).
 - **`infocus` CLI (optional):** a Go command-line tool for macOS and Windows that uses the Drive with the permissions of your Drive account, for people and for AI coding agents ([docs/CLI.md](docs/CLI.md)).
 - **Portal service API (optional):** a token-authenticated API the Portal uses to store package media on the NAS, read the Shows folder for the automatic show editor, and relay its posts to the news site.

@@ -83,7 +83,7 @@ app/static/cli-authorize.*  CLI consent page (`/cli/authorize`)
 app/static/cli/install.sh   CLI installer served at `/cli/install.sh`
 cli/                 Go source for the `infocus` CLI (docs/CLI.md)
 cli/internal/davfs/  WebDAV file system over the Drive API (`infocus webdav`)
-mac/                 InFocus for Mac (Swift): Portal window + Mac notifications, Finder volume via NetFS + bundled CLI (docs/MAC-APP.md)
+mac/                 InFocus for Mac (Swift): menu-bar app, Finder volume via NetFS + bundled CLI, Mac backup (docs/MAC-APP.md)
 ios/                 InFocus Portal for iPhone/iPad (SwiftUI + WKWebView): native sign-in hand-off + push; XcodeGen project (ios/README.md)
 app/static/app.js    UI state, tree, DnD, preview, speed test
 app/static/api.js    Fetch/XHR client

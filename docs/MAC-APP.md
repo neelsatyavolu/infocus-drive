@@ -1,11 +1,6 @@
-# InFocus for Mac (Portal window, Mac notifications, Drive in Finder)
+# InFocus for Mac (Drive in Finder, Mac backup)
 
-One app (it used to be called InFocus Drive): the InFocus Portal in native Mac
-windows, a Mac notification for every Portal email, and the Drive in Finder.
-The Portal half is described in [Portal window and notifications](#portal-window-and-notifications);
-the rest of this page is the Drive half.
-
-A menu-bar app that puts your Drive shares in Finder as a normal volume
+A menu-bar app (it used to be called InFocus Drive) that puts your Drive shares in Finder as a normal volume
 (`/Volumes/InFocus Drive`, listed under **Locations**) and keeps it mounted.
 It uses the same Google sign-in as the web app, so **no NAS password** is
 involved, and it needs no NAS port, NAS WebDAV or extra Cloudflare hostname.
@@ -21,8 +16,7 @@ an Applications folder the app offers **Move to Applications**
 account), replaces any older InFocus / InFocus Drive copy there, moves the
 download to the Trash and relaunches. **Not Now** keeps running where it is
 (updates, the rename and start at login need Applications); **Don't ask again**
-stops the prompt. The first open also shows macOS's notification prompt (once; never
-at a background login launch). Then **Sign in with Google** and approve Drive.
+stops the prompt. Then **Sign in with Google** and approve Drive.
 
 On the Drive website open **Mac app & CLI** in the sidebar, or paste in Terminal:
 
@@ -54,19 +48,17 @@ downloaded app. Needs macOS 13 or later.
    (`spctl`), swaps the app bundle, quits (unmounting cleanly) and relaunches the
    same way it was running, which remounts the drive. It never restarts while Finder
    is copying: the helper reports open writes (`{"event":"writing","open":N}`) and
-   uploads, and the install waits until both are zero. An automatic install also
-   waits until no Portal window is open (an upload or video there would be cut off);
-   it installs as soon as the last one closes. Clicking **Update** installs with the
-   Portal open (still waiting for Drive copies). Turn it off in
+   uploads, and the install waits until both are zero (and for a running Mac
+   backup). Turn it off in
    **Settings → Update automatically** (the button still appears). Development and
    ad-hoc builds don't update.
 6. **Show in menu bar** (on by default) adds a menu-bar icon with the same status.
    With it off the app has no menu bar or Dock icon and just keeps the drive
    mounted; opening the app again shows its window (and a Dock icon while it's open).
 7. **Keep Drive connected after Quit** (on by default, `QuitPolicy.swift`): Quit
-   (Cmd+Q, InFocus → Quit, or the Dock) closes every Portal window and the Dock
+   (Cmd+Q, InFocus → Quit, or the Dock) closes the app's windows and the Dock
    icon, but the app keeps running in the menu bar with the drive mounted; opening
-   InFocus again brings the Portal back. **Quit InFocus Completely** (menu bar,
+   InFocus again shows the Drive window. **Quit InFocus Completely** (menu bar,
    Drive window → More, or hold Option in the InFocus menu, Option+Cmd+Q) unmounts
    and exits. Updates, log out, restart, shut down and quit requests from other
    programs (the install script) always quit completely. Turn the setting off and
@@ -91,46 +83,34 @@ The volume's top level has one folder per share you can open. Everything below
 is your Drive, with the same permissions as the web app (read-only shares stay
 read-only; deletes go to the share's Recycle bin).
 
-## Portal window and notifications
+## Mac backup
 
-Opening the app shows the **Portal window**: the Portal's own pages (same design
-and features as the website) in WebKit, under a slim title bar with Back, Forward,
-Reload, Find on page and a **Drive** chip (click it for the Drive window). The title
-bar takes the page's background, so it follows the Portal's dark or light theme.
+For the accounts named in the build's `BACKUP_USERS` (see [Build](#build)), the
+Drive window has a **Mac backup** section and the menu shows its status. Choose
+**From** (a folder on this Mac; your home folder backs up everything) and **To** (a
+folder in one of your writable shares, picked in the mounted volume), and it runs:
 
-- **Shortcuts:** Cmd+N new window, Cmd+T new tab, Cmd+W close, Cmd+R reload,
-  Cmd+[ / Cmd+] back/forward, Shift+Cmd+H Portal home, Cmd+F / Cmd+G find,
-  Cmd+= / Cmd+- / Cmd+0 zoom, Cmd+, Portal Settings, Shift+Cmd+D the Drive window.
-  Closing a Portal window really closes it (page and any video stop); Drive keeps
-  running in the menu bar. A new Portal window opens on the dashboard.
-- **Links:** Portal pages (the Portal host and its subdomains) stay in the app;
-  everything else (YouTube, Google Docs, the Drive website, mail links) opens in
-  your browser. Downloads go to `~/Downloads`; file pickers, `alert`/`confirm`/
-  `prompt` and full-screen video work as in Safari.
-- **Sign-in:** Google refuses to run inside an app's web view, so **Continue with
-  Google** on the Portal's sign-in page opens a secure browser sheet instead
-  (`ASWebAuthenticationSession`): the Portal's `/app-sign-in` page asks **Allow**,
-  hands a 60-second code to `infocus://signed-in`, and the app trades the code plus
-  a PKCE verifier only it knows for the usual 30-day Portal session
-  (`POST /api/auth/app/token`). If Drive isn't signed in yet, its own approval
-  follows straight after. Email-code sign-in inside the window works as on the web.
-- **Notifications:** after the first sign-in the app asks macOS for permission,
-  gets this Mac's Apple push token and registers it with the Portal under the
-  signed-in account (`POST /api/push/native-device`; re-sent whenever the Portal
-  session changes). The Portal then sends a notification for every email it sends
-  that person; clicking one opens its Portal page (only Portal pages; anything else
-  opens the Portal home). Turn them off in System Settings → Notifications → InFocus.
-  Portal **Settings → Mac app notifications** shows the status, turns them on and
-  sends a test (through `window.webkit.messageHandlers.infocus`, answered only for
-  Portal pages).
-- **Sign out** (menu bar **Account**, or File → Sign Out) removes this Mac from the
-  account's notifications, clears the Portal's cookies and site data in the app, and
-  signs Drive out.
-- The app adds `InFocusMacApp/<version>` to its user agent so the Portal can tell.
+- **Every hour** while the app runs (checked each minute, so it catches up after
+  sleep), plus **Back up now**. It runs `infocus backup` (see [CLI](CLI.md)), which
+  remembers what it sent in `~/Library/Application Support/InFocus/backup-state.json`:
+  an hour where little changed only walks the local folder, with no Drive listing
+  and no re-reading of unchanged files. Uploads use the CLI's parallel, chunked,
+  resumable path and go direct to the NAS on the school network.
+- **Once a day** it checks the whole Drive folder too, re-uploading anything that
+  went missing there.
+- **Deletions:** a file deleted on the Mac is moved to the share's Recycle bin once
+  it has stayed deleted for a week (bring it back within the week and nothing
+  happens). Only files the backup uploaded are removed, never ones someone changed
+  on the Drive since, and only on a share with a Recycle bin (on one without, they
+  stay and the status says so); folders it can't read (macOS privacy) or that are left out are
+  never treated as deleted; an empty source folder never deletes anything.
+- Backing up the home folder leaves out `Library`, `.Trash` and a few caches.
+  macOS may ask once to let InFocus read Desktop, Documents and Downloads.
+- Updates wait for a running backup; Quit Completely stops it (the next run picks up
+  where it stopped).
 
-Addresses aren't in the source: `PORTAL_URL` and `DRIVE_URL` are written into
-`Info.plist` at build time (see [Build](#build)). Without a Portal address the app
-is the Drive app as before; with a Drive address, people skip typing it in.
+The username list is a feature switch, not access control: a backup only ever uses
+the person's own Drive permissions.
 
 **Rename.** Releases still contain `InFocus Drive.app` (the updater in older copies
 looks for that name). On its first launch from `/Applications` or `~/Applications`,
@@ -236,13 +216,15 @@ Helper errors go to `~/Library/Logs/InFocus Drive/helper.log` (**Account → Sho
 Needs Xcode (Swift 5.9+) and Go.
 
 ```sh
-VERSION=0.1.0 PORTAL_URL=https://portal.example.com DRIVE_URL=https://drive.example.com \
+VERSION=0.1.0 DRIVE_URL=https://drive.example.com BACKUP_USERS="student1" \
   mac/build.sh                # → mac/build/InFocus Drive.app (universal, ad-hoc signed)
-(cd mac && swift test)        # unit tests: link routing, sign-in, notifications, rename
+(cd mac && swift test)        # unit tests: config, backup, rename, quit, updates
 ```
 
-Both addresses are optional (https only; http just for `localhost`). In CI they come
-from the repository variables `PORTAL_URL` and `DRIVE_URL`.
+`DRIVE_URL` is optional (https only; http just for `localhost`). `BACKUP_USERS`
+(space-separated Drive usernames) turns on Mac backup for those accounts; only their
+SHA-256 hashes go into `Info.plist`. In CI both come from the repository variables
+`DRIVE_URL` and `BACKUP_USERS`; never commit real usernames.
 
 `build.sh` also writes `mac/build/InFocus-Drive-mac.zip`. Releases build it in CI
 and attach it to each `cli-v*` release (see [DEPLOY.md](DEPLOY.md#cli-releases)).
@@ -256,22 +238,8 @@ CI builds an ad-hoc-signed zip for each `cli-v*` release. The maintainer then ru
 on their Mac:
 
 ```sh
-PORTAL_URL=https://portal.example.com DRIVE_URL=https://drive.example.com \
-MAC_PROVISIONING_PROFILE=~/path/to/InFocus.provisionprofile \
-  mac/sign-release.sh cli-v0.5.0
+mac/sign-release.sh cli-v0.5.0   # DRIVE_URL, LEGACY_HOSTS, BACKUP_USERS from the repo variables
 ```
-
-It refuses to build without `PORTAL_URL` unless `ALLOW_NO_PORTAL=1`.
-**Mac notifications** need, once per Apple Developer team: Push Notifications enabled
-on the explicit App ID `com.github.neelsatyavolu.infocus-drive`, a **Developer ID**
-provisioning profile for it (kept with the other signing material, never in the
-repo), and an APNs auth key for the Portal server. With `MAC_PROVISIONING_PROFILE`
-set, the script checks the profile is for this team and bundle ID and includes push,
-embeds it as `Contents/embedded.provisionprofile` and signs the app with
-`com.apple.developer.aps-environment = production` (team from the signing identity,
-or `APPLE_TEAM_ID`). Without a profile it signs exactly as before: the app runs, it
-just never gets notifications (a push entitlement without a profile would stop it
-launching). `mac/build.sh` builds never carry the entitlement.
 
 It loads the Developer ID certificate and App Store Connect API key from 1Password
 through the shared loader (see `APPLE_SIGNING.md` next to the repos; override with

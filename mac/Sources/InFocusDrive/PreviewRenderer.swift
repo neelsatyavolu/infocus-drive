@@ -36,6 +36,23 @@ enum PreviewRenderer {
         for dark in [true, false] {
             render(MainWindowView(drive: help), to: dir.appendingPathComponent("window-\(dark ? "dark" : "light").png"), dark: dark)
         }
+        let mac = BackupController.Settings(source: NSHomeDirectory(), shareID: "~student1", shareName: "student1",
+                                            remotePath: "Backups/MacBook")
+        let backups: [(String, BackupController.Settings?, BackupController.Outcome?, BackupController.Phase?)] = [
+            ("new", nil, nil, nil),
+            ("done", mac, .init(finishedAt: Date(), uploaded: 42, bytes: 318_000_000, unchanged: 18_230, pendingDelete: 3), nil),
+            ("running", mac, nil, .uploading),
+            ("failed", mac, .init(finishedAt: Date(), uploaded: 2, failed: 1, error: nil), nil),
+        ]
+        for (name, settings, outcome, phase) in backups {
+            let drive = scenarios().first { $0.0 == "connected" }!.1
+            drive.backup.preview(settings: settings, outcome: outcome, running: phase,
+                                 progress: .init(filesDone: 12, filesTotal: 40, bytesDone: 120_000_000, bytesTotal: 310_000_000))
+            for dark in [true, false] {
+                render(MainWindowView(drive: drive), to: dir.appendingPathComponent("backup-\(name)-\(dark ? "dark" : "light").png"), dark: dark)
+            }
+            render(MenuView(drive: drive), to: dir.appendingPathComponent("backup-menu-\(name)-dark.png"), dark: true)
+        }
         let setup = scenarios().first { $0.0 == "setup" }!.1
         render(MainWindowView(drive: setup), to: dir.appendingPathComponent("window-setup-dark.png"), dark: true)
         render(HelpView(drive: help), to: dir.appendingPathComponent("help-dark.png"), dark: true)

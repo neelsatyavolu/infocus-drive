@@ -14,6 +14,7 @@ struct MainWindowView: View {
                         HeroCard(drive: drive)
                         if let message = drive.message { Banner(text: message) }
                         if !drive.transfers.isEmpty { TransfersSection(transfers: drive.transfers) }
+                        if drive.backupAvailable { BackupSection(drive: drive, backup: drive.backup) }
                         if case .signedIn = drive.account, !drive.status.shares.isEmpty {
                             SharesSection(drive: drive, visibleRows: 7)
                         }
@@ -97,7 +98,7 @@ struct SettingsSection: View {
                               isOn: Binding(get: { drive.startsAtLogin }, set: { drive.setStartsAtLogin($0) }))
                 Rectangle().fill(Brand.border).frame(height: 1)
                 SettingToggle(symbol: "externaldrive.badge.checkmark", title: "Keep Drive connected after Quit",
-                              detail: keepDriveAfterQuit ? "Quit closes the Portal; Drive stays in Finder"
+                              detail: keepDriveAfterQuit ? "Quit closes this window; Drive stays in Finder"
                                   : "Quit disconnects Drive and closes InFocus",
                               isOn: $keepDriveAfterQuit)
                 Rectangle().fill(Brand.border).frame(height: 1)
