@@ -342,6 +342,23 @@ def test_cross_site_write_is_blocked(files_client, files_root):
     assert not (files_root / "nope").exists()
 
 
+def test_ugos_sign_in_handoff_passes_the_cross_site_guard(files_client):
+    # The Drive page posts to the UGOS host's /infocus-sso/finish, a different site
+    # when the two are on different domains; the route checks the origin itself.
+    res = files_client.post(
+        "/infocus-sso/finish",
+        data={"state": "s", "code": "c"},
+        headers={"Origin": "https://drive.example.com", "Sec-Fetch-Site": "cross-site"},
+    )
+    assert res.json().get("detail") != "Cross-site request blocked"
+
+
+def test_other_sso_posts_stay_guarded(files_client):
+    res = files_client.post("/auth/ugos/otp", data={"state": "s", "otp": "123456"},
+                            headers={"Origin": "https://evil.test", "Sec-Fetch-Site": "cross-site"})
+    assert res.json()["detail"] == "Cross-site request blocked"
+
+
 def test_sec_fetch_site_cross_site_is_blocked(files_client):
     res = files_client.post("/api/mkdir", data={"name": "nope"}, headers={"Sec-Fetch-Site": "cross-site"})
     assert res.status_code == 403

@@ -261,8 +261,12 @@ async def block_cross_site_writes(request: Request, call_next):  # type: ignore[
 
     /api/service/* never reads the cookie (service bearer or signed file token),
     and the Portal's browser uploads reach it from another origin.
+    /infocus-sso/finish is the Drive → UGOS sign-in hand-off: it arrives from the
+    Drive's site on purpose and checks the exact Drive origin, a one-time code and
+    its browser cookie itself (ugos_sso.finish).
     """
-    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not request.url.path.startswith("/api/service/"):
+    exempt = request.url.path.startswith("/api/service/") or request.url.path == "/infocus-sso/finish"
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"} and not exempt:
         auth = request.headers.get("authorization") or ""
         if not auth.lower().startswith("bearer "):
             site = (request.headers.get("sec-fetch-site") or "").lower()

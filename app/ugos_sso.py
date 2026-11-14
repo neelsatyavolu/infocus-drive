@@ -126,7 +126,11 @@ def start(request: Request):
             _fail(429, "Sign-in is busy. Try again shortly.")
         _flows[state] = {"browser": _digest(nonce), "expires": now + 600, "phase": "new"}
     response = RedirectResponse(f"{drive}/auth/ugos/continue?{urlencode({'state': state})}", status_code=302, headers=NO_STORE)
-    response.set_cookie(COOKIE, nonce, max_age=600, secure=True, httponly=True, samesite="lax", path="/")
+    # SameSite=None: the hand-off POST to /infocus-sso/finish comes from the Drive's
+    # page, which is another site when the Drive and UGOS hosts are on different
+    # domains; Lax would leave this cookie off it. finish() still requires the exact
+    # Drive Origin and a single-use code, so the cookie alone redeems nothing.
+    response.set_cookie(COOKIE, nonce, max_age=600, secure=True, httponly=True, samesite="none", path="/")
     return response
 
 
@@ -258,5 +262,5 @@ def finish(request: Request, state: str = Form(...), code: str = Form(...)):
             _fail(400, "This sign-in belongs to another browser or has expired.")
         data = _flows.pop(state)["data"]
     response = _page('<p id="sign-in-status">Opening your control panel…</p><p><a href="/infocus-sso/start">Start again</a></p>', login_data=data)
-    response.delete_cookie(COOKIE, secure=True, httponly=True, samesite="lax", path="/")
+    response.delete_cookie(COOKIE, secure=True, httponly=True, samesite="none", path="/")
     return response

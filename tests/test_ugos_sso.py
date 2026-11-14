@@ -169,3 +169,11 @@ def test_login_json_cannot_escape_script_element(client, monkeypatch):
     assert response.status_code == 200
     assert "<img" not in response.text
     assert "\\u003c/script\\u003e" in response.text
+
+
+def test_handoff_cookie_reaches_a_cross_site_finish(client):
+    # Drive and UGOS can be on different sites (drive.<one domain>, ugos.<another>):
+    # the Drive page's form POST is then cross-site, and only SameSite=None cookies go along.
+    response = client.get(UGOS + "/infocus-sso/start")
+    cookie = response.headers["set-cookie"].lower()
+    assert "samesite=none" in cookie and "secure" in cookie and "httponly" in cookie
