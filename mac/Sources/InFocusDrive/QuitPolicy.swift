@@ -1,7 +1,7 @@
 import AppKit
 
 /// "Keep Drive connected after Quit" (on by default): Quit from the keyboard
-/// (Cmd+Q), the app menu or the Dock closes the Portal windows and drops the
+/// (Cmd+Q), the app menu or the Dock closes the app's windows and drops the
 /// Dock icon, but the app keeps running in the menu bar so Drive stays mounted.
 /// A full quit always unmounts and exits: Quit InFocus Completely (menu bar,
 /// Drive window, Option+Cmd+Q), updates, log out / restart / shut down, and quit

@@ -1,5 +1,4 @@
 import SwiftUI
-import UserNotifications
 
 /// UserDefaults key: show the InFocus icon in the menu bar.
 let showInMenuBarKey = "showInMenuBar"
@@ -37,11 +36,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     /// Another copy asks the running one to show its window through this.
     nonisolated static let showWindowNote = Notification.Name("com.github.neelsatyavolu.infocus-drive.show-window")
 
-    /// Before launch finishes, so a click on a notification that launched the app is delivered.
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        UNUserNotificationCenter.current().delegate = NotificationRouter.shared
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         DistributedNotificationCenter.default().addObserver(
             forName: Self.showWindowNote, object: nil, queue: .main
@@ -54,9 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         LoginItem.reRegisterAfterRename()
         _ = drive // start connecting now, whether or not any UI is visible
         drive.updater.start(drive: drive)
-        NotificationRouter.shared.drive = drive
+        drive.backup.start(drive: drive)
         MenuActions.shared.drive = drive
-        Task { await PushRegistrar.shared.start() }
         // Start at login passes --background: stay quiet. Opening the app
         // yourself (Finder, Spotlight, Launchpad) shows the window.
         let background = CommandLine.arguments.contains("--background")
@@ -88,19 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
-    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        PushRegistrar.shared.didRegister(deviceToken)
-    }
-
-    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        PushRegistrar.shared.didFail(error)
-    }
-
-    /// The Portal window; builds without a Portal address show the Drive window.
     func showMainWindow() {
-        if !Windows.shared.showPortal(drive) {
-            Windows.shared.showMain(drive)
-        }
+        Windows.shared.showMain(drive)
     }
 
     /// One copy per account: a second launch asks the running one to show
@@ -129,7 +111,7 @@ struct MenuBarIcon: View {
     }
 
     private var symbol: String {
-        if drive.transfers.contains(where: { $0.state == .active }) { return "arrow.up.circle" }
+        if drive.transfers.contains(where: { $0.state == .active }) || drive.backup.isRunning { return "arrow.up.circle" }
         switch drive.summary.1 {
         case .ok: return "externaldrive.fill"
         case .problem: return "externaldrive.badge.exclamationmark"

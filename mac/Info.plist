@@ -22,16 +22,12 @@
 	<string>AppIcon</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>InFocusPortalURL</key>
-	<string>__PORTAL_URL__</string>
 	<key>InFocusDriveURL</key>
 	<string>__DRIVE_URL__</string>
 	<key>InFocusLegacyHosts</key>
 	<string>__LEGACY_HOSTS__</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Show your camera in InFocus Portal meetings.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Talk in InFocus Portal meetings.</string>
+	<key>InFocusBackupUserHashes</key>
+	<string>__BACKUP_USER_HASHES__</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT License</string>
 </dict>

@@ -48,6 +48,7 @@ Your browser opens the Drive. Sign in the usual way (Google, email code, or NAS 
 | `infocus get PATH [LOCAL\|-] [--force]` | Download (folders as `.zip`) |
 | `infocus put [-r] [--force] SRC... DEST` | Upload files, whole folders (`-r`) or stdin (`-`). Existing files are skipped unless `--force`; single files also take `--expect-mtime-ns N` |
 | `infocus sync LOCAL_DIR REMOTE_DIR [--dry-run]` | Upload only new or changed files from a folder. Never deletes anything on the Drive |
+| `infocus backup LOCAL_DIR REMOTE_DIR --state FILE [--delete-after 168h] [--exclude REL]... [--verify] [--progress]` | Back up a folder (used by the Mac app). Remembers what it sent; files deleted locally go to the Recycle bin after `--delete-after` |
 | `infocus edit PATH` | Edit in `$VISUAL`/`$EDITOR`; saves back only if nobody changed the file meanwhile |
 | `infocus mkdir PATH [-p]` | Create a folder |
 | `infocus mv SRC... DEST_FOLDER` | Move into a folder |
@@ -68,6 +69,7 @@ Paths are relative to the share root: `infocus ls "Shows/Episode 1"`. Global fla
 - If a file already exists it's skipped (exit `4` at the end) unless you pass `--force`; other files still upload.
 - **Resume:** if a large upload is interrupted (Ctrl-C, network drop, laptop sleep), run the same command again within 24 hours and only the missing pieces are sent. State lives in `~/.config/infocus/uploads/`.
 - **Sync:** `infocus sync ./Footage "Shows/Ep1"` uploads files that are new or different (same-size files are compared by content fingerprint). Re-running it after a finished sync uploads nothing. It never deletes or silently overwrites: if the Drive copy changed since sync looked, that file is reported as a conflict. Use `--dry-run` to see the plan first.
+- **Backup:** `infocus backup ~/Documents "Backups/Mac" --state ~/.infocus-backup.json` is sync for a folder you keep backing up. The state file remembers each file's size and modification time and the Drive copy's `mtime_ns`, so a run where little changed only walks the local folder: unchanged files aren't read or listed on the Drive. The first run, and `--verify`, check the whole Drive folder (and re-upload anything missing there). Files deleted locally are moved to the share's Recycle bin once they've been gone for `--delete-after` (default a week; `0` never deletes), but only files this backup uploaded (not identical ones it found there), only if nobody has changed them on the Drive since (checked again right before), and only on a share with a Recycle bin (otherwise the deletion waits and the result says `no_recycle_bin`). One run at a time per state file (it's locked). Folders it can't read (macOS privacy prompts) and `--exclude`d paths are skipped and never counted as deleted, and an empty folder never deletes anything (a missing disk looks like that). `--progress` writes JSON lines on stderr (`{"event":"phase"}`, `{"event":"progress"}`).
 
 ## Updates
 

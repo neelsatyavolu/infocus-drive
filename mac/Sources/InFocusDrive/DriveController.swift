@@ -22,6 +22,7 @@ final class DriveController: ObservableObject {
     @Published private(set) var openWrites = 0
     let updater = Updater()
     let speedTest = SpeedTest()
+    let backup = BackupController()
     /// The encrypted personal folder the Unlock window is working on.
     @Published private(set) var unlocking: PersonalUnlock?
 
@@ -88,6 +89,11 @@ final class DriveController: ObservableObject {
         Task { await refreshAccount() }
     }
 
+    /// Shows a note in the menu and Drive window (e.g. why a backup folder can't be used).
+    func showMessage(_ text: String) {
+        message = text
+    }
+
     func changeServer() {
         disconnect()
         serverURL = ""
@@ -103,16 +109,13 @@ final class DriveController: ObservableObject {
         if wantsConnected { await ensureConnected() }
     }
 
-    /// After a domain move (AppConfig.legacyHosts): the Portal sign-in and a
-    /// saved Drive address on an old domain follow to this build's addresses,
+    /// After a domain move (AppConfig.legacyHosts): a saved Drive address on an
+    /// old domain follows to this build's address,
     /// keeping the Drive sign-in (`infocus move-server`). A failure leaves the
     /// old address in place, which keeps working until it's retired; the next
     /// launch tries again.
     private func moveFromLegacyAddresses() async {
         let config = AppConfig.shared
-        if let portal = config.portalURL {
-            await PortalCookies.adoptLegacy(portal: portal, legacyHosts: config.legacyHosts)
-        }
         guard let drive = config.driveURL, let saved = URL(string: serverURL), config.isLegacy(saved.host),
               saved.host?.lowercased() != drive.host?.lowercased() else { return }
         guard (try? await CLIRun(["--json", "--server", serverURL, "move-server", drive.absoluteString]).output()) != nil else { return }
@@ -256,9 +259,9 @@ final class DriveController: ObservableObject {
         }
     }
 
-    /// True while Finder is copying to or from the Drive (don't restart now).
+    /// True while Finder is copying to or from the Drive or a backup runs (don't restart now).
     var isTransferring: Bool {
-        openWrites > 0 || transfers.contains { $0.state == .active }
+        openWrites > 0 || transfers.contains { $0.state == .active } || backup.isRunning
     }
 
     func openDriveWebsite() {
@@ -301,8 +304,6 @@ final class DriveController: ObservableObject {
         }
         let lines = [
             "InFocus for Mac \(Self.appVersion) on macOS \(os)",
-            "Portal: " + (AppConfig.shared.portalHost ?? "not set in this build")
-                + " — Mac notifications " + (PushRegistrar.shared.registeredFor != nil ? "registered" : "not registered"),
             "Drive: \(serverHost) — \(drive)",
             "Account: \(who)",
             "Connection: " + connectionText,
@@ -313,6 +314,7 @@ final class DriveController: ObservableObject {
             "Transfers: " + transfers.map { "\($0.name) \($0.state.rawValue)\($0.error.isEmpty ? "" : ": " + $0.error)" }
                 .joined(separator: "; "),
             "Updates: " + updater.summary,
+            "Backup: " + backup.diagnostics,
             "Last message: \(message ?? "none")",
         ]
         return lines.joined(separator: "\n")
@@ -452,6 +454,7 @@ final class DriveController: ObservableObject {
 
     /// Quit: unmount first so Finder doesn't keep a dead volume.
     func shutdown() {
+        backup.cancel()
         if let volume = connectedVolume {
             connection = .disconnected
             if (try? Mounter.unmount(volume, force: false)) == nil {

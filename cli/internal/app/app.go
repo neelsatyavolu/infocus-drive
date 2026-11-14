@@ -91,6 +91,7 @@ func init() {
 		"get":         {cmdGet, "get PATH [LOCAL|-] [--force]", "Download a file (folders download as .zip)"},
 		"put":         {cmdPut, "put [-r] [--force] SRC... DEST", "Upload files, folders (-r) or stdin (-); resumes if interrupted"},
 		"sync":        {cmdSync, "sync LOCAL_DIR REMOTE_DIR [--dry-run]", "Upload new/changed files from a folder; never deletes"},
+		"backup":      {cmdBackup, "backup LOCAL_DIR REMOTE_DIR --state FILE [--delete-after 168h] [--exclude REL]... [--verify] [--progress]", "Back up a folder; files deleted locally are removed after --delete-after"},
 		"update":      {cmdUpdate, "update", "Update infocus to the latest release now"},
 		"config":      {cmdConfig, "config [auto-update on|off]", "Show or change CLI settings"},
 		"edit":        {cmdEdit, "edit PATH", "Edit a file in $EDITOR and save it back safely"},
@@ -107,7 +108,7 @@ func init() {
 
 var commandOrder = []string{
 	"login", "logout", "whoami", "move-server", "shares", "share", "unlock",
-	"ls", "tree", "search", "cat", "get", "put", "sync", "edit",
+	"ls", "tree", "search", "cat", "get", "put", "sync", "backup", "edit",
 	"mkdir", "mv", "rename", "rm", "webdav", "update", "config", "version", "help",
 }
 
@@ -117,6 +118,8 @@ type runner struct {
 	g      globals
 	cfg    config.Config
 	client *api.Client // set by signedIn()
+	// progressEvents: upload progress as JSON lines on stderr (backup --progress).
+	progressEvents bool
 }
 
 // usageError is a bad invocation (exit 2).

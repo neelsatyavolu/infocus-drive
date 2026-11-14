@@ -1,32 +1,23 @@
+import CryptoKit
 import Foundation
 
-/// Addresses baked in at build time: build.sh writes PORTAL_URL and DRIVE_URL
-/// into Info.plist (`InFocusPortalURL`, `InFocusDriveURL`), so the source has
-/// no hostnames. Either may be empty; then that part falls back (no Portal
-/// window, or Drive's "enter the address" onboarding). `InFocusLegacyHosts`
-/// (build.sh LEGACY_HOSTS, space-separated) lists old domains of both: their
-/// links, the saved Drive address and Portal sign-in move to the current ones.
+/// Values baked in at build time: build.sh writes DRIVE_URL into Info.plist
+/// (`InFocusDriveURL`), so the source has no hostnames. It may be empty; then
+/// Drive's "enter the address" onboarding shows. `InFocusLegacyHosts` (build.sh
+/// LEGACY_HOSTS, space-separated) lists old Drive domains: a saved address on
+/// one moves to the current one. `InFocusBackupUserHashes` (build.sh
+/// BACKUP_USERS) are SHA-256 hashes of the Drive usernames that see Mac backup.
 struct AppConfig: Equatable {
-    let portalURL: URL?
     let driveURL: URL?
     let legacyHosts: [String]
+    let backupUserHashes: Set<String>
 
     static let shared = AppConfig(info: Bundle.main.infoDictionary ?? [:])
 
     init(info: [String: Any]) {
-        portalURL = Self.origin(info["InFocusPortalURL"] as? String)
         driveURL = Self.origin(info["InFocusDriveURL"] as? String)
-        let raw = info["InFocusLegacyHosts"] as? String ?? ""
-        legacyHosts = raw.hasPrefix("__") ? [] : raw.split(whereSeparator: { $0 == " " || $0 == "," }).map { $0.lowercased() }
-    }
-
-    var portalHost: String? { portalURL?.host?.lowercased() }
-
-    /// `url` on an old domain → the same page on the Portal's domain (same
-    /// subdomain, path and query). Anything else is returned as is.
-    func onPortal(_ url: URL) -> URL {
-        guard let portalHost else { return url }
-        return Self.moved(url, to: portalHost, from: legacyHosts)
+        legacyHosts = Self.words(info["InFocusLegacyHosts"] as? String)
+        backupUserHashes = Set(Self.words(info["InFocusBackupUserHashes"] as? String))
     }
 
     /// True when `host` is one of the old domains or under one.
@@ -35,16 +26,24 @@ struct AppConfig: Equatable {
         return legacyHosts.contains { host == $0 || host.hasSuffix("." + $0) }
     }
 
-    static func moved(_ url: URL, to portalHost: String, from legacyHosts: [String]) -> URL {
-        guard let host = url.host?.lowercased(), !portalHost.isEmpty,
-              let legacy = legacyHosts.first(where: { host == $0 || host.hasSuffix("." + $0) }),
-              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return url }
-        parts.host = String(host.dropLast(legacy.count)) + portalHost
-        return parts.url ?? url
+    /// Mac backup is switched on for this Drive username.
+    func backupEnabled(for username: String) -> Bool {
+        backupUserHashes.contains(Self.hash(username))
+    }
+
+    static func hash(_ username: String) -> String {
+        SHA256.hash(data: Data(username.lowercased().utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Space- or comma-separated lowercase words; an unfilled placeholder is empty.
+    private static func words(_ raw: String?) -> [String] {
+        let raw = raw ?? ""
+        if raw.hasPrefix("__") { return [] }
+        return raw.split(whereSeparator: { $0 == " " || $0 == "," }).map { $0.lowercased() }
     }
 
     /// An https origin (scheme + host + port, no path); http only for localhost.
-    /// Empty values and unfilled build placeholders ("__PORTAL_URL__") are nil.
+    /// Empty values and unfilled build placeholders ("__DRIVE_URL__") are nil.
     static func origin(_ raw: String?) -> URL? {
         guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty, !raw.hasPrefix("__"),

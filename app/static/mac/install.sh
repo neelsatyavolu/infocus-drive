@@ -1,6 +1,6 @@
 #!/bin/sh
-# Install InFocus for Mac: the Portal in its own window, Mac notifications, and
-# your Drive in Finder (the app used to be called InFocus Drive).
+# Install InFocus for Mac: a menu-bar app that puts your Drive in Finder (the
+# app used to be called InFocus Drive).
 #   curl -fsSL <drive>/mac/install.sh | sh
 # Downloading with curl (not a browser) means macOS doesn't quarantine the app,
 # so it opens without a Gatekeeper prompt. Run it again to update.

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
@@ -13,6 +14,7 @@ type progress struct {
 	mu         sync.Mutex
 	w          io.Writer
 	enabled    bool
+	events     bool // JSON lines for the Mac app instead of a terminal line
 	totalFiles int
 	doneFiles  int
 	totalBytes int64
@@ -25,7 +27,8 @@ type progress struct {
 
 func (r *runner) newProgress(files int, bytes int64) *progress {
 	p := &progress{
-		w: r.env.Stderr, enabled: r.env.StderrIsTTY && !r.g.json,
+		w: r.env.Stderr, enabled: (r.env.StderrIsTTY && !r.g.json) || r.progressEvents,
+		events:     r.progressEvents,
 		totalFiles: files, totalBytes: bytes, started: time.Now(),
 	}
 	if p.enabled {
@@ -53,6 +56,13 @@ func (p *progress) loop() {
 
 // draw renders the line; the caller holds p.mu.
 func (p *progress) draw() {
+	if p.events {
+		writeEvent(p.w, map[string]any{
+			"event": "progress", "files_done": p.doneFiles, "files_total": p.totalFiles,
+			"bytes_done": p.doneBytes, "bytes_total": p.totalBytes, "current": p.current,
+		})
+		return
+	}
 	elapsed := time.Since(p.started).Seconds()
 	speed := 0.0
 	if elapsed > 0 {
@@ -87,7 +97,7 @@ func (p *progress) fileDone() {
 
 // note prints a message on its own line above the status line.
 func (p *progress) note(format string, args ...any) {
-	if !p.enabled {
+	if !p.enabled || p.events {
 		return
 	}
 	p.mu.Lock()
@@ -102,5 +112,18 @@ func (p *progress) finish() {
 	}
 	close(p.stop)
 	<-p.done
+	if p.events {
+		p.draw() // final counts
+		return
+	}
 	fmt.Fprint(p.w, "\r\033[K")
+}
+
+// writeEvent prints one JSON object per line (the Mac app reads these from stderr).
+func writeEvent(w io.Writer, event map[string]any) {
+	line, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "%s\n", line)
 }
