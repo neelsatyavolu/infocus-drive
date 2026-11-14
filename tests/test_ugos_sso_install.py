@@ -30,6 +30,15 @@ def test_root_redirect_changes_only_public_ugos_and_is_idempotent():
     assert installer.root_config(changed) == changed
 
 
+def test_public_host_gets_google_sign_in_and_old_hosts_are_sent_to_it():
+    assert installer.NEW_ROOT == (
+        'ngx.header["Location"] = (ngx.var.host == "ugos.infocuspaly.com") and "/infocus-sso/" or '
+        '(ngx.var.host == "ugos.infocusportal.com") and "https://ugos.infocuspaly.com/infocus-sso/" or '
+        '"/desktop/?os=ugospro"'
+    )
+    assert "if ($host != ugos.infocuspaly.com) { return 404; }" in installer.NGINX_BRIDGE
+
+
 def test_failed_atomic_replace_cleans_temp_for_rollback(tmp_path, monkeypatch):
     target = tmp_path / "config"
     target.write_text("original")
