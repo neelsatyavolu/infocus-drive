@@ -15,6 +15,10 @@ NGINX = Path("/etc/nginx/conf.d/infocus_sso.conf")
 ROOT_CONFIGS = [Path("/etc/nginx") / name for name in ("ugreen.conf", "ugreen_ssl.conf", "ugreen_ssl2.conf")]
 BACKUP = Path("/var/lib/infocus-ugos-sso")
 MARKER = "# InFocus Google sign-in"
+# The UGOS control panel's public hostname (UGOS_ADMIN_PATH in the Drive's .env)
+# and older ones whose root now sends people to it.
+PUBLIC_HOST = "ugos.infocuspaly.com"
+OLD_HOSTS = ("ugos.infocusportal.com",)
 PAM_BRIDGE = f'''{MARKER}
 auth [success=2 default=ignore] pam_exec.so quiet quiet_log expose_authtok /usr/bin/python3 -I {HELPER}
 auth substack common-auth-faillock
@@ -27,7 +31,7 @@ auth required pam_permit.so
 '''
 NGINX_BRIDGE = f'''{MARKER}
 location ^~ /infocus-sso/ {{
-    if ($host != ugos.infocusportal.com) {{ return 404; }}
+    if ($host != {PUBLIC_HOST}) {{ return 404; }}
     proxy_pass http://127.0.0.1:8787;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-Proto https;
@@ -38,7 +42,9 @@ location ^~ /infocus-sso/ {{
 }}
 '''
 OLD_ROOT = 'ngx.header["Location"] = "/desktop/?os=ugospro"'
-NEW_ROOT = 'ngx.header["Location"] = (ngx.var.host == "ugos.infocusportal.com") and "/infocus-sso/" or "/desktop/?os=ugospro"'
+NEW_ROOT = ('ngx.header["Location"] = (ngx.var.host == "' + PUBLIC_HOST + '") and "/infocus-sso/" or '
+            + "".join(f'(ngx.var.host == "{old}") and "https://{PUBLIC_HOST}/infocus-sso/" or ' for old in OLD_HOSTS)
+            + '"/desktop/?os=ugospro"')
 
 
 def pam_config(original):
