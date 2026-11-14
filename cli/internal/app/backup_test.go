@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -338,8 +339,8 @@ func (h *harness) signedInClient(t *testing.T) *api.Client {
 }
 
 func TestBackupReportsUnreadableFoldersAndKeepsGoing(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can read anything")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs chmod to make files unreadable (not root, not Windows)")
 	}
 	h := newHarness(t)
 	root := localTree(t, map[string]string{"a.txt": "a", "Private/p.txt": "p", "Library/x": "x"})
@@ -360,8 +361,8 @@ func TestBackupReportsUnreadableFoldersAndKeepsGoing(t *testing.T) {
 }
 
 func TestBackupAnUnreadableFileFailsAloneWhileOthersUpload(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can read anything")
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("needs chmod to make files unreadable (not root, not Windows)")
 	}
 	h := newHarness(t)
 	h.drive.dir("Backups")
