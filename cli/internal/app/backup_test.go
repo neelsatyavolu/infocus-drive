@@ -11,6 +11,7 @@ import (
 
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/api"
 	"github.com/neelsatyavolu/infocus-drive/cli/internal/config"
+	"github.com/neelsatyavolu/infocus-drive/cli/internal/transfer"
 )
 
 type backupOut struct {
@@ -334,4 +335,63 @@ func (h *harness) signedInClient(t *testing.T) *api.Client {
 		t.Fatal(err)
 	}
 	return client
+}
+
+func TestBackupReportsUnreadableFoldersAndKeepsGoing(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read anything")
+	}
+	h := newHarness(t)
+	root := localTree(t, map[string]string{"a.txt": "a", "Private/p.txt": "p", "Library/x": "x"})
+	private := filepath.Join(root, "Private")
+	os.Chmod(private, 0o000)
+	t.Cleanup(func() { os.Chmod(private, 0o755) })
+	h.env.Now = time.Now
+	h.mustRun(t, "--json", "backup", root, "Backups/Mac", "--state", filepath.Join(t.TempDir(), "s"), "--exclude", "Library")
+	var out struct {
+		Uploaded    int      `json:"uploaded"`
+		Unreadable  []string `json:"unreadable"`
+		UnreadableN int      `json:"unreadable_count"`
+	}
+	json.Unmarshal(h.stdout.Bytes(), &out)
+	if out.Uploaded != 1 || out.UnreadableN != 1 || strings.Join(out.Unreadable, ",") != "Private" {
+		t.Fatalf("%+v", out) // Library is excluded on purpose, not unreadable
+	}
+}
+
+func TestBackupAnUnreadableFileFailsAloneWhileOthersUpload(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read anything")
+	}
+	h := newHarness(t)
+	h.drive.dir("Backups")
+	h.drive.dir("Backups/Mac")
+	h.drive.put("Backups/Mac/locked.txt", "XXXX") // same size: needs a content check
+	root := localTree(t, map[string]string{"locked.txt": "YYYY", "new.txt": "n"})
+	locked := filepath.Join(root, "locked.txt")
+	os.Chmod(locked, 0o000)
+	t.Cleanup(func() { os.Chmod(locked, 0o644) })
+	h.env.Now = time.Now
+	if code := h.run("--json", "backup", root, "Backups/Mac", "--state", filepath.Join(t.TempDir(), "s")); code != ExitError {
+		t.Fatalf("exit %d: %s", code, h.stderr)
+	}
+	if h.data(t, "Backups/Mac/new.txt") != "n" {
+		t.Fatal("one unreadable file stopped the other uploads")
+	}
+}
+
+func TestBackupOneRunAtATimePerStateFile(t *testing.T) {
+	h := newHarness(t)
+	state := filepath.Join(t.TempDir(), "s.json")
+	unlock, err := transfer.LockBackupState(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if code := h.run("backup", localTree(t, map[string]string{"a": "a"}), "Backups", "--state", state); code == ExitOK {
+		t.Fatal("second run should refuse while the first holds the lock")
+	}
+	if !strings.Contains(h.stderr.String(), "another backup") {
+		t.Fatalf("stderr %s", h.stderr)
+	}
 }

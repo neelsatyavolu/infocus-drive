@@ -120,6 +120,9 @@ type BackupScan struct {
 	// told not to look into: unreadable, excluded, symlinks and junk. Files
 	// under them are never treated as deleted.
 	Unseen map[string]bool
+	// Unreadable are the paths among Unseen the scan was refused (not
+	// excluded or junk): the backup is incomplete until they can be read.
+	Unreadable []string
 }
 
 // Covers reports whether rel is one of the unseen paths or inside one.
@@ -162,6 +165,9 @@ func ScanBackup(root string, exclude []string) (BackupScan, error) {
 		rel = filepath.ToSlash(rel)
 		if err != nil || excluded[rel] || Skip(d.Name()) || d.Type()&fs.ModeSymlink != 0 {
 			scan.Unseen[rel] = true
+			if err != nil {
+				scan.Unreadable = append(scan.Unreadable, rel)
+			}
 			if d != nil && d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -173,6 +179,7 @@ func ScanBackup(root string, exclude []string) (BackupScan, error) {
 		fi, err := d.Info()
 		if err != nil {
 			scan.Unseen[rel] = true
+			scan.Unreadable = append(scan.Unreadable, rel)
 			return nil
 		}
 		scan.Files = append(scan.Files, File{

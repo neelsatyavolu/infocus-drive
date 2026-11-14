@@ -36,7 +36,12 @@ final class BackupController: ObservableObject {
         var failed = 0
         var conflicts = 0
         var noRecycleBin = false
+        var unreadable = 0
+        var unreadableSample: [String] = []
         var error: String?
+
+        /// Something wasn't backed up (the run itself may have finished).
+        var incomplete: Bool { failed > 0 || conflicts > 0 || unreadable > 0 }
     }
 
     nonisolated static let interval: TimeInterval = 60 * 60
@@ -245,10 +250,24 @@ final class BackupController: ObservableObject {
 
     /// Changes the settings; a new folder pair starts a fresh backup state.
     private func update(_ change: (inout Settings) -> Void) {
-        var next = settings ?? Settings(source: "", shareID: "", shareName: "", remotePath: "")
+        guard !isRunning else { return } // a run's result belongs to the folders it started with
+        let before = settings
+        var next = before ?? Settings(source: "", shareID: "", shareName: "", remotePath: "")
         change(&next)
         settings = next
         Self.save(next, key: "backupSettings")
+        if Self.pairChanged(before, next) {
+            // A new folder pair: the old result doesn't describe it, and it runs right away.
+            lastOutcome = nil
+            defaults.removeObject(forKey: "backupLastOutcome")
+            lastAttempt = nil
+            lastVerify = nil
+            runIfDue()
+        }
+    }
+
+    nonisolated static func pairChanged(_ a: Settings?, _ b: Settings) -> Bool {
+        a?.source != b.source || a?.shareID != b.shareID || a?.remotePath != b.remotePath
     }
 
     var isConfigured: Bool {
@@ -326,7 +345,9 @@ final class BackupController: ObservableObject {
                        unchanged: obj["unchanged"] as? Int ?? 0, deleted: list("deleted"),
                        pendingDelete: obj["pending_delete"] as? Int ?? 0,
                        failed: list("failed"), conflicts: list("conflicts"),
-                       noRecycleBin: obj["no_recycle_bin"] as? Bool ?? false)
+                       noRecycleBin: obj["no_recycle_bin"] as? Bool ?? false,
+                       unreadable: obj["unreadable_count"] as? Int ?? 0,
+                       unreadableSample: Array(((obj["unreadable"] as? [String]) ?? []).prefix(3)))
     }
 
     private static func load<T: Decodable>(_ type: T.Type, key: String) -> T? {

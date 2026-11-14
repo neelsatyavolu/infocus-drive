@@ -2,9 +2,24 @@
 
 package transfer
 
-import "os"
+import (
+	"errors"
+	"os"
 
-// Backups are a Mac app feature; on Windows runs aren't locked against each other.
-func lockFile(*os.File) error { return nil }
+	"golang.org/x/sys/windows"
+)
 
-func unlockFile(*os.File) {}
+func lockFile(f *os.File) error {
+	var overlapped windows.Overlapped
+	err := windows.LockFileEx(windows.Handle(f.Fd()),
+		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &overlapped)
+	if errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
+		return ErrBackupRunning
+	}
+	return err
+}
+
+func unlockFile(f *os.File) {
+	var overlapped windows.Overlapped
+	_ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, &overlapped)
+}

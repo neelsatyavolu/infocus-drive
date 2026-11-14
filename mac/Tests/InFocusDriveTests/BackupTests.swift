@@ -87,3 +87,26 @@ final class BackupSetupTests: XCTestCase {
         XCTAssertTrue(outcome.noRecycleBin)
     }
 }
+
+final class BackupOutcomeTests: XCTestCase {
+    func testConflictsAndUnreadableFoldersMeanPartlyBackedUp() throws {
+        let conflicts = try XCTUnwrap(BackupController.outcome(stdout: Data(#"{"conflicts":["a"],"failed":[]}"#.utf8), at: Date()))
+        XCTAssertTrue(conflicts.incomplete)
+        let unread = try XCTUnwrap(BackupController.outcome(
+            stdout: Data(#"{"unreadable":["Documents","Desktop"],"unreadable_count":2}"#.utf8), at: Date()))
+        XCTAssertTrue(unread.incomplete)
+        XCTAssertEqual(unread.unreadableSample, ["Documents", "Desktop"])
+        XCTAssertFalse(try XCTUnwrap(BackupController.outcome(stdout: Data(#"{"uploaded":1}"#.utf8), at: Date())).incomplete)
+    }
+
+    func testANewFolderPairStartsOver() {
+        let a = BackupController.Settings(source: "/Users/student1", shareID: "~student1", shareName: "student1", remotePath: "B")
+        var toggled = a
+        toggled.automatic = false
+        XCTAssertFalse(BackupController.pairChanged(a, toggled))
+        var moved = a
+        moved.remotePath = "C"
+        XCTAssertTrue(BackupController.pairChanged(a, moved))
+        XCTAssertTrue(BackupController.pairChanged(nil, a))
+    }
+}

@@ -56,6 +56,8 @@ type backupResult struct {
 	Conflicts     []string       `json:"conflicts"`
 	Failed        []failedUpload `json:"failed"`
 	Unseen        int            `json:"unseen"`
+	Unreadable    []string       `json:"unreadable"` // local paths it couldn't read (first 50)
+	UnreadableN   int            `json:"unreadable_count"`
 	NoRecycleBin  bool           `json:"no_recycle_bin,omitempty"` // deletions held: the share has no Recycle bin
 	Verified      bool           `json:"verified"`
 	ElapsedMS     int64          `json:"elapsed_ms"`
@@ -229,6 +231,17 @@ func cmdBackup(ctx context.Context, r *runner, args []string) error {
 	if err != nil {
 		return err
 	}
+	if client.Share == "" {
+		// The server picks a default share; pin it so the state can't match another one.
+		me, err := client.Me(ctx)
+		if err != nil {
+			return err
+		}
+		if me.Share == "" {
+			return usagef("choose a share with --share")
+		}
+		client.Share = me.Share
+	}
 	started := time.Now()
 	state, err := transfer.LoadBackupState(*stateFile, client.Base.String(), client.Share, localRoot, root)
 	if err != nil {
@@ -254,14 +267,15 @@ func cmdBackup(ctx context.Context, r *runner, args []string) error {
 		return err
 	}
 	plan := planBackup(in)
-	if err := compareBackup(ctx, client, &plan, state); err != nil {
+	unreadFiles, err := compareBackup(ctx, client, &plan, state)
+	if err != nil {
 		return err
 	}
 
 	r.phase("uploading")
 	ready, mkdirFailed := ensureBackupDirs(ctx, client, plan.jobs, in.index)
 	batch := r.runUploads(ctx, client, ready)
-	batch.Failed = append(batch.Failed, mkdirFailed...)
+	batch.Failed = append(append(batch.Failed, mkdirFailed...), unreadFiles...)
 
 	r.phase("deleting")
 	noRecycle := false
@@ -314,7 +328,8 @@ func cmdBackup(ctx context.Context, r *runner, args []string) error {
 		Unchanged: plan.unchanged, Deleted: deleted, PendingDelete: plan.pending,
 		Conflicts: append(append(plan.conflicts, batch.Conflicts...), batch.Exists...), Failed: failed,
 		Unseen: len(scan.Unseen), Verified: in.full, ElapsedMS: time.Since(started).Milliseconds(),
-		NoRecycleBin: noRecycle,
+		NoRecycleBin: noRecycle, Unreadable: scan.Unreadable[:min(len(scan.Unreadable), 50)],
+		UnreadableN: len(scan.Unreadable),
 	}
 	if err := r.emit(result, func(w io.Writer) {
 		fmt.Fprintf(w, "Backed up %d file(s) (%s), %d unchanged, in %s\n", result.Uploaded, formatSize(result.Bytes),
@@ -330,6 +345,12 @@ func cmdBackup(ctx context.Context, r *runner, args []string) error {
 		}
 		for _, p := range result.Conflicts {
 			fmt.Fprintf(w, "Conflict, skipped: %s\n", p)
+		}
+		if result.UnreadableN > 0 {
+			fmt.Fprintf(w, "Couldn't read %d item(s), not backed up (check permissions):\n", result.UnreadableN)
+			for _, p := range result.Unreadable {
+				fmt.Fprintf(w, "  %s\n", p)
+			}
 		}
 		for _, f := range result.Failed {
 			fmt.Fprintf(w, "Failed: %s: %s\n", f.Path, f.Error)
@@ -441,8 +462,11 @@ func listDirs(ctx context.Context, client *api.Client, dirs []string) (map[strin
 }
 
 // compareBackup fingerprints same-size files (first runs, or a touched file
-// with the same size): identical ones are kept, the rest become uploads.
-func compareBackup(ctx context.Context, client *api.Client, plan *backupPlan, state transfer.BackupState) error {
+// with the same size): identical ones are kept, the rest become uploads. A
+// local file it can't read fails on its own (keeping its old record); a Drive
+// error stops the run.
+func compareBackup(ctx context.Context, client *api.Client, plan *backupPlan, state transfer.BackupState) ([]failedUpload, error) {
+	var unread []failedUpload
 	var (
 		mu       sync.Mutex
 		wg       sync.WaitGroup
@@ -454,11 +478,16 @@ func compareBackup(ctx context.Context, client *api.Client, plan *backupPlan, st
 		go func(job uploadJob) {
 			defer wg.Done()
 			sem <- struct{}{}
-			same, err := sameContent(ctx, client, job.file, job.file.Remote)
+			same, localErr, err := compareOne(ctx, client, job.file)
 			<-sem
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
+			case localErr != nil:
+				unread = append(unread, failedUpload{job.file.Remote, localErr.Error()})
+				if prev, known := state.Files[job.file.Rel]; known {
+					plan.keep[job.file.Rel] = prev
+				}
 			case err != nil:
 				if firstErr == nil {
 					firstErr = err
@@ -476,7 +505,20 @@ func compareBackup(ctx context.Context, client *api.Client, plan *backupPlan, st
 	}
 	wg.Wait()
 	plan.compare = nil
-	return firstErr
+	return unread, firstErr
+}
+
+// compareOne: same content on both sides? localErr = this Mac's file couldn't be read.
+func compareOne(ctx context.Context, client *api.Client, f transfer.File) (same bool, localErr, err error) {
+	remoteFP, err := client.Fingerprint(ctx, f.Remote, f.Size)
+	if err != nil || remoteFP == "" {
+		return false, nil, err
+	}
+	localFP, localErr := transfer.Fingerprint(f.Local)
+	if localErr != nil {
+		return false, localErr, nil
+	}
+	return localFP == remoteFP, nil, nil
 }
 
 // ensureBackupDirs creates the Drive folders the uploads need. A folder that

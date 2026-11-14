@@ -9,6 +9,7 @@ struct MainWindowView: View {
         VStack(spacing: 0) {
             header
             if drive.hasServer {
+                FitScroll {
                 HStack(alignment: .top, spacing: 20) {
                     VStack(alignment: .leading, spacing: 16) {
                         HeroCard(drive: drive)
@@ -28,6 +29,7 @@ struct MainWindowView: View {
                     .frame(width: 360)
                 }
                 .padding(20)
+                }
             } else {
                 Onboarding(drive: drive)
                     .frame(width: 380)
@@ -156,4 +158,31 @@ private struct SettingToggle: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
     }
+}
+
+/// Sized to its content, scrolling only when that's taller than the screen
+/// (the window isn't resizable, so nothing may end up out of reach).
+struct FitScroll<Content: View>: View {
+    @ViewBuilder let content: Content
+    @State private var height: CGFloat?
+
+    var body: some View {
+        ScrollView(.vertical) {
+            content.background(GeometryReader { proxy in
+                Color.clear.preference(key: ContentHeightKey.self, value: proxy.size.height)
+            })
+        }
+        .frame(height: min(height ?? Self.maxHeight, Self.maxHeight))
+        .onPreferenceChange(ContentHeightKey.self) { height = $0 }
+    }
+
+    /// The screen's usable height, less the window's title bar and header.
+    static var maxHeight: CGFloat {
+        (NSScreen.main?.visibleFrame.height ?? 800) - 120
+    }
+}
+
+private struct ContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

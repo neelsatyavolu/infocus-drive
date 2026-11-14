@@ -105,7 +105,12 @@ folder in one of your writable shares, picked in the mounted volume), and it run
   stay and the status says so); folders it can't read (macOS privacy) or that are left out are
   never treated as deleted; an empty source folder never deletes anything.
 - Backing up the home folder leaves out `Library`, `.Trash` and a few caches.
-  macOS may ask once to let InFocus read Desktop, Documents and Downloads.
+  macOS may ask once to let InFocus read Desktop, Documents and Downloads. Folders
+  it isn't allowed to read show as **Partly backed up** with their names (allow
+  InFocus under Privacy & Security → Full Disk Access); conflicts and failed files
+  show the same way, and the next run retries them.
+- Changing either folder starts over: the old result is cleared and a run starts
+  right away. The folders can't be changed while a backup runs.
 - Updates wait for a running backup; Quit Completely stops it (the next run picks up
   where it stopped).
 

@@ -108,6 +108,9 @@ enum PreviewRenderer {
         let host = NSHostingView(rootView: view)
         host.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
+        host.layoutSubtreeIfNeeded() // FitScroll measures its content, then sizes again
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        host.frame = NSRect(origin: .zero, size: host.fittingSize)
         let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = host.appearance
         window.contentView = host

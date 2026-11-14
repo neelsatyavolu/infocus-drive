@@ -23,10 +23,10 @@ struct BackupSection: View {
                     Rectangle().fill(Brand.border).frame(height: 1)
                 }
                 PathRow(symbol: "laptopcomputer", title: "From", value: sourceText,
-                        action: "Choose…", enabled: true) { backup.chooseSource() }
+                        action: "Choose…", enabled: !backup.isRunning) { backup.chooseSource() }
                 Rectangle().fill(Brand.border).frame(height: 1)
                 PathRow(symbol: "externaldrive", title: "To", value: destinationText,
-                        action: "Choose…", enabled: drive.connectedVolume != nil,
+                        action: "Choose…", enabled: drive.connectedVolume != nil && !backup.isRunning,
                         help: drive.connectedVolume == nil ? "Connect the Drive first" : nil) { backup.chooseDestination() }
                 if backup.isConfigured {
                     Rectangle().fill(Brand.border).frame(height: 1)
@@ -142,7 +142,7 @@ struct BackupStatusRow: View {
 
     private var isError: Bool {
         guard !backup.isRunning, let last = backup.lastOutcome else { return false }
-        return last.error != nil || last.failed > 0
+        return last.error != nil || last.incomplete
     }
 
     private var icon: String {
@@ -170,7 +170,7 @@ struct BackupStatusRow: View {
             ? Formatting.time(last.finishedAt)
             : last.finishedAt.formatted(date: .abbreviated, time: .shortened)
         if last.error != nil { return "Last try " + when }
-        return (last.failed > 0 ? "Partly backed up " : "Backed up ") + when
+        return (last.incomplete ? "Partly backed up " : "Backed up ") + when
     }
 
     private var detail: String? {
@@ -190,6 +190,10 @@ struct BackupStatusRow: View {
             parts.append("\(last.pendingDelete) deleted here, removed after a week")
         }
         if last.failed > 0 { parts.append("\(last.failed) failed, retried next time") }
+        if last.unreadable > 0 {
+            let names = last.unreadableSample.joined(separator: ", ")
+            parts.append("couldn't read \(last.unreadable.formatted()) (\(names)); allow InFocus in System Settings → Privacy & Security → Full Disk Access")
+        }
         if last.conflicts > 0 { parts.append("\(last.conflicts) skipped (a folder is in the way)") }
         return parts.joined(separator: " · ")
     }
