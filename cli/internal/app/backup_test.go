@@ -396,3 +396,34 @@ func TestBackupOneRunAtATimePerStateFile(t *testing.T) {
 		t.Fatalf("stderr %s", h.stderr)
 	}
 }
+
+func TestBackupRidesOutABriefDriveBlip(t *testing.T) {
+	backupRetryDelays = []time.Duration{time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { backupRetryDelays = defaultBackupRetryDelays })
+	h := newHarness(t)
+	root := localTree(t, map[string]string{"a.txt": "a", "Docs/b.txt": "bb"})
+	state := filepath.Join(t.TempDir(), "state.json")
+	now := time.Unix(1_800_000_000, 0)
+
+	h.drive.failLists = 2 // the full first-run index
+	if first := h.backup(t, now, root, state); first.Uploaded != 2 {
+		t.Fatalf("first run %+v", first)
+	}
+	touch(t, filepath.Join(root, "Docs/b.txt"), "changed", now.Add(time.Hour))
+	h.drive.failLists = 2 // a quick run's folder listings
+	if quick := h.backup(t, now.Add(time.Hour), root, state); quick.Uploaded != 1 {
+		t.Fatalf("quick run %+v", quick)
+	}
+}
+
+func TestBackupGivesUpWhenTheDriveStaysDown(t *testing.T) {
+	backupRetryDelays = []time.Duration{time.Millisecond}
+	t.Cleanup(func() { backupRetryDelays = defaultBackupRetryDelays })
+	h := newHarness(t)
+	root := localTree(t, map[string]string{"a.txt": "a"})
+	h.drive.failLists = 100
+	h.env.Now = time.Now
+	if code := h.run("--json", "backup", root, "Backups/Mac", "--state", filepath.Join(t.TempDir(), "s.json")); code == 0 {
+		t.Fatal("backup succeeded while every listing failed")
+	}
+}

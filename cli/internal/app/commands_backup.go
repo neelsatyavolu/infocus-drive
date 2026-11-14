@@ -31,6 +31,49 @@ const (
 	backupCompareWorkers = 4
 )
 
+// A run can make thousands of Drive requests, and now and then one fails for
+// a moment: a network timeout, or a 5xx while the NAS checks the personal
+// folder with UGOS. Each read is retried after these waits before the run
+// gives up.
+var (
+	defaultBackupRetryDelays = []time.Duration{time.Second, 3 * time.Second, 10 * time.Second}
+	backupRetryDelays        = defaultBackupRetryDelays
+)
+
+// withRetry runs call again after a passing failure (see backupRetryDelays).
+func withRetry[T any](ctx context.Context, call func() (T, error)) (T, error) {
+	v, err := call()
+	for _, wait := range backupRetryDelays {
+		if err == nil || !passingFailure(err) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return v, err
+		case <-time.After(wait):
+		}
+		v, err = call()
+	}
+	return v, err
+}
+
+// passingFailure: worth asking again. Drive answers below 500 (not found,
+// signed out, locked folder) are final; so is a cancelled run.
+func passingFailure(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var apiErr *api.Error
+	if errors.As(err, &apiErr) {
+		return apiErr.Status >= 500 || apiErr.Status == http.StatusTooManyRequests
+	}
+	return true
+}
+
+func listWithRetry(ctx context.Context, client *api.Client, dir string) (api.Listing, error) {
+	return withRetry(ctx, func() (api.Listing, error) { return client.List(ctx, dir) })
+}
+
 type backupDelete struct {
 	rel, remote string
 	mtimeNS     int64 // the Drive copy must still have this mtime
@@ -392,7 +435,7 @@ func parallelRemoteIndex(ctx context.Context, client *api.Client, root string) (
 	walk = func(dir string) {
 		defer wg.Done()
 		sem <- struct{}{}
-		listing, err := client.List(ctx, dir)
+		listing, err := listWithRetry(ctx, client, dir)
 		<-sem
 		mu.Lock()
 		defer mu.Unlock()
@@ -435,7 +478,7 @@ func listDirs(ctx context.Context, client *api.Client, dirs []string) (map[strin
 		go func(dir string) {
 			defer wg.Done()
 			sem <- struct{}{}
-			listing, err := client.List(ctx, dir)
+			listing, err := listWithRetry(ctx, client, dir)
 			<-sem
 			mu.Lock()
 			defer mu.Unlock()
@@ -510,7 +553,7 @@ func compareBackup(ctx context.Context, client *api.Client, plan *backupPlan, st
 
 // compareOne: same content on both sides? localErr = this Mac's file couldn't be read.
 func compareOne(ctx context.Context, client *api.Client, f transfer.File) (same bool, localErr, err error) {
-	remoteFP, err := client.Fingerprint(ctx, f.Remote, f.Size)
+	remoteFP, err := withRetry(ctx, func() (string, error) { return client.Fingerprint(ctx, f.Remote, f.Size) })
 	if err != nil || remoteFP == "" {
 		return false, nil, err
 	}
@@ -553,7 +596,7 @@ func ensureBackupDirs(ctx context.Context, client *api.Client, jobs []uploadJob,
 
 // lacksRecycleBin: the share root has no #recycle folder, so a delete would be permanent.
 func lacksRecycleBin(ctx context.Context, client *api.Client) (bool, error) {
-	listing, err := client.List(ctx, "")
+	listing, err := listWithRetry(ctx, client, "")
 	if err != nil {
 		return true, err
 	}
