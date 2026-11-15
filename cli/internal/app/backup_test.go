@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -394,5 +395,75 @@ func TestBackupOneRunAtATimePerStateFile(t *testing.T) {
 	}
 	if !strings.Contains(h.stderr.String(), "another backup") {
 		t.Fatalf("stderr %s", h.stderr)
+	}
+}
+
+func TestBackupRidesOutABriefDriveBlip(t *testing.T) {
+	backupRetryDelays = []time.Duration{time.Millisecond, time.Millisecond}
+	t.Cleanup(func() { backupRetryDelays = defaultBackupRetryDelays })
+	h := newHarness(t)
+	root := localTree(t, map[string]string{"a.txt": "a", "Docs/b.txt": "bb"})
+	state := filepath.Join(t.TempDir(), "state.json")
+	now := time.Unix(1_800_000_000, 0)
+
+	h.drive.failLists = 2 // the full first-run index
+	if first := h.backup(t, now, root, state); first.Uploaded != 2 {
+		t.Fatalf("first run %+v", first)
+	}
+	touch(t, filepath.Join(root, "Docs/b.txt"), "changed", now.Add(time.Hour))
+	h.drive.failLists = 2 // a quick run's folder listings
+	if quick := h.backup(t, now.Add(time.Hour), root, state); quick.Uploaded != 1 {
+		t.Fatalf("quick run %+v", quick)
+	}
+}
+
+func TestBackupGivesUpWhenTheDriveStaysDown(t *testing.T) {
+	backupRetryDelays = []time.Duration{time.Millisecond}
+	t.Cleanup(func() { backupRetryDelays = defaultBackupRetryDelays })
+	h := newHarness(t)
+	root := localTree(t, map[string]string{"a.txt": "a"})
+	h.drive.failLists = 100
+	h.env.Now = time.Now
+	if code := h.run("--json", "backup", root, "Backups/Mac", "--state", filepath.Join(t.TempDir(), "s.json")); code == 0 {
+		t.Fatal("backup succeeded while every listing failed")
+	}
+}
+
+func TestBackupStopsQueuedListingsAfterAFinalFailure(t *testing.T) {
+	backupRetryDelays = []time.Duration{20 * time.Millisecond, 20 * time.Millisecond}
+	t.Cleanup(func() { backupRetryDelays = defaultBackupRetryDelays })
+	h := newHarness(t)
+	client := h.signedInClient(t)
+	client.Share = h.drive.lastShare
+	dirs := make([]string, 200)
+	for i := range dirs {
+		dirs[i] = fmt.Sprintf("Backups/Mac/d%03d", i)
+	}
+	const down = 1_000_000
+	h.drive.failLists = down
+	if _, err := listDirs(context.Background(), client, dirs); err == nil {
+		t.Fatal("listing succeeded while the Drive was down")
+	}
+	// Each worker gives up once (3 tries); the other folders are never asked for.
+	h.drive.mu.Lock()
+	asked := down - h.drive.failLists
+	h.drive.mu.Unlock()
+	if asked > backupListWorkers*(len(backupRetryDelays)+1) {
+		t.Fatalf("%d listings after the Drive went down", asked)
+	}
+}
+
+func TestBackupRetriesAConnectionTimeoutWhileTheRunIsLive(t *testing.T) {
+	dialTimeout := fmt.Errorf("dial tcp: i/o timeout: %w", context.DeadlineExceeded)
+	if !passingFailure(context.Background(), dialTimeout) {
+		t.Fatal("a connection timeout should be retried")
+	}
+	stopped, cancel := context.WithCancel(context.Background())
+	cancel()
+	if passingFailure(stopped, dialTimeout) {
+		t.Fatal("a stopped run should not retry")
+	}
+	if passingFailure(context.Background(), &api.Error{Status: 404}) {
+		t.Fatal("not found is final")
 	}
 }
