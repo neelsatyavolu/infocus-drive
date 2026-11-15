@@ -17,6 +17,7 @@ from pathlib import Path
 from cryptography.fernet import Fernet
 
 from config import get_settings
+from fsops import as_root
 from ugos_api import UgosClient, UgosError
 
 SERVICE_USERNAME = "infocus-drive-svc"
@@ -50,6 +51,16 @@ class PersonalFolders:
 
     @contextmanager
     def _db(self):
+        # as_root: fsops.as_user() changes the euid of the whole process, so
+        # another request writing as a student would make this root-only file
+        # (and its journal) unreadable mid-open. as_root() holds the file lock
+        # every file operation uses: keep these blocks short, never nest them
+        # and never ask UGOS inside one.
+        with as_root(), self._open_db() as db:
+            yield db
+
+    @contextmanager
+    def _open_db(self):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         # Owner UGOS sessions live in this file. Refuse to open it if other
         # users can read it. O_NOFOLLOW: a planted symlink is not the database.
@@ -115,8 +126,7 @@ class PersonalFolders:
             try:
                 client = self.client_factory()
                 state = client.personal_status(path)
-                with self._db() as db:
-                    result = self._settle(db, client, owner, path, state)
+                result = self._settle(client, owner, path, state)
             except Exception:
                 self._remember(owner, None)
                 raise
@@ -151,30 +161,36 @@ class PersonalFolders:
                 try:
                     # A path missing from the batch is asked for alone, as before.
                     state = states[path] if path in states else client.personal_status(path)
-                    with self._db() as db:
-                        results[owner] = self._settle(db, client, owner, path, state)
+                    results[owner] = self._settle(client, owner, path, state)
                     self._remember(owner, results[owner])
                 except Exception as e:
                     self._remember(owner, None)
                     results[owner] = e
             return results
 
-    def _settle(self, db, client, owner, path, state):
-        """Apply the 24-hour lease to a UGOS state and describe the folder."""
-        row = db.execute("SELECT expires FROM unlocks WHERE owner=?", (owner,)).fetchone()
-        expires = row[0] if row else None
-        if state == 4:
-            if expires is None:
-                expires = self.clock() + UNLOCK_SECONDS
-                db.execute("INSERT INTO unlocks VALUES (?, ?)", (owner, expires))
-            elif self.clock() >= expires:
-                # Never renew an expired lease, even if UGOS refuses a busy unmount.
-                self._operate(owner, "lock_personal", path)
-                state = client.personal_status(path)
-                if state != 3:
-                    raise RuntimeError("Personal folder is waiting to relock")
+    def _settle(self, client, owner, path, state):
+        """Apply the 24-hour lease to a UGOS state and describe the folder.
+
+        Database steps and UGOS calls take turns (see _db)."""
+        relock = False
+        with self._db() as db:
+            row = db.execute("SELECT expires FROM unlocks WHERE owner=?", (owner,)).fetchone()
+            expires = row[0] if row else None
+            if state == 4:
+                if expires is None:
+                    expires = self.clock() + UNLOCK_SECONDS
+                    db.execute("INSERT INTO unlocks VALUES (?, ?)", (owner, expires))
+                elif self.clock() >= expires:
+                    relock = True
+        if relock:
+            # Never renew an expired lease, even if UGOS refuses a busy unmount.
+            self._operate(owner, "lock_personal", path)
+            state = client.personal_status(path)
+            if state != 3:
+                raise RuntimeError("Personal folder is waiting to relock")
         if state in (0, 3):
-            db.execute("DELETE FROM unlocks WHERE owner=?", (owner,))
+            with self._db() as db:
+                db.execute("DELETE FROM unlocks WHERE owner=?", (owner,))
             expires = None
         return {"encrypted": state != 0, "locked": state not in (0, 4),
                 "expires_at": expires, "state": state}

@@ -249,3 +249,55 @@ def test_reused_answer_never_outlives_the_lease(tmp_path):
     now[0] = 86401  # 6 s later: fresh enough, but the lease is over
     assert manager.status('nasadmin')['locked'] is True
     assert nas.locks == 1
+
+
+def test_state_database_is_opened_as_root_and_never_during_ugos_calls(tmp_path, monkeypatch):
+    """as_user() changes the euid of the whole process, so the root-only state
+    file must be opened under as_root(). That lock isn't reentrant and also
+    guards every file operation: no nesting, and no UGOS round trip inside it."""
+    import contextlib
+    import sqlite3
+    import personal_folders as pf
+
+    held = []
+
+    @contextlib.contextmanager
+    def fake_root():
+        assert not held, "as_root() entered twice: the real lock would deadlock"
+        held.append(True)
+        try:
+            yield
+        finally:
+            held.pop()
+
+    real_connect = sqlite3.connect
+
+    def connect(*args, **kwargs):
+        assert held, "state database opened without as_root()"
+        return real_connect(*args, **kwargs)
+
+    class WatchedNAS(NAS):
+        def personal_status(self, path):
+            assert not held, "UGOS asked while holding the file lock"
+            return super().personal_status(path)
+
+        def personal_statuses(self, paths):
+            assert not held, "UGOS asked while holding the file lock"
+            return {p: self.state for p in paths}
+
+        def lock_personal(self, path):
+            assert not held, "UGOS asked while holding the file lock"
+            super().lock_personal(path)
+
+    monkeypatch.setattr(pf, "as_root", fake_root)
+    monkeypatch.setattr(pf.sqlite3, "connect", connect)
+    nas = WatchedNAS()
+    now = [100.0]
+    manager = PersonalFolders(tmp_path / "s.sqlite", lambda: nas, clock=lambda: now[0])
+
+    assert manager.status("nasadmin")["locked"] is False  # unlocked: lease starts
+    now[0] += pf.UNLOCK_SECONDS + 1
+    manager.expire()  # lease ran out: relocks through UGOS
+    assert nas.locks == 1
+    assert manager.statuses(["nasadmin"])["nasadmin"]["locked"] is True
+    manager.keepalive()
