@@ -42,9 +42,13 @@ var (
 
 // withRetry runs call again after a passing failure (see backupRetryDelays).
 func withRetry[T any](ctx context.Context, call func() (T, error)) (T, error) {
+	if err := ctx.Err(); err != nil {
+		var zero T
+		return zero, err
+	}
 	v, err := call()
 	for _, wait := range backupRetryDelays {
-		if err == nil || !passingFailure(err) {
+		if err == nil || !passingFailure(ctx, err) {
 			break
 		}
 		select {
@@ -58,9 +62,10 @@ func withRetry[T any](ctx context.Context, call func() (T, error)) (T, error) {
 }
 
 // passingFailure: worth asking again. Drive answers below 500 (not found,
-// signed out, locked folder) are final; so is a cancelled run.
-func passingFailure(err error) bool {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+// signed out, locked folder) are final; so is a stopped run. (A connection
+// timeout also reads as context.DeadlineExceeded, so ask ctx, not err.)
+func passingFailure(ctx context.Context, err error) bool {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 		return false
 	}
 	var apiErr *api.Error
@@ -424,6 +429,8 @@ func (r *runner) phase(name string) {
 // parallelRemoteIndex lists everything under root, several folders at a time.
 // A missing root is an empty index.
 func parallelRemoteIndex(ctx context.Context, client *api.Client, root string) (map[string]api.Entry, error) {
+	ctx, stop := context.WithCancel(ctx) // after a final error the rest don't wait out retries
+	defer stop()
 	index := map[string]api.Entry{}
 	var (
 		mu       sync.Mutex
@@ -443,6 +450,7 @@ func parallelRemoteIndex(ctx context.Context, client *api.Client, root string) (
 			var apiErr *api.Error
 			if !(dir == root && errors.As(err, &apiErr) && apiErr.Status == http.StatusNotFound) && firstErr == nil {
 				firstErr = err
+				stop()
 			}
 			return
 		}
@@ -466,6 +474,8 @@ func parallelRemoteIndex(ctx context.Context, client *api.Client, root string) (
 // listDirs lists just these folders (a missing one lists as empty). Each
 // listed folder is in the index too, so creating it again is skipped.
 func listDirs(ctx context.Context, client *api.Client, dirs []string) (map[string]api.Entry, error) {
+	ctx, stop := context.WithCancel(ctx) // after a final error the rest don't wait out retries
+	defer stop()
 	index := map[string]api.Entry{}
 	var (
 		mu       sync.Mutex
@@ -489,6 +499,7 @@ func listDirs(ctx context.Context, client *api.Client, dirs []string) (map[strin
 			if err != nil {
 				if firstErr == nil {
 					firstErr = err
+					stop()
 				}
 				return
 			}
@@ -509,6 +520,8 @@ func listDirs(ctx context.Context, client *api.Client, dirs []string) (map[strin
 // local file it can't read fails on its own (keeping its old record); a Drive
 // error stops the run.
 func compareBackup(ctx context.Context, client *api.Client, plan *backupPlan, state transfer.BackupState) ([]failedUpload, error) {
+	ctx, stop := context.WithCancel(ctx) // after a final error the rest don't wait out retries
+	defer stop()
 	var unread []failedUpload
 	var (
 		mu       sync.Mutex
@@ -534,6 +547,7 @@ func compareBackup(ctx context.Context, client *api.Client, plan *backupPlan, st
 			case err != nil:
 				if firstErr == nil {
 					firstErr = err
+					stop()
 				}
 			case same:
 				// Identical content doesn't make it ours: ownership only carries over.
