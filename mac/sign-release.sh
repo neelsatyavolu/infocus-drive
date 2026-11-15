@@ -44,7 +44,7 @@ fi
 echo "== 1/5 load Developer ID + notary credentials (1Password)"
 # shellcheck disable=SC1090
 source "$LOADER"
-trap 'strix_cleanup_apple_creds >/dev/null 2>&1 || true' EXIT
+trap 'rc=$?; strix_cleanup_apple_creds >/dev/null 2>&1 || true; exit $rc' EXIT
 IDENTITY="${APPLE_SIGNING_IDENTITY:?loader did not set APPLE_SIGNING_IDENTITY}"
 KEYCHAIN_ARGS=()
 [ -n "${STRIX_SIGN_KEYCHAIN:-}" ] && KEYCHAIN_ARGS=(--keychain "$STRIX_SIGN_KEYCHAIN")
@@ -55,7 +55,7 @@ ISSUER="${APPLE_API_ISSUER:?notary issuer missing}"
 echo "== 2/5 build $VERSION and sign with $IDENTITY"
 VERSION="$VERSION" ./build.sh # DRIVE_URL / LEGACY_HOSTS / BACKUP_USERS come from the environment
 sign() {
-  codesign --force --timestamp --options runtime --sign "$IDENTITY" "${KEYCHAIN_ARGS[@]}" "$@"
+  codesign --force --timestamp --options runtime --sign "$IDENTITY" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} "$@"
 }
 sign "$APP/Contents/MacOS/infocus" # nested code first, then the bundle
 sign "$APP"
