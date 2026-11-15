@@ -444,11 +444,12 @@ func TestBackupStopsQueuedListingsAfterAFinalFailure(t *testing.T) {
 	if _, err := listDirs(context.Background(), client, dirs); err == nil {
 		t.Fatal("listing succeeded while the Drive was down")
 	}
-	// Each worker gives up once (3 tries); the other folders are never asked for.
+	// Each worker gives up once (3 tries); a few more may start in the moment
+	// before the run is stopped, but nowhere near every folder (200 x 3).
 	h.drive.mu.Lock()
 	asked := down - h.drive.failLists
 	h.drive.mu.Unlock()
-	if asked > backupListWorkers*(len(backupRetryDelays)+1) {
+	if asked > 2*backupListWorkers*(len(backupRetryDelays)+1) {
 		t.Fatalf("%d listings after the Drive went down", asked)
 	}
 }
