@@ -276,6 +276,8 @@ def test_state_database_is_opened_as_root_and_never_during_ugos_calls(tmp_path, 
         assert held, "state database opened without as_root()"
         return real_connect(*args, **kwargs)
 
+    batch_calls = []
+
     class WatchedNAS(NAS):
         def personal_status(self, path):
             assert not held, "UGOS asked while holding the file lock"
@@ -283,6 +285,7 @@ def test_state_database_is_opened_as_root_and_never_during_ugos_calls(tmp_path, 
 
         def personal_statuses(self, paths):
             assert not held, "UGOS asked while holding the file lock"
+            batch_calls.append(list(paths))
             return {p: self.state for p in paths}
 
         def lock_personal(self, path):
@@ -299,5 +302,7 @@ def test_state_database_is_opened_as_root_and_never_during_ugos_calls(tmp_path, 
     now[0] += pf.UNLOCK_SECONDS + 1
     manager.expire()  # lease ran out: relocks through UGOS
     assert nas.locks == 1
+    now[0] += pf.STATUS_TTL_S + 1  # expire() cached a fresh status; let it lapse
     assert manager.statuses(["nasadmin"])["nasadmin"]["locked"] is True
+    assert len(batch_calls) == 1
     manager.keepalive()
