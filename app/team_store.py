@@ -109,11 +109,14 @@ class TeamStore:
         """Register a project. `project_id` re-registers one found on disk (e.g. restored).
 
         Registering an id that is already there keeps the first row: a project list can find a
-        new project's folder (and register it) before its create request does.
+        new project's folder (and register it) before its create request does. Any other row
+        that still points at `folder_rel` is retired: the folder's meta.json now names this id,
+        so that row's project is gone (and cleanup must never move this folder for it).
         """
         project_id = project_id or uuid.uuid4().hex
         now = self.clock()
         with self._tx() as conn:
+            self._retire_folder(conn, folder_rel, project_id)
             added = conn.execute(
                 "INSERT OR IGNORE INTO projects (id, folder, name, creator, created_at, last_open) VALUES (?, ?, ?, ?, ?, ?)",
                 (project_id, folder_rel, name, creator, now, now),
@@ -142,14 +145,25 @@ class TeamStore:
 
     def set_folder(self, project_id: str, folder_rel: str) -> None:
         with self._tx() as conn:
+            self._retire_folder(conn, folder_rel, project_id)
             conn.execute("UPDATE projects SET folder = ? WHERE id = ?", (folder_rel, project_id))
 
     def forget(self, project_id: str) -> None:
         """Drop every row for a project (after it moved to the recycle bin)."""
         with self._tx() as conn:
-            for table, key in (("projects", "id"), ("members", "project_id"), ("locks", "project_id"),
-                               ("revisions", "project_id")):
-                conn.execute(f"DELETE FROM {table} WHERE {key} = ?", (project_id,))
+            self._forget(conn, project_id)
+
+    @staticmethod
+    def _forget(conn: sqlite3.Connection, project_id: str) -> None:
+        for table, key in (("projects", "id"), ("members", "project_id"), ("locks", "project_id"),
+                           ("revisions", "project_id")):
+            conn.execute(f"DELETE FROM {table} WHERE {key} = ?", (project_id,))
+
+    def _retire_folder(self, conn: sqlite3.Connection, folder_rel: str, owner: str) -> None:
+        """Forget every project but `owner` whose row points at `folder_rel`."""
+        rows = conn.execute("SELECT id FROM projects WHERE folder = ? AND id != ?", (folder_rel, owner)).fetchall()
+        for row in rows:
+            self._forget(conn, row["id"])
 
     # Id slots ----------------------------------------------------------------
 

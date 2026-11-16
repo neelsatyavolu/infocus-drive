@@ -54,6 +54,17 @@ class Effects:
         self.logs.append(message)
 
 
+PID = "a" * 32
+
+
+def project_folder(drive, name="Robotics"):
+    """A `.fcteam` folder whose meta.json carries PID."""
+    folder = drive / "Team Projects" / f"{name}.fcteam"
+    (folder / "sequences").mkdir(parents=True)
+    (folder / "meta.json").write_text('{"id": "%s"}' % PID)
+    return folder
+
+
 def run(store, clock, fx):
     return run_cleanup(store, clock.now, fx.send_email, fx.move, fx.log)
 
@@ -201,13 +212,12 @@ def test_failed_email_does_not_stop_others(store, clock):
 def test_only_project_folders_moved(drive):
     (drive / "#recycle").mkdir()
     team = drive / "Team Projects"
-    (team / "Robotics.fcteam" / "sequences").mkdir(parents=True)
-    (team / "Robotics.fcteam" / "meta.json").write_text("{}")
+    project_folder(drive)
     (team / "Robotics Media").mkdir()
     (team / "Robotics Media" / "A001.mov").write_bytes(b"x")
     (team / "Robotics Extras").mkdir()
     (team / "Other.fcteam").mkdir()
-    team_files.recycle_project("Team Projects/Robotics.fcteam")
+    team_files.recycle_project("Team Projects/Robotics.fcteam", PID)
     assert not (team / "Robotics.fcteam").exists() and not (team / "Robotics Media").exists()
     assert (drive / "#recycle" / "Team Projects" / "Robotics.fcteam" / "meta.json").is_file()
     assert (drive / "#recycle" / "Team Projects" / "Robotics Media" / "A001.mov").is_file()
@@ -215,9 +225,9 @@ def test_only_project_folders_moved(drive):
 
 
 def test_recycle_refused_without_recycle_bin(drive):
-    (drive / "Team Projects" / "Robotics.fcteam").mkdir(parents=True)
+    project_folder(drive)
     with pytest.raises(team_files.FSError):
-        team_files.recycle_project("Team Projects/Robotics.fcteam")
+        team_files.recycle_project("Team Projects/Robotics.fcteam", PID)
     assert (drive / "Team Projects" / "Robotics.fcteam").is_dir()
 
 
@@ -226,7 +236,7 @@ def test_recycle_refuses_other_folders(drive):
     (drive / "Shows").mkdir()
     for rel in ["Shows", "Team Projects", "Team Projects/../Shows"]:
         with pytest.raises(team_files.FSError):
-            team_files.recycle_project(rel)
+            team_files.recycle_project(rel, PID)
     assert (drive / "Shows").is_dir()
 
 
@@ -281,27 +291,27 @@ def test_missing_project_folder_is_forgotten(store, clock):
 
 def test_recycle_moves_project_when_media_folder_missing(drive):
     (drive / "#recycle").mkdir()
-    (drive / "Team Projects" / "Robotics.fcteam").mkdir(parents=True)
-    team_files.recycle_project("Team Projects/Robotics.fcteam")
+    project_folder(drive)
+    team_files.recycle_project("Team Projects/Robotics.fcteam", PID)
     assert (drive / "#recycle" / "Team Projects" / "Robotics.fcteam").is_dir()
 
 
 def test_recycle_keeps_older_copy_in_bin(drive):
     (drive / "#recycle" / "Team Projects" / "Robotics.fcteam").mkdir(parents=True)
-    (drive / "Team Projects" / "Robotics.fcteam").mkdir(parents=True)
-    team_files.recycle_project("Team Projects/Robotics.fcteam")
+    project_folder(drive)
+    team_files.recycle_project("Team Projects/Robotics.fcteam", PID)
     assert (drive / "#recycle" / "Team Projects" / "Robotics.fcteam").is_dir()
     assert (drive / "#recycle" / "Team Projects" / "Robotics.fcteam.#1").is_dir()
 
 
 def test_recycle_refuses_symlinked_media_folder(drive, tmp_path):
     (drive / "#recycle").mkdir()
-    (drive / "Team Projects" / "Robotics.fcteam").mkdir(parents=True)
+    project_folder(drive)
     elsewhere = drive / "Shows"
     elsewhere.mkdir()
     (drive / "Team Projects" / "Robotics Media").symlink_to(elsewhere)
     with pytest.raises(team_files.FSError):
-        team_files.recycle_project("Team Projects/Robotics.fcteam")
+        team_files.recycle_project("Team Projects/Robotics.fcteam", PID)
     assert (drive / "Team Projects" / "Robotics.fcteam").is_dir() and elsewhere.is_dir()
 
 

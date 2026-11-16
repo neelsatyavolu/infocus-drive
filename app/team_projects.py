@@ -292,7 +292,11 @@ def list_projects(request: Request) -> list[dict[str, Any]]:
             st.create_project(folder, str(meta.get("name") or Path(folder).stem),
                               str(meta.get("created_by") or ""), project_id=project_id)
         elif info["folder"] != folder:
-            st.set_folder(project_id, folder)  # renamed on the Drive; the id in meta.json is the anchor
+            # Follow a rename only: while the row's folder still holds this id (or we can't
+            # tell), this folder is a copy, and the copy is left out instead of taking over.
+            if team_files.folder_holds(user, info["folder"], project_id) is not False:
+                continue
+            st.set_folder(project_id, folder)
         out.append({
             "id": project_id,
             "name": str(meta.get("name") or ""),
@@ -775,7 +779,8 @@ def begin_export(request: Request, project_id: str) -> Any:
     marked = _export_mark(request, project_id)
     if isinstance(marked, JSONResponse):
         return marked
-    team_cleanup.begin_export(marked, time.time())
+    with _project_lock(marked):  # cleanup checks exports under this lock before a move
+        team_cleanup.begin_export(marked, time.time())
     return {"ok": True}
 
 

@@ -40,6 +40,15 @@ RUN_AT_HOUR = 3
 SendEmail = Callable[[str, str, str], None]
 MoveToRecycle = Callable[[dict[str, Any]], Any]
 Log = Callable[[str], None]
+Present = Callable[[dict[str, Any]], bool]
+
+
+class Busy(Exception):
+    """The project got a lock or an export between the decision and the move."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass
@@ -119,6 +128,10 @@ def _move(store: TeamStore, info: dict[str, Any], now: float, move: MoveToRecycl
     members = ", ".join(store.members(project_id)) or "none"
     try:
         move(info)
+    except Busy as e:
+        report.skipped[project_id] = e.reason
+        log_line(f"team cleanup: kept “{info['name']}” for now: {e.reason}")
+        return
     except FSError as e:
         if e.status == 404:
             store.forget(project_id)
@@ -158,12 +171,20 @@ def cleanup_status(store: TeamStore, project_id: str) -> dict[str, Any] | None:
 
 
 def run_cleanup(store: TeamStore, now: float, send_email: SendEmail, move_to_recycle: MoveToRecycle,
-                log: Log) -> CleanupReport:
-    """Send due notices and move due projects. Each project is handled on its own."""
+                log: Log, present: Present | None = None) -> CleanupReport:
+    """Send due notices and move due projects. Each project is handled on its own.
+
+    `present(info)` says whether the row's folder still holds that project; a row
+    that fails it is forgotten with no notice and no move.
+    """
     report = CleanupReport()
     for project_id in store.stale_projects(NOTICE_AFTER_S):
         info = store.project(project_id)
         if info is None or info["keep"] or now - info["last_open"] < NOTICE_AFTER_S:
+            continue
+        if present is not None and not present(info):
+            store.forget(project_id)
+            log(f"team cleanup: “{info['name']}” ({info['folder']}) is no longer on the Drive; forgot it")
             continue
         notified_at = store.notified_at(project_id)
         if not notified_at:
@@ -205,12 +226,24 @@ def send_notice_email(username: str, subject: str, text: str) -> None:
         raise RuntimeError("Resend request failed") from None
 
 
-def _recycle(info: dict[str, Any]) -> None:
-    team_files.recycle_project(info["folder"])
+def _recycle(store: TeamStore, info: dict[str, Any]) -> None:
+    """Move the project to `#recycle` under its project lock, after checking locks and exports again.
+
+    Taking a lock and beginning an export also hold the project lock, so neither
+    can slip in between this check and the move.
+    """
+    from team_projects import _project_lock  # late: team_projects imports this module
+
+    with _project_lock(info["id"]):
+        reason = _skip_reason(store, info["id"], time.time())
+        if reason:
+            raise Busy(reason)
+        team_files.recycle_project(info["folder"], info["id"])
 
 
 def run_daily(store: TeamStore) -> CleanupReport:
-    return run_cleanup(store, time.time(), send_notice_email, _recycle, log.info)
+    return run_cleanup(store, time.time(), send_notice_email, lambda info: _recycle(store, info), log.info,
+                       present=team_files.project_present)
 
 
 # Scheduling ---------------------------------------------------------------------

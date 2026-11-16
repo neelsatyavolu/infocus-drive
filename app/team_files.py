@@ -195,10 +195,15 @@ def create_project(
     media = fsops.drive_root() / media_folder_for(folder_rel)
     with _as(user):
         team_root.mkdir(exist_ok=True)
+        if os.path.lexists(media):
+            # Never adopt a folder someone else made: its files would join the project.
+            raise TeamConflict("A folder with that project's media name already exists", "name_taken")
         root.mkdir()
+        made_media = False
         try:
             (root / SEQUENCES_DIR).mkdir()
-            media.mkdir(exist_ok=True)
+            media.mkdir()
+            made_media = True
             hashes: dict[str, str] = {}
             data = _dump(shared)
             _write_bytes(root / PROJECT_FILE, data)
@@ -209,7 +214,12 @@ def create_project(
                 hashes[_seq_rel(seq_id)] = _sha(data)
             _write_bytes(root / META_FILE, _dump({**meta, "file_hashes": hashes}))
         except BaseException:
-            shutil.rmtree(root, ignore_errors=True)
+            shutil.rmtree(root, ignore_errors=True)  # only the folder this call just made
+            if made_media:
+                try:
+                    media.rmdir()  # still empty; never removes files
+                except OSError:
+                    pass
             raise
     return folder_rel
 
@@ -359,7 +369,42 @@ def media_upload_dir(user: dict[str, Any], folder_rel: str, rel_dir: str) -> tup
     return target, target_rel
 
 
-def recycle_project(folder_rel: str) -> list[str]:
+def _holds_id(project: Path, project_id: str) -> bool:
+    """True if the folder's meta.json names `project_id` (call with privileges held)."""
+    try:
+        return _read_meta(project).get("id") == project_id
+    except (OSError, ValueError, FSError):
+        return False
+
+
+def project_present(info: dict[str, Any]) -> bool:
+    """True if the row's folder is still this project (its meta.json carries the row's id).
+
+    Read as root, for the daily cleanup: a row whose folder is gone or now holds
+    another project is stale, and is forgotten without a notice or a move.
+    """
+    try:
+        project = _project_dir(info["folder"])
+    except FSError:
+        return False
+    with fsops.as_root():
+        return _holds_id(project, info["id"])
+
+
+def folder_holds(user: dict[str, Any], folder_rel: str, project_id: str) -> bool | None:
+    """Whether `folder_rel` still holds `project_id`, read as the member.
+
+    None when the member can't tell (no access), so callers leave the row alone.
+    """
+    try:
+        root = _project_dir(folder_rel)
+        with _as(user):
+            return _holds_id(root, project_id) if os.path.lexists(root / META_FILE) else False
+    except FSError as e:
+        return False if e.status == 404 else None
+
+
+def recycle_project(folder_rel: str, project_id: str) -> list[str]:
     """Move `<name>.fcteam` and its `<name> Media` into the share's `#recycle`.
 
     Used by the daily cleanup, which has no member to act as, so it runs as
@@ -367,6 +412,8 @@ def recycle_project(folder_rel: str) -> list[str]:
     or deleted), keeps the tree like Samba's recycle (`#recycle/Team Projects/…`)
     and adds `.#1`, `.#2` … when an older copy is already in the bin. Refuses
     anything but the two project folders, symlinks, and shares without a bin.
+    The folder's meta.json must carry `project_id`; otherwise it is another
+    project (or none), and this answers 404 so the stale row is forgotten.
     Returns the recycle paths written.
     """
     project = _project_dir(folder_rel)
@@ -380,7 +427,7 @@ def recycle_project(folder_rel: str) -> list[str]:
         # Media first: if the project move then fails, the next run retries it, and
         # the project is never left in the bin with its media behind.
         sources = [p for p in (media, project) if os.path.lexists(p)]
-        if project not in sources:
+        if project not in sources or project.is_symlink() or not _holds_id(project, project_id):
             raise FSError("Team project not found", 404)
         for src in sources:
             if src.is_symlink() or not src.is_dir():
