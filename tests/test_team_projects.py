@@ -866,3 +866,20 @@ def test_partial_gets_etag_304(client, path):
         assert put(client, pid, 3, token, 0).status_code == 200
     changed = client.get(url, headers={**as_("student2"), "If-None-Match": etag})
     assert changed.status_code == 200 and changed.headers["ETag"] != etag
+
+
+def test_create_survives_a_list_registering_the_folder_first(client, monkeypatch):
+    # A teammate's project list can find the new folder (meta.json written) before create
+    # registers it in the store; the list then registers it, and create must still succeed.
+    real = team_projects.team_files.create_project
+
+    def create_then_listed(user, name, meta, shared, sequences):
+        folder = real(user, name, meta, shared, sequences)
+        team_projects.store().create_project(folder, name, meta["created_by"], project_id=meta["id"])
+        return folder
+
+    monkeypatch.setattr(team_projects.team_files, "create_project", create_then_listed)
+    made = create(client)
+    assert made["slot"] == 1
+    listed = client.get("/api/team/projects", headers=as_("student2")).json()
+    assert [p["id"] for p in listed] == [made["id"]]

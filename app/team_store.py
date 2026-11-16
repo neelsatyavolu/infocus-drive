@@ -106,18 +106,23 @@ class TeamStore:
     # Projects ---------------------------------------------------------------
 
     def create_project(self, folder_rel: str, name: str, creator: str, project_id: str | None = None) -> str:
-        """Register a project. `project_id` re-registers one found on disk (e.g. restored)."""
+        """Register a project. `project_id` re-registers one found on disk (e.g. restored).
+
+        Registering an id that is already there keeps the first row: a project list can find a
+        new project's folder (and register it) before its create request does.
+        """
         project_id = project_id or uuid.uuid4().hex
         now = self.clock()
         with self._tx() as conn:
-            conn.execute(
-                "INSERT INTO projects (id, folder, name, creator, created_at, last_open) VALUES (?, ?, ?, ?, ?, ?)",
+            added = conn.execute(
+                "INSERT OR IGNORE INTO projects (id, folder, name, creator, created_at, last_open) VALUES (?, ?, ?, ?, ?, ?)",
                 (project_id, folder_rel, name, creator, now, now),
-            )
-            conn.execute(
-                "INSERT INTO members (project_id, user, last_open) VALUES (?, ?, ?)",
-                (project_id, creator, now),
-            )
+            ).rowcount
+            if added:
+                conn.execute(
+                    "INSERT INTO members (project_id, user, last_open) VALUES (?, ?, ?)",
+                    (project_id, creator, now),
+                )
         return project_id
 
     def project(self, project_id: str) -> dict | None:

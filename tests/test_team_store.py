@@ -42,6 +42,14 @@ def test_create_project_returns_hex_id(store, pid):
     assert info["creator"] == "student1"
 
 
+
+def test_registering_an_id_twice_keeps_the_first(store, pid, clock):
+    clock.now += 50
+    assert store.create_project("Team Projects/Other.fcteam", "Other", "student2", project_id=pid) == pid
+    info = store.project(pid)
+    assert info["name"] == "Robotics" and info["creator"] == "student1"
+    assert store.members(pid) == ["student1"]
+
 def test_take_lock_free(store, pid, clock):
     got = store.take_lock(pid, 7, "student1")
     assert got.ok and got.token and got.holder == "student1"
