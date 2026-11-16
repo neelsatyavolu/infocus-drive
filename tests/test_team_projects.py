@@ -255,6 +255,49 @@ def test_shared_add_merges_concurrent(client):
     assert set(got["shared"]["items"]) == {"1", "10", "11"} and got["shared_rev"] == 2
 
 
+def bin_tree(*children):
+    """FilmCraft's root bin: entries are {"Item": id} or {"Bin": {id, name, children}}."""
+    return {"id": 0, "name": "Robotics", "children": list(children)}
+
+
+def binned(node):
+    out = []
+    for entry in node["children"]:
+        out += [entry["Item"]] if "Item" in entry else binned(entry["Bin"])
+    return out
+
+
+def shared_post(client, pid, user, base, upserts=None, bins=None):
+    body = {"base_rev": base, "upserts": upserts or {}, "deletes": []}
+    if bins is not None:
+        body["bins"] = bins
+    r = client.post(f"/api/team/projects/{pid}/shared", json=body, headers=as_(user))
+    assert r.status_code == 200, r.text
+    return r.json()["rev"]
+
+
+def test_concurrent_imports_never_lose_a_bin_entry(client):
+    pid = create(client)["id"]
+    # student1 imports A002 and files it in the root bin.
+    shared_post(client, pid, "student1", 0, {"10": media_item(10, "A002.mov")}, bin_tree({"Item": 1}, {"Item": 10}))
+    # student2 imported B001 at the same time, without seeing student1's import …
+    rev = shared_post(client, pid, "student2", 0, {"11": media_item(11, "B001.mov")})
+    # … then saves its own bin tree (made before A002 arrived) at the latest rev.
+    shared_post(client, pid, "student2", rev, None,
+                bin_tree({"Item": 1}, {"Bin": {"id": 50, "name": "Day 2", "children": [{"Item": 11}]}}))
+    root = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()["shared"]["root"]
+    assert sorted(binned(root)) == [1, 10, 11]
+    assert root["children"][-1] == {"Item": 10}  # the repair puts it in the root bin
+    assert root["children"][1]["Bin"]["children"] == [{"Item": 11}]
+
+
+def test_upsert_without_bins_files_new_media_in_root(client):
+    pid = create(client, project={**demo_project(), "root": bin_tree({"Item": 1})})["id"]
+    shared_post(client, pid, "student2", 0, {"11": media_item(11, "B001.mov")})
+    root = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()["shared"]["root"]
+    assert root == bin_tree({"Item": 1}, {"Item": 11})
+
+
 def test_shared_bins_need_current_base(client):
     pid = create(client)["id"]
     client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": []},
@@ -264,11 +307,11 @@ def test_shared_bins_need_current_base(client):
                         headers=as_("student2"))
     assert stale.status_code == 409 and stale.json()["error"] == "stale" and stale.json()["rev"] == 1
     ok = client.post(f"/api/team/projects/{pid}/shared",
-                     json={"base_rev": 1, "upserts": {}, "deletes": [], "bins": {"name": "root", "children": [1]}},
+                     json={"base_rev": 1, "upserts": {}, "deletes": [], "bins": bin_tree({"Item": 1})},
                      headers=as_("student2"))
     assert ok.status_code == 200
     got = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()
-    assert got["shared"]["root"] == {"name": "root", "children": [1]}
+    assert got["shared"]["root"] == bin_tree({"Item": 1})
 
 
 def test_shared_rejects_sequence_upsert(client):

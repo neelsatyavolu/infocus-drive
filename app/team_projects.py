@@ -216,6 +216,41 @@ def _references(value: Any, item_id: int, depth: int = 0) -> bool:
     return False
 
 
+def _binned_ids(node: Any, found: set[int], depth: int = 0) -> None:
+    """Item ids in a FilmCraft bin tree: `{"Item": id}` or `{"Bin": {id, name, children}}` entries."""
+    children = node.get("children") if isinstance(node, dict) else None
+    if depth > 200 or not isinstance(children, list):
+        return
+    for entry in children:
+        if not isinstance(entry, dict):
+            continue
+        item = entry.get("Item")
+        if isinstance(item, int) and not isinstance(item, bool):
+            found.add(item)
+        elif "Bin" in entry:
+            _binned_ids(entry["Bin"], found, depth + 1)
+
+
+def _file_unbinned_media(root: Any, items: dict[str, Any]) -> Any:
+    """Root bin with every media item no bin lists appended to it.
+
+    The bin tree is replaced whole (last writer wins), so a teammate's import
+    would otherwise vanish from every bin when someone saves an older tree.
+    """
+    if not isinstance(root, dict) or not isinstance(root.get("children"), list):
+        return root
+    found: set[int] = set()
+    _binned_ids(root, found)
+    missing = sorted(
+        int(key) for key, item in items.items()
+        if key.isdigit() and int(key) not in found
+        and isinstance(item, dict) and isinstance(item.get("kind"), dict) and "Media" in item["kind"]
+    )
+    if not missing:
+        return root
+    return {**root, "children": [*root["children"], *({"Item": item_id} for item_id in missing)]}
+
+
 def _locks_json(project_id: str) -> dict[str, dict[str, Any]]:
     return {str(seq): {"holder": holder, "expires_at": expires}
             for seq, (holder, expires) in sorted(store().locks(project_id).items())}
@@ -466,6 +501,8 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
         updated = {**shared, "items": items}
         if bins is not None:
             updated["root"] = bins
+        if "root" in updated:
+            updated["root"] = _file_unbinned_media(updated["root"], items)
         team_files.write_shared(user, info["folder"], updated)
         rev = st.bump_revision(project_id, "shared", None)
     publish(project_id, "shared_updated", {"rev": rev})
