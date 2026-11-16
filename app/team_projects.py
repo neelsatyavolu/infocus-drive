@@ -31,7 +31,7 @@ import team_files
 from chunk_upload import complete_session, create_session, get_session
 from config import get_settings
 from fsops import FSError
-from team_store import TeamStore
+from team_store import NoSlots, TeamStore
 
 router = APIRouter(prefix="/api/team")
 
@@ -337,6 +337,14 @@ def _locks_json(project_id: str) -> dict[str, dict[str, Any]]:
             for seq, (holder, expires) in sorted(store().locks(project_id).items())}
 
 
+def _slot(st: TeamStore, project_id: str, username: str, device: str) -> int:
+    """The id slot of this member on this Mac (`X-Drive-Device`); 409 `no_slots` when none is left."""
+    try:
+        return st.slot_for(project_id, username, device)
+    except NoSlots as e:
+        raise team_files.TeamConflict(str(e), "no_slots") from e
+
+
 def _check_access(user: dict[str, Any], info: dict[str, Any]) -> dict[str, Any]:
     return team_files.read_meta(user, info["folder"])
 
@@ -377,6 +385,7 @@ def list_projects(request: Request) -> list[dict[str, Any]]:
 @router.post("/projects")
 async def create_project(request: Request) -> Any:
     user = _user(request)
+    device = _device(request)
     body = await _body(request, MAX_BODY_BYTES)
     _version(body.get("app_version"))
     schema = _schema(body.get("schema_version"))
@@ -416,7 +425,7 @@ async def create_project(request: Request) -> Any:
         folder = team_files.create_project(user, name, meta, shared, sequences)
         st = store()
         st.create_project(folder, name, username, project_id=project_id)
-        return {"id": project_id, "slot": st.slot_for(project_id, username)}
+        return {"id": project_id, "slot": _slot(st, project_id, username, device)}
 
     try:
         return await run_in_threadpool(work)
@@ -428,6 +437,7 @@ async def create_project(request: Request) -> Any:
 def get_project(request: Request, project_id: str) -> Any:
     user = _user(request)
     info = _project_or_404(project_id)
+    device = _device(request)
     st = store()
     try:
         # Files and revisions together, like `_read_part`, so no json carries a newer rev.
@@ -439,6 +449,10 @@ def get_project(request: Request, project_id: str) -> Any:
         return _fs_error(e)
     username = str(user["username"])
     st.record_open(project_id, username)
+    try:
+        slot = _slot(st, project_id, username, device)
+    except FSError as e:
+        return _fs_error(e)
     return {
         "id": project_id,
         "name": str(meta.get("name") or info["name"]),
@@ -448,7 +462,7 @@ def get_project(request: Request, project_id: str) -> Any:
                       for seq, item in sorted(sequences.items())},
         "shared_rev": shared_rev,
         "locks": _locks_json(project_id),
-        "slot": st.slot_for(project_id, username),
+        "slot": slot,
         "cleanup": team_cleanup.cleanup_status(st, project_id),
     }
 
@@ -513,8 +527,12 @@ def take_lock(request: Request, project_id: str, seq: int) -> Any:
     st = store()
     known = (f"{team_files.SEQUENCES_DIR}/{seq}.json" in (meta.get("file_hashes") or {})
              or st.revision(project_id, f"seq:{seq}") > 0)  # saved now, or once (deleted, then undone)
-    # Any other id can only be a new sequence from the caller's own id slot.
-    if not known and seq >> ID_SLOT_SHIFT != st.slot_for(project_id, username):
+    # Any other id can only be a new sequence from the id slot of the caller's Mac.
+    try:
+        mine = known or seq >> ID_SLOT_SHIFT == _slot(st, project_id, username, device)
+    except FSError as e:
+        return _fs_error(e)
+    if not mine:
         raise HTTPException(status_code=404, detail="Sequence not found")
     with _project_lock(project_id):  # cleanup checks locks under this lock before a move
         got = st.take_lock(project_id, seq, username, device)

@@ -42,6 +42,14 @@ CREATE TABLE IF NOT EXISTS members (
     PRIMARY KEY (project_id, user)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS members_slot ON members (project_id, slot);
+CREATE TABLE IF NOT EXISTS slots (
+    project_id TEXT NOT NULL,
+    user TEXT NOT NULL,
+    device TEXT NOT NULL,
+    slot INTEGER NOT NULL,
+    PRIMARY KEY (project_id, user, device)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS slots_slot ON slots (project_id, slot);
 CREATE TABLE IF NOT EXISTS locks (
     project_id TEXT NOT NULL,
     seq_id INTEGER NOT NULL,
@@ -58,6 +66,10 @@ CREATE TABLE IF NOT EXISTS revisions (
     PRIMARY KEY (project_id, part)
 );
 """
+
+
+class NoSlots(ValueError):
+    """Every id slot of the project is taken."""
 
 
 @dataclass(frozen=True)
@@ -81,6 +93,11 @@ class TeamStore:
             columns = {r["name"] for r in conn.execute("PRAGMA table_info(locks)")}
             if "device" not in columns:  # databases made before locks were per device
                 conn.execute("ALTER TABLE locks ADD COLUMN device TEXT NOT NULL DEFAULT ''")
+            # Slots made before they were per Mac (`members.slot`) stay with device "".
+            conn.execute(
+                "INSERT OR IGNORE INTO slots (project_id, user, device, slot) "
+                "SELECT project_id, user, '', slot FROM members WHERE slot IS NOT NULL"
+            )
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -156,7 +173,7 @@ class TeamStore:
     @staticmethod
     def _forget(conn: sqlite3.Connection, project_id: str) -> None:
         for table, key in (("projects", "id"), ("members", "project_id"), ("locks", "project_id"),
-                           ("revisions", "project_id")):
+                           ("revisions", "project_id"), ("slots", "project_id")):
             conn.execute(f"DELETE FROM {table} WHERE {key} = ?", (project_id,))
 
     def _retire_folder(self, conn: sqlite3.Connection, folder_rel: str, owner: str) -> None:
@@ -167,25 +184,32 @@ class TeamStore:
 
     # Id slots ----------------------------------------------------------------
 
-    def slot_for(self, project_id: str, user: str) -> int:
-        """The member's id slot (1..=1023), handed out once and kept for good."""
+    def slot_for(self, project_id: str, user: str, device: str = "") -> int:
+        """The id slot (1..=1023) of this member on this Mac, handed out once and kept for good.
+
+        Per Mac, so one member on two Macs never allocates the same ids. A missing
+        device header is the device "" (and holds slots made before slots were per Mac).
+        """
         with self._tx() as conn:
             row = conn.execute(
-                "SELECT slot FROM members WHERE project_id = ? AND user = ?", (project_id, user)
+                "SELECT slot FROM slots WHERE project_id = ? AND user = ? AND device = ?",
+                (project_id, user, device),
             ).fetchone()
-            if row is not None and row["slot"] is not None:
+            if row is not None:
                 return int(row["slot"])
             top = conn.execute(
-                "SELECT COALESCE(MAX(slot), 0) FROM members WHERE project_id = ?", (project_id,)
+                "SELECT MAX(COALESCE((SELECT MAX(slot) FROM slots WHERE project_id = ?), 0), "
+                "COALESCE((SELECT MAX(slot) FROM members WHERE project_id = ?), 0))",
+                (project_id, project_id),
             ).fetchone()[0]
             slot = int(top) + 1
             if slot > MAX_SLOT:
-                raise ValueError("This project has no free id slots left")
+                raise NoSlots("This project has no free id slots left")
             conn.execute(
-                "INSERT INTO members (project_id, user, slot) VALUES (?, ?, ?) "
-                "ON CONFLICT (project_id, user) DO UPDATE SET slot = excluded.slot",
-                (project_id, user, slot),
+                "INSERT INTO slots (project_id, user, device, slot) VALUES (?, ?, ?, ?)",
+                (project_id, user, device, slot),
             )
+            conn.execute("INSERT OR IGNORE INTO members (project_id, user) VALUES (?, ?)", (project_id, user))
             return slot
 
     # Locks -----------------------------------------------------------------
