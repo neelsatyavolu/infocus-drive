@@ -1,0 +1,384 @@
+import json
+import sys
+import threading
+import time
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
+from fastapi.testclient import TestClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+import cli_tokens  # noqa: E402
+import fsops  # noqa: E402
+import main  # noqa: E402
+import team_projects  # noqa: E402
+
+ORIGIN = "https://drive.example.com"
+USERS = {
+    "student1": {"username": "student1", "uid": 1001, "gid": 100, "email": "student1@example.org"},
+    "student2": {"username": "student2", "uid": 1002, "gid": 100, "email": "student2@example.org"},
+    "outsider": {"username": "outsider", "uid": 1009, "gid": 100, "email": "outsider@example.org"},
+    "admin1": {"username": "admin1", "uid": 1010, "gid": 100, "email": "admin@example.org"},
+}
+DENIED_UIDS = {1009}
+APP = {"app_version": "0.3.0", "schema_version": 17}
+
+
+def seq_item(seq_id, clips=()):
+    return {"id": seq_id, "name": f"Seq {seq_id}", "label": "Forest",
+            "kind": {"Sequence": {"video_tracks": [{"clips": [{"id": 900 + i, "item": item}
+                                                              for i, item in enumerate(clips)]}]}}}
+
+
+def media_item(item_id, name="A001.mov"):
+    return {"id": item_id, "name": name, "label": "Iris",
+            "kind": {"Media": {"path": f"drive:/Team Projects/Robotics Media/{name}", "fingerprint": "ab"}}}
+
+
+def demo_project():
+    return {"name": "Robotics", "settings": {}, "root": {"name": "root", "children": []},
+            "items": {"1": media_item(1), "2": seq_item(2, clips=[1]), "3": seq_item(3)},
+            "next_id": 4}
+
+
+@pytest.fixture
+def drive(tmp_path, monkeypatch):
+    root = tmp_path / "drive"
+    root.mkdir()
+    monkeypatch.setenv("DRIVE_ROOT", str(root))
+    main.get_settings.cache_clear()
+
+    @contextmanager
+    def fake_as_user(uid, gid, username=None):
+        # Stand-in for the setuid switch: holds the real lock and lets the
+        # "OS" refuse members without access to the project folder.
+        assert fsops._as_user_lock.acquire(timeout=2), "as_user lock held elsewhere"
+        try:
+            if uid in DENIED_UIDS:
+                raise PermissionError(13, "Permission denied")
+            yield
+        finally:
+            fsops._as_user_lock.release()
+
+    monkeypatch.setattr(fsops, "as_user", fake_as_user)
+    return root
+
+
+@pytest.fixture
+def client(drive, monkeypatch):
+    def require_user(request):
+        name = request.headers.get("X-Test-User")
+        if name not in USERS:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        return dict(USERS[name])
+
+    monkeypatch.setattr(main, "_require_user", require_user)
+    monkeypatch.setattr(main, "is_nas_admin", lambda name: name == "admin1")
+    monkeypatch.setattr(team_projects, "KEEPALIVE_S", 0.05)
+    test_client = TestClient(main.app, base_url=ORIGIN)
+    test_client.drive = drive
+    return test_client
+
+
+def as_(user):
+    return {"X-Test-User": user}
+
+
+def create(client, user="student1", name="Robotics", project=None):
+    body = {"name": name, "project": project if project is not None else demo_project(), **APP}
+    r = client.post("/api/team/projects", json=body, headers=as_(user))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def lock(client, pid, seq, user="student1"):
+    return client.post(f"/api/team/projects/{pid}/sequences/{seq}/lock", headers=as_(user))
+
+
+def put(client, pid, seq, token, base_rev, user="student1", **extra):
+    body = {"token": token, "base_rev": base_rev, "json": seq_item(seq, clips=[1]), **APP, **extra}
+    return client.put(f"/api/team/projects/{pid}/sequences/{seq}", json=body, headers=as_(user))
+
+
+def test_requires_auth(client):
+    assert client.get("/api/team/projects").status_code == 401
+
+
+def test_bearer_token_accepted(drive, monkeypatch):
+    monkeypatch.setattr(cli_tokens, "lookup", lambda token: dict(USERS["student1"], cli_token_id="t1")
+                        if token == "ifd_test" else None)
+    c = TestClient(main.app, base_url=ORIGIN)
+    r = c.get("/api/team/projects", headers={"Authorization": "Bearer ifd_test"})
+    assert r.status_code == 200 and r.json() == []
+    assert c.get("/api/team/projects", headers={"Authorization": "Bearer ifd_bad"}).status_code == 401
+
+
+def test_create_and_get(client):
+    made = create(client)
+    assert len(made["id"]) == 32 and made["slot"] == 1
+    folder = client.drive / "Team Projects" / "Robotics.fcteam"
+    assert (folder / "project.json").is_file() and (folder / "sequences" / "2.json").is_file()
+    assert (client.drive / "Team Projects" / "Robotics Media").is_dir()
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["id"] == made["id"] and meta["created_by"] == "student1"
+    assert meta["schema_version"] == 17 and set(meta["file_hashes"]) == {
+        "project.json", "sequences/2.json", "sequences/3.json"}
+
+    listed = client.get("/api/team/projects", headers=as_("student2")).json()
+    assert [p["id"] for p in listed] == [made["id"]]
+    assert listed[0]["name"] == "Robotics" and listed[0]["folder"] == "Team Projects/Robotics.fcteam"
+    assert listed[0]["locks"] == {}
+
+    got = client.get(f"/api/team/projects/{made['id']}", headers=as_("student2")).json()
+    assert got["id"] == made["id"] and got["name"] == "Robotics" and got["slot"] == 2
+    assert set(got["shared"]["items"]) == {"1"}
+    assert got["sequences"]["2"] == {"rev": 0, "json": seq_item(2, clips=[1])}
+    assert got["shared_rev"] == 0 and got["locks"] == {}
+    assert got["meta"]["id"] == made["id"]
+
+
+def test_create_duplicate_name_conflict(client):
+    create(client)
+    r = client.post("/api/team/projects", json={"name": "Robotics", **APP}, headers=as_("student1"))
+    assert r.status_code == 409
+
+
+def test_create_rejects_bad_name(client):
+    for name in ["", "../x", "a/b", ".hidden"]:
+        r = client.post("/api/team/projects", json={"name": name, **APP}, headers=as_("student1"))
+        assert r.status_code == 400, name
+
+
+def test_lock_conflict_returns_holder(client):
+    pid = create(client)["id"]
+    first = lock(client, pid, 2)
+    assert first.status_code == 200 and first.json()["token"] and first.json()["expires_at"] > time.time()
+    second = lock(client, pid, 2, user="student2")
+    assert second.status_code == 409 and second.json()["holder"] == "student1"
+    listed = client.get("/api/team/projects", headers=as_("student2")).json()
+    assert listed[0]["locks"]["2"]["holder"] == "student1"
+
+
+def test_heartbeat_and_release(client):
+    pid = create(client)["id"]
+    token = lock(client, pid, 2).json()["token"]
+    hb = client.post(f"/api/team/projects/{pid}/sequences/2/lock/heartbeat", json={"token": token},
+                     headers=as_("student1"))
+    assert hb.status_code == 200 and hb.json()["expires_at"] > time.time()
+    bad = client.post(f"/api/team/projects/{pid}/sequences/2/lock/heartbeat", json={"token": "nope"},
+                      headers=as_("student1"))
+    assert bad.status_code == 409
+    rel = client.request("DELETE", f"/api/team/projects/{pid}/sequences/2/lock", json={"token": token},
+                         headers=as_("student1"))
+    assert rel.status_code == 200
+    assert lock(client, pid, 2, user="student2").status_code == 200
+
+
+def test_put_requires_current_lock(client):
+    pid = create(client)["id"]
+    assert put(client, pid, 2, "no-token", 0).status_code == 409
+    token = lock(client, pid, 2).json()["token"]
+    ok = put(client, pid, 2, token, 0)
+    assert ok.status_code == 200 and ok.json() == {"rev": 1}
+    client.post(f"/api/team/projects/{pid}/sequences/2/lock/force", headers=as_("admin1"))
+    lost = put(client, pid, 2, token, 1)
+    assert lost.status_code == 409 and lost.json()["error"] == "lock lost"
+
+
+def test_put_stale_base_rejected(client):
+    pid = create(client)["id"]
+    token = lock(client, pid, 2).json()["token"]
+    assert put(client, pid, 2, token, 0).json() == {"rev": 1}
+    stale = put(client, pid, 2, token, 0)
+    assert stale.status_code == 409 and stale.json() == {"error": "stale", "rev": 1}
+
+
+def test_put_sequence_must_match_path(client):
+    pid = create(client)["id"]
+    token = lock(client, pid, 2).json()["token"]
+    body = {"token": token, "base_rev": 0, "json": seq_item(3), **APP}
+    assert client.put(f"/api/team/projects/{pid}/sequences/2", json=body, headers=as_("student1")).status_code == 400
+    body["json"] = media_item(2)
+    assert client.put(f"/api/team/projects/{pid}/sequences/2", json=body, headers=as_("student1")).status_code == 400
+
+
+def test_new_sequence_via_put(client):
+    pid = create(client)["id"]
+    seq = (1 << 40) | 1
+    token = lock(client, pid, seq).json()["token"]
+    assert put(client, pid, seq, token, 0).json() == {"rev": 1}
+    got = client.get(f"/api/team/projects/{pid}", headers=as_("student2")).json()
+    assert got["sequences"][str(seq)]["rev"] == 1
+
+
+def test_shared_add_merges_concurrent(client):
+    pid = create(client)["id"]
+    a = client.post(f"/api/team/projects/{pid}/shared",
+                    json={"base_rev": 0, "upserts": {"10": media_item(10, "B.mov")}, "deletes": []},
+                    headers=as_("student1"))
+    b = client.post(f"/api/team/projects/{pid}/shared",
+                    json={"base_rev": 0, "upserts": {"11": media_item(11, "C.mov")}, "deletes": []},
+                    headers=as_("student2"))
+    assert a.status_code == 200 and b.status_code == 200
+    assert {a.json()["rev"], b.json()["rev"]} == {1, 2}
+    got = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()
+    assert set(got["shared"]["items"]) == {"1", "10", "11"} and got["shared_rev"] == 2
+
+
+def test_shared_bins_need_current_base(client):
+    pid = create(client)["id"]
+    client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": []},
+                headers=as_("student1"))
+    stale = client.post(f"/api/team/projects/{pid}/shared",
+                        json={"base_rev": 0, "upserts": {}, "deletes": [], "bins": {"name": "root"}},
+                        headers=as_("student2"))
+    assert stale.status_code == 409 and stale.json() == {"error": "stale", "rev": 1}
+    ok = client.post(f"/api/team/projects/{pid}/shared",
+                     json={"base_rev": 1, "upserts": {}, "deletes": [], "bins": {"name": "root", "children": [1]}},
+                     headers=as_("student2"))
+    assert ok.status_code == 200
+    got = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()
+    assert got["shared"]["root"] == {"name": "root", "children": [1]}
+
+
+def test_shared_rejects_sequence_upsert(client):
+    pid = create(client)["id"]
+    r = client.post(f"/api/team/projects/{pid}/shared",
+                    json={"base_rev": 0, "upserts": {"5": seq_item(5)}, "deletes": []}, headers=as_("student1"))
+    assert r.status_code == 400
+    r = client.post(f"/api/team/projects/{pid}/shared",
+                    json={"base_rev": 0, "upserts": {"5": media_item(6)}, "deletes": []}, headers=as_("student1"))
+    assert r.status_code == 400
+
+
+def test_delete_referenced_item_refused(client):
+    pid = create(client)["id"]
+    client.post(f"/api/team/projects/{pid}/shared",
+                json={"base_rev": 0, "upserts": {"10": media_item(10)}, "deletes": []}, headers=as_("student1"))
+    used = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 1, "upserts": {}, "deletes": [1]},
+                       headers=as_("student1"))
+    assert used.status_code == 409 and used.json()["item"] == 1
+    free = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 1, "upserts": {}, "deletes": [10]},
+                       headers=as_("student1"))
+    assert free.status_code == 200
+    got = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()
+    assert set(got["shared"]["items"]) == {"1"}
+
+
+def test_old_app_rejected_426(client):
+    pid = create(client)["id"]
+    token = lock(client, pid, 2).json()["token"]
+    old_schema = put(client, pid, 2, token, 0, schema_version=16)
+    assert old_schema.status_code == 426 and old_schema.json()["schema_version"] == 17
+    newer = put(client, pid, 2, token, 0, schema_version=18, app_version="0.4.0")
+    assert newer.status_code == 200
+    old_app = put(client, pid, 2, token, 1, schema_version=18, app_version="0.3.9")
+    assert old_app.status_code == 426 and old_app.json()["min_app_version"] == "0.4.0"
+    assert put(client, pid, 2, token, 1, app_version="x.y").status_code == 400
+
+
+def test_hash_mismatch_409(client):
+    pid = create(client)["id"]
+    seq_file = client.drive / "Team Projects" / "Robotics.fcteam" / "sequences" / "2.json"
+    seq_file.write_text(json.dumps(seq_item(2)))
+    r = client.get(f"/api/team/projects/{pid}", headers=as_("student1"))
+    assert r.status_code == 409
+    assert r.json() == {"error": "project files were changed outside InFocus Cut"}
+
+
+def test_extra_sequence_file_is_a_mismatch(client):
+    pid = create(client)["id"]
+    extra = client.drive / "Team Projects" / "Robotics.fcteam" / "sequences" / "99.json"
+    extra.write_text(json.dumps(seq_item(99)))
+    assert client.get(f"/api/team/projects/{pid}", headers=as_("student1")).status_code == 409
+
+
+def test_user_without_folder_access_403(client):
+    pid = create(client)["id"]
+    assert client.get(f"/api/team/projects/{pid}", headers=as_("outsider")).status_code == 403
+    assert lock(client, pid, 2, user="outsider").status_code == 403
+    assert client.get("/api/team/projects", headers=as_("outsider")).json() == []
+    r = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": []},
+                    headers=as_("outsider"))
+    assert r.status_code == 403
+    assert client.get(f"/api/team/projects/{pid}/events", headers=as_("outsider")).status_code == 403
+
+
+def test_unknown_project_404(client):
+    assert client.get("/api/team/projects/" + "0" * 32, headers=as_("student1")).status_code == 404
+    assert client.get("/api/team/projects/not-an-id", headers=as_("student1")).status_code == 404
+
+
+def test_force_release_admin_only(client):
+    pid = create(client)["id"]
+    lock(client, pid, 2)
+    assert client.post(f"/api/team/projects/{pid}/sequences/2/lock/force", headers=as_("student2")).status_code == 403
+    assert lock(client, pid, 2, user="student2").status_code == 409
+    assert client.post(f"/api/team/projects/{pid}/sequences/2/lock/force", headers=as_("admin1")).status_code == 200
+    assert lock(client, pid, 2, user="student2").status_code == 200
+
+
+def test_keep_creator_or_admin(client):
+    pid = create(client)["id"]
+    url = f"/api/team/projects/{pid}/keep"
+    assert client.post(url, json={"keep": True}, headers=as_("student2")).status_code == 403
+    assert client.post(url, json={"keep": True}, headers=as_("student1")).json() == {"keep": True}
+    assert client.post(url, json={"keep": False}, headers=as_("admin1")).json() == {"keep": False}
+    assert team_projects.store().is_keep(pid) is False
+
+
+def test_open_records_last_open(client):
+    pid = create(client)["id"]
+    store = team_projects.store()
+    store.mark_notified(pid)
+    r = client.post(f"/api/team/projects/{pid}/open", headers=as_("student2"))
+    assert r.status_code == 200 and r.json()["ok"] is True
+    assert not store.notified(pid) and "student2" in store.members(pid)
+
+
+def read_event(lines):
+    """Next SSE event (name, data), skipping comments."""
+    name = None
+    for line in lines:
+        if line.startswith(":") or not line:
+            if name is not None and not line:
+                return name, data
+            continue
+        key, _, value = line.partition(": ")
+        if key == "event":
+            name = value
+        elif key == "data":
+            data = json.loads(value)
+    raise AssertionError("stream ended")
+
+
+def test_events_stream_sends_sequence_updated(client):
+    pid = create(client)["id"]
+    token = lock(client, pid, 2).json()["token"]
+    with client.stream("GET", f"/api/team/projects/{pid}/events", headers=as_("student2")) as stream:
+        assert stream.status_code == 200
+        assert stream.headers["content-type"].startswith("text/event-stream")
+        lines = stream.iter_lines()
+        assert next(lines).startswith(":")  # subscribed
+        assert put(client, pid, 2, token, 0).status_code == 200
+        assert read_event(lines) == ("sequence_updated", {"seq": 2, "rev": 1, "by": "student1"})
+        client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": []},
+                    headers=as_("student1"))
+        assert read_event(lines) == ("shared_updated", {"rev": 1})
+        client.request("DELETE", f"/api/team/projects/{pid}/sequences/2/lock", json={"token": token},
+                       headers=as_("student1"))
+        assert read_event(lines) == ("lock_changed", {"seq": 2, "holder": None})
+
+
+def test_as_user_lock_not_held_during_sse(client):
+    pid = create(client)["id"]
+    with client.stream("GET", f"/api/team/projects/{pid}/events", headers=as_("student2")) as stream:
+        lines = stream.iter_lines()
+        next(lines)
+        assert not fsops._as_user_lock.locked()
+        # Other members' file work goes through while the stream is open.
+        assert lock(client, pid, 2).status_code == 200
+        assert client.get(f"/api/team/projects/{pid}", headers=as_("student1")).status_code == 200
+        assert not fsops._as_user_lock.locked()

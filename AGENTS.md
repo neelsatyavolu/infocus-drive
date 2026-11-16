@@ -79,6 +79,7 @@ app/file_links.py    Signed public file-share tokens
 app/meetings_service.py  Portal → Scribe service routes + meeting transcripts (docs/MEETINGS-SCRIBE.md)
 scribe/              infocus-scribe container: headless Chromium meeting listener → faster-whisper → Ollama notes
 app/cli_tokens.py    Terminal (`infocus` CLI) sign-ins: PKCE codes + hashed bearer tokens
+app/team_projects.py InFocus Cut team projects API (`/api/team/*`); team_store.py = locks/revisions (SQLite), team_files.py = `.fcteam` files as the user
 app/static/cli-authorize.*  CLI consent page (`/cli/authorize`)
 app/static/cli/install.sh   CLI installer served at `/cli/install.sh`
 cli/                 Go source for the `infocus` CLI (docs/CLI.md)
@@ -131,6 +132,7 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | GET | `/cli/install.sh` | Unauthenticated CLI installer (macOS) |
 | GET | `/cli/install.ps1` | Unauthenticated CLI installer (Windows PowerShell: `irm … \| iex`) |
 | GET | `/mac/install.sh` | Unauthenticated installer for InFocus for Mac (docs/MAC-APP.md) |
+| GET/POST | `/api/team/projects` `/api/team/projects/{id}` | InFocus Cut team projects under `Team Projects/`; sequence locks (`…/sequences/{seq}/lock`, heartbeat, force = admin), `PUT …/sequences/{seq}`, `POST …/shared`, SSE `…/events`, `…/keep`, `…/open` |
 
 All authenticated `/api/*` routes accept `Authorization: Bearer ifd_…` from the CLI (see [`docs/CLI.md`](docs/CLI.md)) except browser-only ones (`/api/cli/authorize`, `/api/lan-handoff`, `/api/share`). `/api/personal/unlock` and `/api/personal/auth` accept a bearer for the caller's own folder only (Mac app / `infocus unlock`).
 

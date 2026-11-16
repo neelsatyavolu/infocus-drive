@@ -118,6 +118,10 @@ class Settings(BaseSettings):
     port: int = 8787
 
 
+# Drive folder (under the drive root) that holds every InFocus Cut team project.
+TEAM_ROOT_REL = "Team Projects"
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings()

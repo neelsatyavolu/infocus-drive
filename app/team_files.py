@@ -1,0 +1,262 @@
+"""Read and write InFocus Cut team project files on the Drive.
+
+Layout under the drive root (the only writer is this module)::
+
+    Team Projects/<name>.fcteam/project.json          shared part (items without sequences, bins, …)
+    Team Projects/<name>.fcteam/sequences/<id>.json   one sequence item per file
+    Team Projects/<name>.fcteam/meta.json             id, versions, creator, file hashes
+    Team Projects/<name> Media/                        originals, uploaded like any Drive file
+
+Every file operation runs as the member (`fsops.as_user`), so NAS ACLs decide
+who can open a project. Each call holds `as_user` only for its own short file
+reads and writes; callers do locks, SQLite and SSE outside it.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import shutil
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+
+import fsops
+from config import TEAM_ROOT_REL
+from fsops import FSError
+
+FCTEAM_SUFFIX = ".fcteam"
+MEDIA_SUFFIX = " Media"
+PROJECT_FILE = "project.json"
+META_FILE = "meta.json"
+SEQUENCES_DIR = "sequences"
+MAX_FILE_BYTES = 64 * 1024 * 1024
+MAX_NAME_LEN = 100
+_SEQ_FILE = re.compile(r"^([1-9][0-9]{0,15})\.json$")
+_BAD_NAME = re.compile(r"[\x00-\x1f\x7f/\\]")
+
+
+class FilesChanged(FSError):
+    """A project file no longer matches the hash the server recorded."""
+
+    def __init__(self) -> None:
+        super().__init__("project files were changed outside InFocus Cut", 409)
+
+
+def valid_name(name: str) -> str:
+    name = (name or "").strip()
+    if (
+        not name
+        or len(name) > MAX_NAME_LEN
+        or name.startswith(".")
+        or name.startswith("#")
+        or _BAD_NAME.search(name)
+    ):
+        raise FSError("Invalid project name", 400)
+    return name
+
+
+def folder_for(name: str) -> str:
+    return f"{TEAM_ROOT_REL}/{valid_name(name)}{FCTEAM_SUFFIX}"
+
+
+def media_folder_for(folder_rel: str) -> str:
+    """`Team Projects/<name>.fcteam` → `Team Projects/<name> Media`."""
+    base = Path(folder_rel).name[: -len(FCTEAM_SUFFIX)]
+    return f"{TEAM_ROOT_REL}/{base}{MEDIA_SUFFIX}"
+
+
+def _project_dir(folder_rel: str) -> Path:
+    """Resolve a project folder, refusing anything but `Team Projects/<x>.fcteam` itself."""
+    parts = Path(folder_rel or "").parts
+    if len(parts) != 2 or parts[0] != TEAM_ROOT_REL or not parts[1].endswith(FCTEAM_SUFFIX):
+        raise FSError("Invalid team project folder", 400)
+    path = fsops.resolve_rel(folder_rel)
+    if path != fsops.drive_root().joinpath(*parts):
+        # A symlink was swapped in for the project folder.
+        raise FSError("Team project not found", 404)
+    return path
+
+
+@contextmanager
+def _as(user: dict[str, Any]) -> Iterator[None]:
+    try:
+        with fsops.as_user(int(user["uid"]), int(user["gid"]), str(user.get("username") or "") or None):
+            yield
+    except FSError:
+        raise
+    except PermissionError as e:
+        raise FSError("You don't have access to this team project", 403) from e
+    except FileExistsError as e:
+        raise FSError("A team project with that name already exists", 409) from e
+    except FileNotFoundError as e:
+        raise FSError("Team project not found", 404) from e
+    except (OSError, ValueError) as e:
+        raise FSError("Could not read the team project", 500) from e
+
+
+def _read_bytes(path: Path) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(path, flags)
+    with os.fdopen(fd, "rb") as fh:
+        data = fh.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        raise FSError("Team project file is too large", 413)
+    return data
+
+
+def _write_bytes(path: Path, data: bytes) -> None:
+    """Write next to the target and rename over it, so readers never see half a file."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(tmp, flags, 0o664)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _dump(value: Any) -> bytes:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _seq_rel(seq_id: int) -> str:
+    return f"{SEQUENCES_DIR}/{int(seq_id)}.json"
+
+
+def _read_meta(root: Path) -> dict[str, Any]:
+    meta = json.loads(_read_bytes(root / META_FILE))
+    if not isinstance(meta, dict) or not isinstance(meta.get("id"), str):
+        raise FSError("Team project metadata is invalid", 409)
+    return meta
+
+
+def list_projects(user: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """(folder_rel, meta) for every team project the member can read."""
+    try:
+        root = fsops.resolve_rel(TEAM_ROOT_REL)
+    except FSError:
+        return []
+    found: list[tuple[str, dict[str, Any]]] = []
+    try:
+        with _as(user):
+            if not root.is_dir():
+                return []
+            names = sorted(e.name for e in os.scandir(root) if e.name.endswith(FCTEAM_SUFFIX)
+                           and e.is_dir(follow_symlinks=False))
+            for name in names:
+                try:
+                    found.append((f"{TEAM_ROOT_REL}/{name}", _read_meta(root / name)))
+                except (OSError, ValueError, FSError):
+                    continue  # no access, or not a team project
+    except FSError as e:
+        if e.status in (403, 404):
+            return []
+        raise
+    return found
+
+
+def create_project(
+    user: dict[str, Any],
+    name: str,
+    meta: dict[str, Any],
+    shared: dict[str, Any],
+    sequences: dict[int, dict[str, Any]],
+) -> str:
+    """Create `<name>.fcteam` and `<name> Media` under Team Projects. Returns the folder."""
+    folder_rel = folder_for(name)
+    team_root = fsops.resolve_rel(TEAM_ROOT_REL)
+    if team_root != fsops.drive_root() / TEAM_ROOT_REL:
+        raise FSError("Team Projects folder is not available", 409)
+    root = team_root / Path(folder_rel).name
+    media = fsops.drive_root() / media_folder_for(folder_rel)
+    with _as(user):
+        team_root.mkdir(exist_ok=True)
+        root.mkdir()
+        try:
+            (root / SEQUENCES_DIR).mkdir()
+            media.mkdir(exist_ok=True)
+            hashes: dict[str, str] = {}
+            data = _dump(shared)
+            _write_bytes(root / PROJECT_FILE, data)
+            hashes[PROJECT_FILE] = _sha(data)
+            for seq_id, item in sequences.items():
+                data = _dump(item)
+                _write_bytes(root / _seq_rel(seq_id), data)
+                hashes[_seq_rel(seq_id)] = _sha(data)
+            _write_bytes(root / META_FILE, _dump({**meta, "file_hashes": hashes}))
+        except BaseException:
+            shutil.rmtree(root, ignore_errors=True)
+            raise
+    return folder_rel
+
+
+def read_meta(user: dict[str, Any], folder_rel: str) -> dict[str, Any]:
+    """The project's meta.json, read as the member (doubles as the access check)."""
+    root = _project_dir(folder_rel)
+    with _as(user):
+        return _read_meta(root)
+
+
+def read_project(
+    user: dict[str, Any], folder_rel: str
+) -> tuple[dict[str, Any], dict[str, Any], dict[int, dict[str, Any]]]:
+    """(meta, shared, sequences), refusing files that changed outside the server."""
+    root = _project_dir(folder_rel)
+    with _as(user):
+        meta = _read_meta(root)
+        hashes = meta.get("file_hashes") or {}
+        raw = _read_bytes(root / PROJECT_FILE)
+        if hashes.get(PROJECT_FILE) != _sha(raw):
+            raise FilesChanged()
+        shared = json.loads(raw)
+        sequences: dict[int, dict[str, Any]] = {}
+        on_disk = set()
+        for entry in os.scandir(root / SEQUENCES_DIR):
+            match = _SEQ_FILE.match(entry.name)
+            if not match:
+                continue
+            rel = f"{SEQUENCES_DIR}/{entry.name}"
+            on_disk.add(rel)
+            raw = _read_bytes(root / rel)
+            if hashes.get(rel) != _sha(raw):
+                raise FilesChanged()
+            sequences[int(match.group(1))] = json.loads(raw)
+        if {k for k in hashes if k.startswith(f"{SEQUENCES_DIR}/")} != on_disk:
+            raise FilesChanged()
+    return meta, shared, sequences
+
+
+def write_sequence(
+    user: dict[str, Any], folder_rel: str, seq_id: int, item: dict[str, Any],
+    meta_updates: dict[str, Any] | None = None,
+) -> None:
+    root = _project_dir(folder_rel)
+    data = _dump(item)
+    with _as(user):
+        meta = _read_meta(root)
+        _write_bytes(root / _seq_rel(seq_id), data)
+        hashes = {**(meta.get("file_hashes") or {}), _seq_rel(seq_id): _sha(data)}
+        _write_bytes(root / META_FILE, _dump({**meta, **(meta_updates or {}), "file_hashes": hashes}))
+
+
+def write_shared(user: dict[str, Any], folder_rel: str, shared: dict[str, Any]) -> None:
+    root = _project_dir(folder_rel)
+    data = _dump(shared)
+    with _as(user):
+        meta = _read_meta(root)
+        _write_bytes(root / PROJECT_FILE, data)
+        hashes = {**(meta.get("file_hashes") or {}), PROJECT_FILE: _sha(data)}
+        _write_bytes(root / META_FILE, _dump({**meta, "file_hashes": hashes}))

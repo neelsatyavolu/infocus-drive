@@ -100,8 +100,9 @@ class TeamStore:
 
     # Projects ---------------------------------------------------------------
 
-    def create_project(self, folder_rel: str, name: str, creator: str) -> str:
-        project_id = uuid.uuid4().hex
+    def create_project(self, folder_rel: str, name: str, creator: str, project_id: str | None = None) -> str:
+        """Register a project. `project_id` re-registers one found on disk (e.g. restored)."""
+        project_id = project_id or uuid.uuid4().hex
         now = self.clock()
         with self._tx() as conn:
             conn.execute(
