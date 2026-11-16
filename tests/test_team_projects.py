@@ -340,7 +340,7 @@ def test_open_records_last_open(client):
 
 def read_event(lines):
     """Next SSE event (name, data), skipping comments."""
-    name = None
+    name, data = None, None
     for line in lines:
         if line.startswith(":") or not line:
             if name is not None and not line:

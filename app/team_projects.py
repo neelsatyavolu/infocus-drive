@@ -358,7 +358,7 @@ def _put_sequence(user: dict[str, Any], info: dict[str, Any], seq: int, body: di
     if isinstance(base, bool) or not isinstance(base, int) or base < 0:
         raise HTTPException(status_code=400, detail="base_rev must be a number")
     item = body.get("json")
-    if not _is_sequence(item) or item.get("id") != seq:
+    if not isinstance(item, dict) or not _is_sequence(item) or item.get("id") != seq:
         raise HTTPException(status_code=400, detail="json must be the sequence item with this id")
     st = store()
     username = str(user["username"])
