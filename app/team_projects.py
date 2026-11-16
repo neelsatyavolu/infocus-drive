@@ -464,6 +464,45 @@ async def put_sequence(request: Request, project_id: str, seq: int) -> Any:
         return _fs_error(e)
 
 
+def _delete_sequence(user: dict[str, Any], info: dict[str, Any], seq: int, body: dict[str, Any]) -> JSONResponse | dict:
+    project_id = info["id"]
+    base = body.get("base_rev")
+    if isinstance(base, bool) or not isinstance(base, int) or base < 0:
+        raise HTTPException(status_code=400, detail="base_rev must be a number")
+    token = str(body.get("token") or "")
+    st = store()
+    username = str(user["username"])
+    with _project_lock(project_id):
+        _meta, _shared, sequences = team_files.read_project(user, info["folder"])
+        if not st.check_lock(project_id, seq, token):
+            return _conflict("lock_lost", _LOCK_LOST)
+        current = st.revision(project_id, f"seq:{seq}")
+        if base != current:
+            return _conflict("stale", "This sequence changed since you loaded it", rev=current)
+        if seq not in sequences:
+            raise HTTPException(status_code=404, detail="Sequence not found")
+        if any(_references(other, seq) for other_id, other in sequences.items() if other_id != seq):
+            return _conflict("item_in_use", "sequence is used by another sequence", item=seq)
+        team_files.delete_sequence(user, info["folder"], seq)
+        rev = st.bump_revision(project_id, f"seq:{seq}", base)
+        st.release(project_id, seq, token)
+    publish(project_id, "sequence_deleted", {"seq": seq, "rev": rev, "by": username})
+    publish(project_id, "lock_changed", {"seq": seq, "holder": None})
+    return {"rev": rev}
+
+
+@router.delete("/projects/{project_id}/sequences/{seq}")
+async def delete_sequence(request: Request, project_id: str, seq: int) -> Any:
+    user = _user(request)
+    info = _project_or_404(project_id)
+    _seq_or_404(seq)
+    body = await _body(request)
+    try:
+        return await run_in_threadpool(_delete_sequence, user, info, seq, body)
+    except FSError as e:
+        return _fs_error(e)
+
+
 def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any]) -> JSONResponse | dict:
     project_id = info["id"]
     base = body.get("base_rev")

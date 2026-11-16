@@ -659,3 +659,82 @@ def test_every_409_has_an_error_code(client):
     changed = client.get(f"/api/team/projects/{pid}", headers=h)
     assert changed.status_code == 409 and changed.json()["error"] == "files_changed"
     assert "changed outside" in changed.json()["message"]
+
+
+def delete_seq(client, pid, seq, token, base_rev, user="student1"):
+    return client.request("DELETE", f"/api/team/projects/{pid}/sequences/{seq}",
+                          json={"token": token, "base_rev": base_rev}, headers=as_(user))
+
+
+def test_delete_sequence_moves_it_aside_and_releases_lock(client):
+    pid = create(client)["id"]
+    folder = client.drive / "Team Projects" / "Robotics.fcteam"
+    token = lock(client, pid, 3).json()["token"]
+    r = delete_seq(client, pid, 3, token, 0)
+    assert r.status_code == 200 and r.json() == {"rev": 1}
+    assert not (folder / "sequences" / "3.json").exists()
+    assert json.loads((folder / "sequences" / ".deleted" / "3.json").read_text()) == seq_item(3)
+    meta = json.loads((folder / "meta.json").read_text())
+    assert set(meta["file_hashes"]) == {"project.json", "sequences/2.json"}
+    got = client.get(f"/api/team/projects/{pid}", headers=as_("student2"))
+    assert got.status_code == 200 and set(got.json()["sequences"]) == {"2"}
+    assert got.json()["locks"] == {}
+    assert lock(client, pid, 3, user="student2").status_code == 200  # lock was released
+
+    # Same id made again and deleted again: the older copy is kept.
+    token = lock(client, pid, 3, user="student2").json()["token"]
+    body = {"token": token, "base_rev": 1, "json": seq_item(3), **APP}
+    assert client.put(f"/api/team/projects/{pid}/sequences/3", json=body, headers=as_("student2")).json() == {"rev": 2}
+    assert delete_seq(client, pid, 3, token, 2, user="student2").json() == {"rev": 3}
+    assert (folder / "sequences" / ".deleted" / "3.json.#1").is_file()
+
+
+def test_delete_sequence_needs_lock_and_current_base(client):
+    pid = create(client)["id"]
+    assert delete_seq(client, pid, 3, "nope", 0).json()["error"] == "lock_lost"
+    token = lock(client, pid, 3).json()["token"]
+    assert put(client, pid, 3, token, 0).json() == {"rev": 1}
+    stale = delete_seq(client, pid, 3, token, 0)
+    assert stale.status_code == 409 and stale.json()["error"] == "stale" and stale.json()["rev"] == 1
+    bad = client.request("DELETE", f"/api/team/projects/{pid}/sequences/3", json={"token": token},
+                         headers=as_("student1"))
+    assert bad.status_code == 400
+    other = lock(client, pid, 2, user="student2").json()["token"]
+    assert delete_seq(client, pid, 3, other, 1, user="student2").json()["error"] == "lock_lost"
+    assert (client.drive / "Team Projects" / "Robotics.fcteam" / "sequences" / "3.json").is_file()
+
+
+def test_delete_sequence_used_by_another_sequence_refused(client):
+    project = demo_project()
+    project["items"]["3"] = seq_item(3, clips=[2])  # sequence 3 nests sequence 2
+    pid = create(client, project=project)["id"]
+    token = lock(client, pid, 2).json()["token"]
+    used = delete_seq(client, pid, 2, token, 0)
+    assert used.status_code == 409 and used.json()["error"] == "item_in_use" and used.json()["item"] == 2
+    assert lock(client, pid, 2).status_code == 200  # still held
+
+
+def test_delete_missing_sequence_404(client):
+    pid = create(client)["id"]
+    token = lock(client, pid, 99).json()["token"]
+    assert delete_seq(client, pid, 99, token, 0).status_code == 404
+
+
+def test_delete_sequence_refuses_changed_files(client):
+    pid = create(client)["id"]
+    seq_file = client.drive / "Team Projects" / "Robotics.fcteam" / "sequences" / "3.json"
+    seq_file.write_text(json.dumps(seq_item(3, clips=[1])))
+    token = lock(client, pid, 3).json()["token"]
+    assert delete_seq(client, pid, 3, token, 0).json()["error"] == "files_changed"
+    assert seq_file.is_file()
+
+
+def test_delete_sequence_event(client):
+    pid = create(client)["id"]
+    token = lock(client, pid, 3).json()["token"]
+    with client.stream("GET", f"/api/team/projects/{pid}/events", headers=as_("student2")) as stream:
+        lines = stream.iter_lines()
+        next(lines)
+        assert delete_seq(client, pid, 3, token, 0).status_code == 200
+        assert read_event(lines) == ("sequence_deleted", {"seq": 3, "rev": 1, "by": "student1"})
+        assert read_event(lines) == ("lock_changed", {"seq": 3, "holder": None})

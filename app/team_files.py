@@ -4,6 +4,7 @@ Layout under the drive root (the only writer is this module)::
 
     Team Projects/<name>.fcteam/project.json          shared part (items without sequences, bins, …)
     Team Projects/<name>.fcteam/sequences/<id>.json   one sequence item per file
+    Team Projects/<name>.fcteam/sequences/.deleted/   deleted sequences, moved aside (never removed)
     Team Projects/<name>.fcteam/meta.json             id, versions, creator, file hashes
     Team Projects/<name> Media/                        originals, uploaded like any Drive file
 
@@ -32,6 +33,7 @@ MEDIA_SUFFIX = " Media"
 PROJECT_FILE = "project.json"
 META_FILE = "meta.json"
 SEQUENCES_DIR = "sequences"
+DELETED_DIR = ".deleted"
 MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_NAME_LEN = 100
 _SEQ_FILE = re.compile(r"^([1-9][0-9]{0,15})\.json$")
@@ -259,6 +261,33 @@ def write_sequence(
         _write_bytes(root / _seq_rel(seq_id), data)
         hashes = {**(meta.get("file_hashes") or {}), _seq_rel(seq_id): _sha(data)}
         _write_bytes(root / META_FILE, _dump({**meta, **(meta_updates or {}), "file_hashes": hashes}))
+
+
+def delete_sequence(user: dict[str, Any], folder_rel: str, seq_id: int) -> str:
+    """Move `sequences/<id>.json` into `sequences/.deleted/` and drop its hash.
+
+    A rename as the member inside the project folder: nothing is removed, and
+    the copy goes to `#recycle` with the rest of the project at cleanup. Adds
+    `.#1`, `.#2` … when an older copy of the same id is already there. Returns
+    the new path relative to the project folder.
+    """
+    root = _project_dir(folder_rel)
+    rel = _seq_rel(seq_id)
+    with _as(user):
+        meta = _read_meta(root)
+        bin_dir = root / SEQUENCES_DIR / DELETED_DIR
+        if not os.path.lexists(bin_dir):
+            bin_dir.mkdir()
+        if bin_dir.is_symlink() or not bin_dir.is_dir():
+            raise TeamConflict("The deleted sequences folder is not a plain folder", "invalid_project")
+        source = root / rel
+        if source.is_symlink() or not source.is_file():
+            raise FSError("Sequence not found", 404)
+        dest = fsops._versioned_dest(bin_dir / source.name)
+        os.rename(source, dest)
+        hashes = {k: v for k, v in (meta.get("file_hashes") or {}).items() if k != rel}
+        _write_bytes(root / META_FILE, _dump({**meta, "file_hashes": hashes}))
+    return str(dest.relative_to(root))
 
 
 def write_shared(user: dict[str, Any], folder_rel: str, shared: dict[str, Any]) -> None:
