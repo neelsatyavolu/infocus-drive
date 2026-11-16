@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 import team_cleanup
@@ -375,6 +375,52 @@ def get_project(request: Request, project_id: str) -> Any:
         "slot": st.slot_for(project_id, username),
         "cleanup": team_cleanup.cleanup_status(st, project_id),
     }
+
+
+def _read_part(user: dict[str, Any], info: dict[str, Any], key: str) -> tuple[dict, dict, dict, int]:
+    """`read_project` plus one revision, under the project lock so the pair matches.
+
+    Unlike `GET …/{id}` this records no open, so change-feed refetches don't
+    reset the cleanup clock.
+    """
+    with _project_lock(info["id"]):
+        meta, shared, sequences = team_files.read_project(user, info["folder"])
+        return meta, shared, sequences, store().revision(info["id"], key)
+
+
+def _cached(request: Request, rev: int, file_hash: Any, body: dict[str, Any]) -> Any:
+    """`body` with an ETag of rev + file hash, or 304 when `If-None-Match` has it."""
+    etag = f'"{rev}-{str(file_hash or "")[:16]}"'
+    if etag in [t.strip() for t in (request.headers.get("If-None-Match") or "").split(",")]:
+        return Response(status_code=304, headers={"ETag": etag})
+    return JSONResponse(body, headers={"ETag": etag})
+
+
+@router.get("/projects/{project_id}/sequences/{seq}")
+def get_sequence(request: Request, project_id: str, seq: int) -> Any:
+    user = _user(request)
+    info = _project_or_404(project_id)
+    _seq_or_404(seq)
+    try:
+        meta, _shared, sequences, rev = _read_part(user, info, f"seq:{seq}")
+    except FSError as e:
+        return _fs_error(e)
+    if seq not in sequences:
+        raise HTTPException(status_code=404, detail="Sequence not found")
+    file_hash = (meta.get("file_hashes") or {}).get(f"{team_files.SEQUENCES_DIR}/{seq}.json")
+    return _cached(request, rev, file_hash, {"seq": seq, "rev": rev, "json": sequences[seq]})
+
+
+@router.get("/projects/{project_id}/shared")
+def get_shared(request: Request, project_id: str) -> Any:
+    user = _user(request)
+    info = _project_or_404(project_id)
+    try:
+        meta, shared, _sequences, rev = _read_part(user, info, "shared")
+    except FSError as e:
+        return _fs_error(e)
+    file_hash = (meta.get("file_hashes") or {}).get(team_files.PROJECT_FILE)
+    return _cached(request, rev, file_hash, {"rev": rev, "shared": shared})
 
 
 @router.post("/projects/{project_id}/sequences/{seq}/lock")

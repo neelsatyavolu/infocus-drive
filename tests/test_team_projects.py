@@ -795,3 +795,74 @@ def test_shared_fields_event_names_keys(client):
         next(lines)
         assert post_fields(client, pid, {"notes": "hi", "settings": {}}).status_code == 200
         assert read_event(lines) == ("shared_updated", {"rev": 1, "fields": ["notes", "settings"]})
+
+
+def test_get_one_sequence_without_recording_an_open(client):
+    pid = create(client)["id"]
+    store = team_projects.store()
+    store.mark_notified(pid)
+    url = f"/api/team/projects/{pid}/sequences/2"
+    r = client.get(url, headers=as_("student2"))
+    assert r.status_code == 200
+    assert r.json() == {"seq": 2, "rev": 0, "json": seq_item(2, clips=[1])}
+    assert store.notified(pid) and "student2" not in store.members(pid)
+
+    token = lock(client, pid, 3).json()["token"]
+    assert put(client, pid, 3, token, 0).json() == {"rev": 1}
+    got = client.get(f"/api/team/projects/{pid}/sequences/3", headers=as_("student2")).json()
+    assert got == {"seq": 3, "rev": 1, "json": seq_item(3, clips=[1])}
+
+
+def test_get_one_sequence_missing_or_deleted_404(client):
+    pid = create(client)["id"]
+    for seq in (9, 0):
+        assert client.get(f"/api/team/projects/{pid}/sequences/{seq}", headers=as_("student1")).status_code == 404
+    token = lock(client, pid, 3).json()["token"]
+    assert delete_seq(client, pid, 3, token, 0).status_code == 200
+    assert client.get(f"/api/team/projects/{pid}/sequences/3", headers=as_("student1")).status_code == 404
+
+
+def test_get_shared_without_recording_an_open(client):
+    pid = create(client)["id"]
+    store = team_projects.store()
+    store.mark_notified(pid)
+    r = client.get(f"/api/team/projects/{pid}/shared", headers=as_("student2"))
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"rev", "shared"} and body["rev"] == 0
+    assert set(body["shared"]["items"]) == {"1"}
+    assert store.notified(pid) and "student2" not in store.members(pid)
+    assert post_fields(client, pid, {"notes": "hi"}).status_code == 200
+    body = client.get(f"/api/team/projects/{pid}/shared", headers=as_("student2")).json()
+    assert body["rev"] == 1 and body["shared"]["notes"] == "hi"
+
+
+@pytest.mark.parametrize("path", ["sequences/2", "shared"])
+def test_partial_gets_check_access_and_hashes(client, path):
+    pid = create(client)["id"]
+    url = f"/api/team/projects/{pid}/{path}"
+    assert client.get(url, headers=as_("outsider")).status_code == 403
+    assert client.get(f"/api/team/projects/{'0' * 32}/{path}", headers=as_("student1")).status_code == 404
+    seq_file = client.drive / "Team Projects" / "Robotics.fcteam" / "sequences" / "3.json"
+    seq_file.write_text(json.dumps(seq_item(3, clips=[1])))
+    r = client.get(url, headers=as_("student1"))
+    assert r.status_code == 409 and r.json()["error"] == "files_changed"
+
+
+@pytest.mark.parametrize("path", ["sequences/3", "shared"])
+def test_partial_gets_etag_304(client, path):
+    pid = create(client)["id"]
+    url = f"/api/team/projects/{pid}/{path}"
+    first = client.get(url, headers=as_("student2"))
+    etag = first.headers["ETag"]
+    again = client.get(url, headers={**as_("student2"), "If-None-Match": etag})
+    assert again.status_code == 304 and again.headers["ETag"] == etag and again.content == b""
+    assert client.get(url, headers={**as_("outsider"), "If-None-Match": etag}).status_code == 403
+
+    if path == "shared":
+        assert post_fields(client, pid, {"notes": "hi"}).status_code == 200
+    else:
+        token = lock(client, pid, 3).json()["token"]
+        assert put(client, pid, 3, token, 0).status_code == 200
+    changed = client.get(url, headers={**as_("student2"), "If-None-Match": etag})
+    assert changed.status_code == 200 and changed.headers["ETag"] != etag
