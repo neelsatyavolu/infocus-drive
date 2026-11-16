@@ -119,13 +119,21 @@ def _read_bytes(path: Path) -> bytes:
 
 
 def _write_bytes(path: Path, data: bytes) -> None:
-    """Write next to the target and rename over it, so readers never see half a file."""
+    """Write next to the target and rename over it, so readers never see half a file.
+
+    The file is fsynced before the rename and the folder after it, so a power cut
+    leaves the old or the new file, never an empty one. A crash between a data file
+    and meta.json can still leave their hashes apart; reads then answer 409
+    `files_changed` and an admin repairs it by hand (docs/SYSTEM.md, "Team projects").
+    """
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     fd = os.open(tmp, flags, 0o664)
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -133,6 +141,11 @@ def _write_bytes(path: Path, data: bytes) -> None:
         except OSError:
             pass
         raise
+    dir_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0))
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
 
 
 def _dump(value: Any) -> bytes:
@@ -360,6 +373,7 @@ def open_media(user: dict[str, Any], folder_rel: str, rel: str) -> fsops.Authori
 
 def media_upload_dir(user: dict[str, Any], folder_rel: str, rel_dir: str) -> tuple[Path, str]:
     """(folder, rel to the drive root) to upload into, made as the member if missing."""
+    guard_new_name(rel_dir)  # no `.fcteam` folders inside the media folder either
     target, _media, target_rel = _media_path(folder_rel, rel_dir, allow_root=True)
     if not target.is_dir():
         fsops.ensure_dir(target_rel, int(user["uid"]), int(user["gid"]))

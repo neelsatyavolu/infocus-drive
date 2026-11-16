@@ -244,10 +244,10 @@ def test_new_sequence_via_put(client):
 def test_shared_add_merges_concurrent(client):
     pid = create(client)["id"]
     a = client.post(f"/api/team/projects/{pid}/shared",
-                    json={"base_rev": 0, "upserts": {"10": media_item(10, "B.mov")}, "deletes": []},
+                    json={**APP, "base_rev": 0, "upserts": {"10": media_item(10, "B.mov")}, "deletes": []},
                     headers=as_("student1"))
     b = client.post(f"/api/team/projects/{pid}/shared",
-                    json={"base_rev": 0, "upserts": {"11": media_item(11, "C.mov")}, "deletes": []},
+                    json={**APP, "base_rev": 0, "upserts": {"11": media_item(11, "C.mov")}, "deletes": []},
                     headers=as_("student2"))
     assert a.status_code == 200 and b.status_code == 200
     assert {a.json()["rev"], b.json()["rev"]} == {1, 2}
@@ -268,7 +268,7 @@ def binned(node):
 
 
 def shared_post(client, pid, user, base, upserts=None, bins=None):
-    body = {"base_rev": base, "upserts": upserts or {}, "deletes": []}
+    body = {**APP, "base_rev": base, "upserts": upserts or {}, "deletes": []}
     if bins is not None:
         body["bins"] = bins
     r = client.post(f"/api/team/projects/{pid}/shared", json=body, headers=as_(user))
@@ -300,14 +300,14 @@ def test_upsert_without_bins_files_new_media_in_root(client):
 
 def test_shared_bins_need_current_base(client):
     pid = create(client)["id"]
-    client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": []},
+    client.post(f"/api/team/projects/{pid}/shared", json={**APP, "base_rev": 0, "upserts": {}, "deletes": []},
                 headers=as_("student1"))
     stale = client.post(f"/api/team/projects/{pid}/shared",
-                        json={"base_rev": 0, "upserts": {}, "deletes": [], "bins": {"name": "root"}},
+                        json={**APP, "base_rev": 0, "upserts": {}, "deletes": [], "bins": {"name": "root"}},
                         headers=as_("student2"))
     assert stale.status_code == 409 and stale.json()["error"] == "stale" and stale.json()["rev"] == 1
     ok = client.post(f"/api/team/projects/{pid}/shared",
-                     json={"base_rev": 1, "upserts": {}, "deletes": [], "bins": bin_tree({"Item": 1})},
+                     json={**APP, "base_rev": 1, "upserts": {}, "deletes": [], "bins": bin_tree({"Item": 1})},
                      headers=as_("student2"))
     assert ok.status_code == 200
     got = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()
@@ -317,34 +317,40 @@ def test_shared_bins_need_current_base(client):
 def test_shared_rejects_sequence_upsert(client):
     pid = create(client)["id"]
     r = client.post(f"/api/team/projects/{pid}/shared",
-                    json={"base_rev": 0, "upserts": {"5": seq_item(5)}, "deletes": []}, headers=as_("student1"))
+                    json={**APP, "base_rev": 0, "upserts": {"5": seq_item(5)}, "deletes": []}, headers=as_("student1"))
     assert r.status_code == 400
     r = client.post(f"/api/team/projects/{pid}/shared",
-                    json={"base_rev": 0, "upserts": {"5": media_item(6)}, "deletes": []}, headers=as_("student1"))
+                    json={**APP, "base_rev": 0, "upserts": {"5": media_item(6)}, "deletes": []}, headers=as_("student1"))
     assert r.status_code == 400
 
 
 def test_delete_referenced_item_refused(client):
     pid = create(client)["id"]
     client.post(f"/api/team/projects/{pid}/shared",
-                json={"base_rev": 0, "upserts": {"10": media_item(10)}, "deletes": []}, headers=as_("student1"))
-    used = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 1, "upserts": {}, "deletes": [1]},
+                json={**APP, "base_rev": 0, "upserts": {"10": media_item(10)}, "deletes": []}, headers=as_("student1"))
+    used = client.post(f"/api/team/projects/{pid}/shared", json={**APP, "base_rev": 1, "upserts": {}, "deletes": [1]},
                        headers=as_("student1"))
     assert used.status_code == 409 and used.json()["item"] == 1
-    free = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 1, "upserts": {}, "deletes": [10]},
+    free = client.post(f"/api/team/projects/{pid}/shared", json={**APP, "base_rev": 1, "upserts": {}, "deletes": [10]},
                        headers=as_("student1"))
     assert free.status_code == 200
     got = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()
     assert set(got["shared"]["items"]) == {"1"}
 
 
-def test_old_app_rejected_426(client):
+def test_old_app_rejected_426(client, monkeypatch):
+    monkeypatch.setattr(team_projects, "MAX_SCHEMA_VERSION", 18)
     pid = create(client)["id"]
     token = lock(client, pid, 2).json()["token"]
     old_schema = put(client, pid, 2, token, 0, schema_version=16)
     assert old_schema.status_code == 426 and old_schema.json()["schema_version"] == 17
     newer = put(client, pid, 2, token, 0, schema_version=18, app_version="0.4.0")
     assert newer.status_code == 200
+    behind = put(client, pid, 2, token, 1, schema_version=17)
+    assert behind.status_code == 426 and behind.json()["schema_version"] == 18
+    # An operator can still set a minimum app version by hand in meta.json.
+    meta_path = client.drive / "Team Projects" / "Robotics.fcteam" / "meta.json"
+    meta_path.write_text(json.dumps({**json.loads(meta_path.read_text()), "min_app_version": "0.4.0"}))
     old_app = put(client, pid, 2, token, 1, schema_version=18, app_version="0.3.9")
     assert old_app.status_code == 426 and old_app.json()["min_app_version"] == "0.4.0"
     assert put(client, pid, 2, token, 1, app_version="x.y").status_code == 400
@@ -372,7 +378,7 @@ def test_user_without_folder_access_403(client):
     assert client.get(f"/api/team/projects/{pid}", headers=as_("outsider")).status_code == 403
     assert lock(client, pid, 2, user="outsider").status_code == 403
     assert client.get("/api/team/projects", headers=as_("outsider")).json() == []
-    r = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": []},
+    r = client.post(f"/api/team/projects/{pid}/shared", json={**APP, "base_rev": 0, "upserts": {}, "deletes": []},
                     headers=as_("outsider"))
     assert r.status_code == 403
     assert client.get(f"/api/team/projects/{pid}/events", headers=as_("outsider")).status_code == 403
@@ -436,7 +442,7 @@ def test_events_stream_sends_sequence_updated(client):
         assert next(lines).startswith(":")  # subscribed
         assert put(client, pid, 2, token, 0).status_code == 200
         assert read_event(lines) == ("sequence_updated", {"seq": 2, "rev": 1, "by": "student1"})
-        client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": []},
+        client.post(f"/api/team/projects/{pid}/shared", json={**APP, "base_rev": 0, "upserts": {}, "deletes": []},
                     headers=as_("student1"))
         assert read_event(lines) == ("shared_updated", {"rev": 1})
         client.request("DELETE", f"/api/team/projects/{pid}/sequences/2/lock", json={"token": token},
@@ -649,7 +655,7 @@ def test_every_409_has_an_error_code(client):
     assert hb.status_code == 409 and hb.json()["error"] == "lock_lost"
     rel = client.request("DELETE", f"/api/team/projects/{pid}/sequences/2/lock", json={"token": "nope"}, headers=h)
     assert rel.status_code == 409 and rel.json()["error"] == "lock_lost"
-    used = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": [1]},
+    used = client.post(f"/api/team/projects/{pid}/shared", json={**APP, "base_rev": 0, "upserts": {}, "deletes": [1]},
                        headers=h)
     assert used.status_code == 409 and used.json()["error"] == "item_in_use" and used.json()["item"] == 1
     dup = client.post("/api/team/projects", json={"name": "Robotics", **APP}, headers=h)
@@ -716,8 +722,9 @@ def test_delete_sequence_used_by_another_sequence_refused(client):
 
 def test_delete_missing_sequence_404(client):
     pid = create(client)["id"]
-    token = lock(client, pid, 99).json()["token"]
-    assert delete_seq(client, pid, 99, token, 0).status_code == 404
+    seq = (1 << 40) | 99  # a new id in student1's slot, never saved
+    token = lock(client, pid, seq).json()["token"]
+    assert delete_seq(client, pid, seq, token, 0).status_code == 404
 
 
 def test_delete_sequence_refuses_changed_files(client):
@@ -741,7 +748,7 @@ def test_delete_sequence_event(client):
 
 
 def post_fields(client, pid, fields, user="student1", base=0):
-    return client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": base, "fields": fields},
+    return client.post(f"/api/team/projects/{pid}/shared", json={**APP, "base_rev": base, "fields": fields},
                        headers=as_(user))
 
 
@@ -761,7 +768,7 @@ def test_shared_fields_merge_per_key_last_writer_wins(client):
 def test_shared_fields_with_items_in_one_post(client):
     pid = create(client)["id"]
     r = client.post(f"/api/team/projects/{pid}/shared",
-                    json={"base_rev": 0, "upserts": {"10": media_item(10)}, "fields": {"luts": []}},
+                    json={**APP, "base_rev": 0, "upserts": {"10": media_item(10)}, "fields": {"luts": []}},
                     headers=as_("student1"))
     assert r.status_code == 200
     shared = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()["shared"]

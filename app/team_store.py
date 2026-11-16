@@ -201,6 +201,8 @@ class TeamStore:
         with self._tx() as conn:
             if conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
                 return LockResult(False, None, None, 0.0)
+            # Expired rows are dead weight (heartbeat refuses them), so drop them as we go.
+            conn.execute("DELETE FROM locks WHERE expires_at <= ?", (now,))
             row = conn.execute(
                 "SELECT user, token, device, expires_at FROM locks WHERE project_id = ? AND seq_id = ?",
                 (project_id, seq_id),

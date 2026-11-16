@@ -17,6 +17,7 @@ import re
 import threading
 import time
 import uuid
+import weakref
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
@@ -35,8 +36,20 @@ from team_store import TeamStore
 router = APIRouter(prefix="/api/team")
 
 KEEPALIVE_S = 15.0
+# Request bodies: project data (create, PUT sequence, POST shared) may be as big as a
+# project file; every other team route takes a small JSON object.
 MAX_BODY_BYTES = 64 * 1024 * 1024
+SMALL_BODY_BYTES = 64 * 1024
+# Upserts and deletes in one `POST …/shared` (each list), far above one real edit.
+MAX_SHARED_OPS = 10_000
+# Open change feeds, per user and in all (uvicorn runs with --limit-concurrency 200).
+MAX_STREAMS_PER_USER = 4
+MAX_STREAMS = 60
+# The newest FilmCraft project schema this server knows. A client can raise a project's
+# schema up to here and no further; bump it with the InFocus Cut release that adds one.
+MAX_SCHEMA_VERSION = 17
 MAX_ID = (1 << 53) - 1
+ID_SLOT_SHIFT = 40  # FilmCraft team ids: member slot << 40, plus a counter
 SUBSCRIBER_QUEUE = 256
 _PROJECT_ID = re.compile(r"^[0-9a-f]{32}$")
 _VERSION = re.compile(r"^[0-9]{1,6}(\.[0-9]{1,6}){0,3}$")
@@ -105,6 +118,25 @@ def _project_lock(project_id: str) -> threading.Lock:
 
 _subscribers: dict[str, set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]]] = {}
 _subscribers_guard = threading.Lock()
+_stream_counts: dict[str, int] = {}  # open streams per user, under `_subscribers_guard`
+
+
+def _reserve_stream(username: str) -> bool:
+    with _subscribers_guard:
+        if (_stream_counts.get(username, 0) >= MAX_STREAMS_PER_USER
+                or sum(_stream_counts.values()) >= MAX_STREAMS):
+            return False
+        _stream_counts[username] = _stream_counts.get(username, 0) + 1
+        return True
+
+
+def _release_stream(username: str) -> None:
+    with _subscribers_guard:
+        left = _stream_counts.get(username, 0) - 1
+        if left > 0:
+            _stream_counts[username] = left
+        else:
+            _stream_counts.pop(username, None)
 
 
 def _offer(queue: asyncio.Queue, message: str) -> None:
@@ -147,12 +179,14 @@ def _fs_error(e: FSError) -> JSONResponse:
     return _error(e.status, {"detail": str(e)})
 
 
-async def _body(request: Request) -> dict[str, Any]:
+async def _body(request: Request, limit: int | None = None) -> dict[str, Any]:
+    """The JSON object body, refusing more than `limit` bytes (default `SMALL_BODY_BYTES`)."""
+    limit = SMALL_BODY_BYTES if limit is None else limit
     chunks: list[bytes] = []
     size = 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > MAX_BODY_BYTES:
+        if size > limit:
             raise HTTPException(status_code=413, detail="Request body too large")
         chunks.append(chunk)
     raw = b"".join(chunks)
@@ -193,6 +227,22 @@ def _schema(value: Any) -> int:
     return value
 
 
+def _schema_unsupported() -> JSONResponse:
+    return _error(400, {"error": "schema_unsupported",
+                        "detail": "This Drive doesn't know that project schema yet; update the Drive",
+                        "max_schema_version": MAX_SCHEMA_VERSION})
+
+
+def _app_gate(meta: dict[str, Any], app_version: tuple[int, ...], schema: int) -> JSONResponse | None:
+    """426 when the app is older than the project (its schema, or an operator-set minimum)."""
+    meta_schema = int(meta.get("schema_version") or 0)
+    min_app = str(meta.get("min_app_version") or "0")
+    if schema < meta_schema or app_version < _version(min_app):
+        return _error(426, {"error": "update InFocus Cut", "schema_version": meta_schema,
+                            "min_app_version": min_app})
+    return None
+
+
 def _device(request: Request) -> str:
     """The Mac taking a lock (`X-Drive-Device`); a missing header counts as one more device."""
     value = (request.headers.get(DEVICE_HEADER) or "").strip()
@@ -214,6 +264,22 @@ def _item_id(key: Any) -> int:
     if isinstance(key, bool) or not 1 <= value <= MAX_ID:
         raise HTTPException(status_code=400, detail="Item id out of range")
     return value
+
+
+def _referenced_ids(value: Any, found: set[int], depth: int = 0) -> None:
+    """Every id a sequence uses (a clip's `item`, or a `parent`), at any depth, into `found`."""
+    if depth > 200:
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in ("item", "parent") and isinstance(child, int) and not isinstance(child, bool):
+                found.add(child)
+            elif isinstance(child, (dict, list)):
+                _referenced_ids(child, found, depth + 1)
+    elif isinstance(value, list):
+        for child in value:
+            if isinstance(child, (dict, list)):
+                _referenced_ids(child, found, depth + 1)
 
 
 def _references(value: Any, item_id: int, depth: int = 0) -> bool:
@@ -311,9 +377,11 @@ def list_projects(request: Request) -> list[dict[str, Any]]:
 @router.post("/projects")
 async def create_project(request: Request) -> Any:
     user = _user(request)
-    body = await _body(request)
+    body = await _body(request, MAX_BODY_BYTES)
     _version(body.get("app_version"))
     schema = _schema(body.get("schema_version"))
+    if schema > MAX_SCHEMA_VERSION:
+        return _schema_unsupported()
     try:
         name = team_files.valid_name(body.get("name"))
     except FSError as e:
@@ -360,11 +428,15 @@ async def create_project(request: Request) -> Any:
 def get_project(request: Request, project_id: str) -> Any:
     user = _user(request)
     info = _project_or_404(project_id)
+    st = store()
     try:
-        meta, shared, sequences = team_files.read_project(user, info["folder"])
+        # Files and revisions together, like `_read_part`, so no json carries a newer rev.
+        with _project_lock(project_id):
+            meta, shared, sequences = team_files.read_project(user, info["folder"])
+            seq_revs = {seq: st.revision(project_id, f"seq:{seq}") for seq in sequences}
+            shared_rev = st.revision(project_id, "shared")
     except FSError as e:
         return _fs_error(e)
-    st = store()
     username = str(user["username"])
     st.record_open(project_id, username)
     return {
@@ -372,9 +444,9 @@ def get_project(request: Request, project_id: str) -> Any:
         "name": str(meta.get("name") or info["name"]),
         "meta": meta,
         "shared": shared,
-        "sequences": {str(seq): {"rev": st.revision(project_id, f"seq:{seq}"), "json": item}
+        "sequences": {str(seq): {"rev": seq_revs[seq], "json": item}
                       for seq, item in sorted(sequences.items())},
-        "shared_rev": st.revision(project_id, "shared"),
+        "shared_rev": shared_rev,
         "locks": _locks_json(project_id),
         "slot": st.slot_for(project_id, username),
         "cleanup": team_cleanup.cleanup_status(st, project_id),
@@ -433,12 +505,19 @@ def take_lock(request: Request, project_id: str, seq: int) -> Any:
     info = _project_or_404(project_id)
     _seq_or_404(seq)
     try:
-        _check_access(user, info)
+        meta = _check_access(user, info)
     except FSError as e:
         return _fs_error(e)
     device = _device(request)
     username = str(user["username"])
-    got = store().take_lock(project_id, seq, username, device)
+    st = store()
+    known = (f"{team_files.SEQUENCES_DIR}/{seq}.json" in (meta.get("file_hashes") or {})
+             or st.revision(project_id, f"seq:{seq}") > 0)  # saved now, or once (deleted, then undone)
+    # Any other id can only be a new sequence from the caller's own id slot.
+    if not known and seq >> ID_SLOT_SHIFT != st.slot_for(project_id, username):
+        raise HTTPException(status_code=404, detail="Sequence not found")
+    with _project_lock(project_id):  # cleanup checks locks under this lock before a move
+        got = st.take_lock(project_id, seq, username, device)
     if not got.ok:
         # `device` only for your own other Mac; a teammate's device name stays private.
         return _conflict("lock_held", f"{got.holder} is editing this sequence", holder=got.holder,
@@ -494,23 +573,24 @@ def _put_sequence(user: dict[str, Any], info: dict[str, Any], seq: int, body: di
     item = body.get("json")
     if not isinstance(item, dict) or not _is_sequence(item) or item.get("id") != seq:
         raise HTTPException(status_code=400, detail="json must be the sequence item with this id")
+    if schema > MAX_SCHEMA_VERSION:
+        return _schema_unsupported()
     st = store()
     username = str(user["username"])
     with _project_lock(project_id):
         meta = team_files.read_meta(user, info["folder"])
         meta_schema = int(meta.get("schema_version") or 0)
-        min_app = str(meta.get("min_app_version") or "0")
-        if schema < meta_schema or app_version < _version(min_app):
-            return _error(426, {"error": "update InFocus Cut", "schema_version": meta_schema,
-                                "min_app_version": min_app})
+        refused = _app_gate(meta, app_version, schema)
+        if refused is not None:
+            return refused
         if not st.check_lock(project_id, seq, str(body.get("token") or "")):
             return _conflict("lock_lost", _LOCK_LOST)
         current = st.revision(project_id, f"seq:{seq}")
         if base != current:
             return _conflict("stale", "This sequence changed since you loaded it", rev=current)
-        # A newer schema raises the bar: older apps could drop its new fields.
-        updates = ({"schema_version": schema, "min_app_version": body["app_version"]}
-                   if schema > meta_schema else None)
+        # A newer schema raises the bar: older apps (older schema) could drop its new fields.
+        # Clients never raise `min_app_version`; only an operator sets it in meta.json.
+        updates = {"schema_version": schema} if schema > meta_schema else None
         team_files.write_sequence(user, info["folder"], seq, item, updates)
         rev = st.bump_revision(project_id, f"seq:{seq}", base)
     publish(project_id, "sequence_updated", {"seq": seq, "rev": rev, "by": username})
@@ -522,7 +602,7 @@ async def put_sequence(request: Request, project_id: str, seq: int) -> Any:
     user = _user(request)
     info = _project_or_404(project_id)
     _seq_or_404(seq)
-    body = await _body(request)
+    body = await _body(request, MAX_BODY_BYTES)
     try:
         return await run_in_threadpool(_put_sequence, user, info, seq, body)
     except FSError as e:
@@ -585,6 +665,10 @@ def _shared_fields(value: Any) -> dict[str, Any]:
 
 def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any]) -> JSONResponse | dict:
     project_id = info["id"]
+    app_version = _version(body.get("app_version"))
+    schema = _schema(body.get("schema_version"))
+    if schema > MAX_SCHEMA_VERSION:
+        return _schema_unsupported()
     base = body.get("base_rev")
     if isinstance(base, bool) or not isinstance(base, int) or base < 0:
         raise HTTPException(status_code=400, detail="base_rev must be a number")
@@ -595,6 +679,8 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
         raise HTTPException(status_code=400, detail="upserts must be an object and deletes a list")
     if bins is not None and not isinstance(bins, dict):
         raise HTTPException(status_code=400, detail="bins must be the root bin object")
+    if len(upserts) > MAX_SHARED_OPS or len(deletes) > MAX_SHARED_OPS:
+        raise HTTPException(status_code=413, detail=f"At most {MAX_SHARED_OPS} upserts and {MAX_SHARED_OPS} deletes per change")
     clean: dict[str, Any] = {}
     for key, item in upserts.items():
         item_id = _item_id(key)
@@ -607,14 +693,21 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
     fields = _shared_fields(body.get("fields"))
     st = store()
     with _project_lock(project_id):
-        _meta, shared, sequences = team_files.read_project(user, info["folder"])
+        meta, shared, sequences = team_files.read_project(user, info["folder"])
+        refused = _app_gate(meta, app_version, schema)
+        if refused is not None:
+            return refused
         current = st.revision(project_id, "shared")
         if bins is not None and base != current:
             # Upserts and deletes merge by id; the bin tree is replaced whole, so it needs the latest base.
             return _conflict("stale", "The bins changed since you loaded them", rev=current)
-        for item_id in delete_ids:
-            if any(_references(seq_json, item_id) for seq_json in sequences.values()):
-                return _conflict("item_in_use", "item is used by a sequence", item=item_id)
+        if delete_ids:
+            used: set[int] = set()
+            for seq_json in sequences.values():
+                _referenced_ids(seq_json, used)
+            for item_id in delete_ids:
+                if item_id in used:
+                    return _conflict("item_in_use", "item is used by a sequence", item=item_id)
         items = {**(shared.get("items") or {}), **clean}
         for item_id in delete_ids:
             items.pop(str(item_id), None)
@@ -633,7 +726,7 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
 async def post_shared(request: Request, project_id: str) -> Any:
     user = _user(request)
     info = _project_or_404(project_id)
-    body = await _body(request)
+    body = await _body(request, MAX_BODY_BYTES)
     try:
         return await run_in_threadpool(_post_shared, user, info, body)
     except FSError as e:
@@ -801,6 +894,10 @@ async def events(request: Request, project_id: str) -> Any:
         await run_in_threadpool(_check_access, user, info)
     except FSError as e:
         return _fs_error(e)
+    username = str(user["username"])
+    if not _reserve_stream(username):
+        return _error(429, {"error": "too_many_streams",
+                            "detail": "Too many open change feeds; close another InFocus Cut window"})
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue(maxsize=SUBSCRIBER_QUEUE)
     entry = (loop, queue)
@@ -818,15 +915,22 @@ async def events(request: Request, project_id: str) -> Any:
                         return
                     yield ": keepalive\n\n"
         finally:
-            with _subscribers_guard:
-                subs = _subscribers.get(project_id)
-                if subs is not None:
-                    subs.discard(entry)
-                    if not subs:
-                        _subscribers.pop(project_id, None)
+            done()
 
+    def unsubscribe() -> None:
+        with _subscribers_guard:
+            subs = _subscribers.get(project_id)
+            if subs is not None:
+                subs.discard(entry)
+                if not subs:
+                    _subscribers.pop(project_id, None)
+        _release_stream(username)
+
+    body = stream()
+    # Runs once: when the stream ends, or when a stream that never started is collected.
+    done = weakref.finalize(body, unsubscribe)
     return StreamingResponse(
-        stream(),
+        body,
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

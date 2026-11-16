@@ -131,6 +131,16 @@ Original Google flow:
 
 Measures **browser → CF Tunnel → NAS**, not raw LAN iPerf.
 
+### Team projects
+
+`app/team_projects.py` (routes), `team_store.py` (SQLite rows), `team_files.py` (files as the member), `team_cleanup.py` (daily move to `#recycle`). API table: `AGENTS.md`.
+
+- **The folder's `meta.json` id is the anchor.** A row is only acted on while its folder's `meta.json` still carries the row's id. Cleanup forgets a row whose folder is gone or now holds another project (no notice, no move); creating or registering a project retires any other row that pointed at its folder; a project list follows a renamed folder only when the row's old folder no longer holds the id, so a copied `.fcteam` is left out instead of taking over.
+- **Limits.** Request bodies: 64 MiB for create, `PUT …/sequences/{seq}` and `POST …/shared`; 64 KiB for every other team route (413). `POST …/shared`: at most 10,000 upserts and 10,000 deletes (413). Change feeds: 4 per user and 60 in all (429 `too_many_streams`), well under uvicorn's `--limit-concurrency 200`.
+- **Versions.** `MAX_SCHEMA_VERSION` in `team_projects.py` is the newest FilmCraft schema the server accepts (400 `schema_unsupported` above it); bump it with the InFocus Cut release that adds a schema. A save with a newer schema raises the project's `schema_version`; clients never raise `min_app_version`, which only an operator sets by hand in `meta.json`. Create, `PUT` and `POST …/shared` all need `app_version` and `schema_version`.
+- **Locks.** A lock needs a sequence that is saved (or was, before a delete) or a new id in the caller's id slot; other ids are 404. Expired lock rows are pruned when locks are taken.
+- **Recovering from `files_changed`.** Writes are fsynced, but a crash between a data file and `meta.json` can leave a hash that doesn't match, and every read then answers 409 `files_changed`. There is deliberately no automatic repair, because a mismatch can also mean someone edited the files outside InFocus Cut. An admin checks the files (compare `project.json` and `sequences/*.json` with a member's local copy), and if they are sound, sets the matching `sha256` hex values in `meta.json` → `file_hashes` (or restores the folder from `#recycle` or a backup).
+
 ---
 
 ## 4. Frontend architecture
