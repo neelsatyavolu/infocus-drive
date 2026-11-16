@@ -188,3 +188,20 @@ def test_in_place_create_only_never_replaces_a_file(staging, drive):
         chunk_upload.complete_session(session["upload_id"], username="nasadmin", uid=1001, expect_mtime_ns=-1)
     assert err.value.status == 409
     assert (drive / "Shows" / "clip.mov").read_bytes() == b"theirs"
+
+
+def test_cleanup_spares_a_session_folder_still_being_created(staging):
+    """Another upload's cleanup must not delete a session folder whose meta.json is not
+    written yet (two members starting uploads at the same moment got a 503)."""
+    young = staging / "starting"
+    young.mkdir(parents=True)
+    assert chunk_upload.cleanup_expired() == 0
+    assert young.is_dir()
+
+
+def test_cleanup_removes_an_old_folder_without_meta(staging, monkeypatch):
+    stale = staging / "abandoned"
+    stale.mkdir(parents=True)
+    monkeypatch.setattr(chunk_upload, "_now", lambda: 10 ** 12)
+    assert chunk_upload.cleanup_expired() == 1
+    assert not stale.exists()
