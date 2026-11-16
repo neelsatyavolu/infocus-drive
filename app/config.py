@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     email_sign_in_db_path: str = "/config/email_sign_in.sqlite3"
     # Terminal (`infocus` CLI) sign-ins; hashed tokens on the persistent config mount.
     cli_tokens_db_path: str = "/config/cli_tokens.sqlite3"
+    # InFocus Cut team projects: locks, revisions, id slots and opens (app/team_store.py).
+    team_db_path: str = "/config/team_projects.sqlite3"
+    # Sequence lock lifetime after the last heartbeat; shorten only for local end-to-end tests.
+    team_lock_ttl_s: int = 120
 
     session_cookie: str = "infocus_drive_session"
     session_max_age: int = 60 * 60 * 24 * 5  # 5 days
