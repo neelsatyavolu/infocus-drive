@@ -1,7 +1,7 @@
 """Dev-only InFocus Drive for the InFocus Cut team-editing end-to-end check.
 
 Starts the real FastAPI app with uvicorn on 127.0.0.1 only, over a throwaway drive root, with two
-fictional members (`student1`, `student2`) whose `ifd_` CLI tokens are written to files. It uses
+fictional members (`student1`, `student2`, `student3`) whose `ifd_` CLI tokens are written to files. It uses
 the same stand-ins as `tests/test_team_projects.py`: the token lookup is a fixed table (no NAS
 accounts), nobody is an admin, and it runs unprivileged, so `fsops.as_user` / `as_root` do
 nothing (the setuid switch only happens as root).
@@ -11,7 +11,7 @@ and binds only to the loopback address.
 
     INFOCUS_DEV_E2E=1 .venv/bin/python scripts/dev/team_e2e_server.py --dir /tmp/x --port 8791
 
-Writes `<dir>/student1.token` and `<dir>/student2.token` (mode 0600), keeps the drive root in
+Writes `<dir>/student1.token`, `<dir>/student2.token` and `<dir>/student3.token` (mode 0600), keeps the drive root in
 `<dir>/drive` and the databases in `<dir>/config`, and prints `READY http://127.0.0.1:<port>` once
 it answers. `INFOCUS_DEV_TEAM_LOCK_TTL_S` shortens the lock expiry (default 120 s).
 """
@@ -32,8 +32,12 @@ LOOPBACK = "127.0.0.1"
 ENABLE_ENV = "INFOCUS_DEV_E2E"
 TTL_ENV = "INFOCUS_DEV_TEAM_LOCK_TTL_S"
 USERS: dict[str, dict[str, Any]] = {
-    "student1": {"username": "student1", "uid": 1001, "gid": 100, "email": "student1@example.org"},
-    "student2": {"username": "student2", "uid": 1002, "gid": 100, "email": "student2@example.org"},
+    "student1": {"username": "student1", "uid": 1001, "gid": 100, "email": "student1@example.org",
+                 "name": "Student One"},
+    "student2": {"username": "student2", "uid": 1002, "gid": 100, "email": "student2@example.org",
+                 "name": "Student Two"},
+    "student3": {"username": "student3", "uid": 1003, "gid": 100, "email": "student3@example.org",
+                 "name": "Student Three"},
 }
 APP_DIR = Path(__file__).resolve().parents[2] / "app"
 
@@ -97,15 +101,22 @@ def patch_app(tokens: dict[str, str]) -> Any:
     sys.path.insert(0, str(APP_DIR))
     import cli_tokens
     import main
+    import team_people
 
     def lookup(token: str) -> dict[str, Any] | None:
         name = tokens.get(token)
-        return None if name is None else dict(USERS[name], name=name, picture=None, cli_token_id=name)
+        return None if name is None else dict(USERS[name], picture=None, cli_token_id=name)
 
     cli_tokens.lookup = lookup
+    team_people.directory = people
     main.is_nas_admin = lambda name: False
     main.list_shares_for_user = lambda username, uid, gid: []
     return main.app
+
+
+def people() -> dict[str, str]:
+    """The invite directory (`GET /api/team/people`): the fictional members, no NAS passwd."""
+    return {name: str(user["name"]) for name, user in USERS.items()}
 
 
 def announce_when_ready(url: str) -> None:

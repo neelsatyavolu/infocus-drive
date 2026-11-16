@@ -44,6 +44,7 @@ from meetings_service import internal_router as scribe_internal_router, router a
 from wordpress_relay import router as wordpress_router
 import team_cleanup
 import team_files
+import team_members
 import team_projects
 from ugos_sso import router as ugos_sso_router
 from file_links import (
@@ -144,6 +145,7 @@ app.include_router(meetings_router)
 app.include_router(scribe_internal_router)
 app.include_router(wordpress_router)
 app.include_router(team_projects.router)
+app.include_router(team_members.router)
 # Late-bound so tests that patch main's auth helpers reach the team routes too.
 team_projects.bind(
     require_user=lambda request: _require_user(request),

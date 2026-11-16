@@ -42,10 +42,15 @@ def test_lock_ttl_is_checked():
 def test_tokens_are_private_files(tmp_path, monkeypatch):
     monkeypatch.setattr(launcher.os, "environ", {})
     tokens = launcher.prepare(tmp_path, 8791, 25)
-    assert sorted(tokens.values()) == ["student1", "student2"]
-    for name in ("student1", "student2"):
+    assert sorted(tokens.values()) == ["student1", "student2", "student3"]
+    for name in ("student1", "student2", "student3"):
         path = tmp_path / f"{name}.token"
         assert path.read_text().startswith("ifd_")
         assert path.stat().st_mode & 0o077 == 0
     assert launcher.os.environ["PUBLIC_BASE_URL"] == "http://127.0.0.1:8791"
     assert launcher.os.environ["DRIVE_ROOT"] == str(tmp_path / "drive")
+
+
+def test_three_members_with_display_names():
+    assert launcher.people() == {"student1": "Student One", "student2": "Student Two",
+                                 "student3": "Student Three"}

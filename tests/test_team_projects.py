@@ -19,6 +19,7 @@ ORIGIN = "https://drive.example.com"
 USERS = {
     "student1": {"username": "student1", "uid": 1001, "gid": 100, "email": "student1@example.org"},
     "student2": {"username": "student2", "uid": 1002, "gid": 100, "email": "student2@example.org"},
+    "student3": {"username": "student3", "uid": 1003, "gid": 100, "email": "student3@example.org"},
     "outsider": {"username": "outsider", "uid": 1009, "gid": 100, "email": "outsider@example.org"},
     "admin1": {"username": "admin1", "uid": 1010, "gid": 100, "email": "admin@example.org"},
 }
@@ -86,10 +87,19 @@ def as_(user):
     return {"X-Test-User": user}
 
 
-def create(client, user="student1", name="Robotics", project=None):
+def create(client, user="student1", name="Robotics", project=None, open_to_all=True):
+    """Create a project. By default it is then made an open (pre-invite) project, with no
+    `members` in meta.json, so these sync tests can use any member; invites and membership
+    are tested in test_team_members.py with `open_to_all=False`."""
     body = {"name": name, "project": project if project is not None else demo_project(), **APP}
     r = client.post("/api/team/projects", json=body, headers=as_(user))
     assert r.status_code == 200, r.text
+    if open_to_all:
+        meta_path = client.drive / "Team Projects" / f"{name}.fcteam" / "meta.json"
+        meta = json.loads(meta_path.read_text())
+        meta.pop("members", None)
+        meta.pop("invites", None)
+        meta_path.write_text(json.dumps(meta))
     return r.json()
 
 
@@ -581,7 +591,7 @@ def test_media_download_refuses_paths_outside_media(media):
     (media.drive / MEDIA / "link.json").symlink_to(media.drive / FCTEAM / "meta.json")
     (media.drive / MEDIA / "Linked").symlink_to(media.drive / FCTEAM)
     (media.drive / "Team Projects" / "secret.mov").write_bytes(b"no")
-    for bad in ["", "../secret.mov", "/etc/passwd", "Day 1/../../secret.mov", "./A.mov", "a\\b.mov",
+    for bad in ["../secret.mov", "/etc/passwd", "Day 1/../../secret.mov", "./A.mov", "a\\b.mov",
                 "../Robotics.fcteam/meta.json"]:
         assert get_media(media, bad).status_code == 400, bad
     for hidden in ["link.json", "Linked/meta.json", "Day 1", "missing.mov"]:

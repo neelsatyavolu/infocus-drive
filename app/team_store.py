@@ -282,6 +282,15 @@ class TeamStore:
         with self._tx() as conn:
             conn.execute("DELETE FROM locks WHERE project_id = ? AND seq_id = ?", (project_id, seq_id))
 
+    def release_user(self, project_id: str, user: str) -> list[int]:
+        """Drop every lock `user` holds in the project (they left it). Returns the sequence ids."""
+        with self._tx() as conn:
+            rows = conn.execute(
+                "SELECT seq_id FROM locks WHERE project_id = ? AND user = ?", (project_id, user)
+            ).fetchall()
+            conn.execute("DELETE FROM locks WHERE project_id = ? AND user = ?", (project_id, user))
+        return sorted(int(r["seq_id"]) for r in rows)
+
     def locks(self, project_id: str) -> dict[int, tuple[str, float]]:
         """Live locks: seq id → (holder, expires_at)."""
         with self._conn() as conn:

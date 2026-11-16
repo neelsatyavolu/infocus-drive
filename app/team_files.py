@@ -22,7 +22,7 @@ import re
 import shutil
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 import fsops
 from config import TEAM_ROOT_REL
@@ -323,6 +323,77 @@ def write_shared(user: dict[str, Any], folder_rel: str, shared: dict[str, Any]) 
         _write_bytes(root / PROJECT_FILE, data)
         hashes = {**(meta.get("file_hashes") or {}), PROJECT_FILE: _sha(data)}
         _write_bytes(root / META_FILE, _dump({**meta, "file_hashes": hashes}))
+
+
+def update_meta(
+    user: dict[str, Any], folder_rel: str, change: Callable[[dict[str, Any]], dict[str, Any]]
+) -> dict[str, Any]:
+    """Apply `change` to meta.json as the member and write it back atomically.
+
+    Callers hold the project lock (`team_projects._project_lock`), like every other
+    meta.json writer, so concurrent edits are serialized. The id and file hashes
+    always carry over. Returns the new meta (unchanged meta is not rewritten).
+    """
+    root = _project_dir(folder_rel)
+    with _as(user):
+        meta = _read_meta(root)
+        updated = {**change(meta), "id": meta["id"], "file_hashes": meta.get("file_hashes") or {}}
+        if updated != meta:
+            _write_bytes(root / META_FILE, _dump(updated))
+    return updated
+
+
+MAX_MEDIA_LIST = 5000
+MAX_MEDIA_DEPTH = 16
+
+
+def _listed(name: str) -> bool:
+    """Skip dotfiles (uploads in progress, .DS_Store) and NAS folders like @eaDir and #recycle."""
+    return not name.startswith((".", "@", "#"))
+
+
+def list_media(user: dict[str, Any], folder_rel: str) -> tuple[list[dict[str, Any]], bool]:
+    """([{path, size, mtime}], truncated) for the originals in the project's media folder.
+
+    Read as the member, so files anyone put there (InFocus Cut, or the Drive
+    website) show up. Symlinks and hidden entries are left out; at most
+    `MAX_MEDIA_LIST` files.
+    """
+    try:
+        media, _root, _rel = _media_path(folder_rel, "", allow_root=True)
+    except FSError as e:
+        if e.status == 404:
+            return [], False
+        raise
+    files: list[dict[str, Any]] = []
+    with _as(user):
+        if media.is_symlink() or not media.is_dir():
+            return [], False
+        stack: list[tuple[Path, str, int]] = [(media, "", 0)]
+        while stack:
+            folder, prefix, depth = stack.pop()
+            for entry in sorted(os.scandir(folder), key=lambda e: e.name, reverse=True):
+                if not _listed(entry.name) or entry.is_symlink():
+                    continue
+                rel = f"{prefix}{entry.name}"
+                if entry.is_dir(follow_symlinks=False):
+                    if depth < MAX_MEDIA_DEPTH:
+                        stack.append((Path(entry.path), f"{rel}/", depth + 1))
+                elif entry.is_file(follow_symlinks=False):
+                    if len(files) >= MAX_MEDIA_LIST:
+                        return sorted(files, key=lambda f: f["path"]), True
+                    st = entry.stat(follow_symlinks=False)
+                    files.append({"path": rel, "size": st.st_size, "mtime": st.st_mtime})
+    return sorted(files, key=lambda f: f["path"]), False
+
+
+def media_usage(user: dict[str, Any], folder_rel: str) -> dict[str, int]:
+    """`media_count` and `media_bytes` of the project's media folder (0 when it can't be read)."""
+    try:
+        files, _truncated = list_media(user, folder_rel)
+    except FSError:
+        files = []
+    return {"media_count": len(files), "media_bytes": sum(int(f["size"]) for f in files)}
 
 
 def _media_path(folder_rel: str, rel: str, *, allow_root: bool) -> tuple[Path, Path, str]:

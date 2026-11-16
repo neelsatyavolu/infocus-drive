@@ -26,8 +26,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+import team_access
 import team_cleanup
 import team_files
+import team_people
 from chunk_upload import complete_session, create_session, get_session
 from config import get_settings
 from fsops import FSError
@@ -345,8 +347,32 @@ def _slot(st: TeamStore, project_id: str, username: str, device: str) -> int:
         raise team_files.TeamConflict(str(e), "no_slots") from e
 
 
-def _check_access(user: dict[str, Any], info: dict[str, Any]) -> dict[str, Any]:
-    return team_files.read_meta(user, info["folder"])
+def _require_member(user: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    """404 unless the caller may use the project (a member, or any member of an open one).
+
+    Invitees get 404 too, until they join (`team_members`). The file read before
+    this still answers 403 for members the NAS refuses.
+    """
+    if not team_access.can_use(meta, str(user.get("username") or "")):
+        raise HTTPException(status_code=404, detail="Team project not found")
+    return meta
+
+
+def _check_access(user: dict[str, Any], info: dict[str, Any], *, admin_ok: bool = False) -> dict[str, Any]:
+    """meta.json read as the member (the NAS access check), then the membership check."""
+    meta = team_files.read_meta(user, info["folder"])
+    if admin_ok and _is_admin(user):
+        return meta
+    return _require_member(user, meta)
+
+
+async def _check_access_async(user: dict[str, Any], info: dict[str, Any]) -> JSONResponse | None:
+    """`_check_access` off the event loop; a JSONResponse when the file read failed."""
+    try:
+        await run_in_threadpool(_check_access, user, info)
+    except FSError as e:
+        return _fs_error(e)
+    return None
 
 
 # Routes --------------------------------------------------------------------
@@ -356,10 +382,15 @@ def _check_access(user: dict[str, Any], info: dict[str, Any]) -> dict[str, Any]:
 def list_projects(request: Request) -> list[dict[str, Any]]:
     user = _user(request)
     st = store()
+    username = str(user["username"])
+    names = team_people.directory()
     out = []
     for folder, meta in team_files.list_projects(user):
         project_id = str(meta.get("id") or "")
         if not _PROJECT_ID.match(project_id):
+            continue
+        role = team_access.role(meta, username)
+        if role is None:
             continue
         info = st.project(project_id)
         if info is None:
@@ -378,6 +409,8 @@ def list_projects(request: Request) -> list[dict[str, Any]]:
             "locks": _locks_json(project_id),
             "last_open": st.last_open(project_id),
             "cleanup": team_cleanup.cleanup_status(st, project_id),
+            **team_access.people_fields(meta, username, role, names),
+            **team_files.media_usage(user, folder),
         })
     return out
 
@@ -419,6 +452,7 @@ async def create_project(request: Request) -> Any:
         "schema_version": schema,
         "min_app_version": "0",
         "created_by": username,
+        **team_access.new_project(username),
     }
 
     def work() -> dict[str, Any]:
@@ -443,6 +477,7 @@ def get_project(request: Request, project_id: str) -> Any:
         # Files and revisions together, like `_read_part`, so no json carries a newer rev.
         with _project_lock(project_id):
             meta, shared, sequences = team_files.read_project(user, info["folder"])
+            _require_member(user, meta)
             seq_revs = {seq: st.revision(project_id, f"seq:{seq}") for seq in sequences}
             shared_rev = st.revision(project_id, "shared")
     except FSError as e:
@@ -475,6 +510,7 @@ def _read_part(user: dict[str, Any], info: dict[str, Any], key: str) -> tuple[di
     """
     with _project_lock(info["id"]):
         meta, shared, sequences = team_files.read_project(user, info["folder"])
+        _require_member(user, meta)
         return meta, shared, sequences, store().revision(info["id"], key)
 
 
@@ -546,10 +582,13 @@ def take_lock(request: Request, project_id: str, seq: int) -> Any:
 
 @router.post("/projects/{project_id}/sequences/{seq}/lock/heartbeat")
 async def heartbeat(request: Request, project_id: str, seq: int) -> Any:
-    _user(request)
-    _project_or_404(project_id)
+    user = _user(request)
+    info = _project_or_404(project_id)
     _seq_or_404(seq)
     body = await _body(request)
+    refused = await _check_access_async(user, info)
+    if refused is not None:
+        return refused
     st = store()
     if not await run_in_threadpool(st.heartbeat, project_id, seq, str(body.get("token") or "")):
         return _conflict("lock_lost", _LOCK_LOST)
@@ -559,10 +598,13 @@ async def heartbeat(request: Request, project_id: str, seq: int) -> Any:
 
 @router.delete("/projects/{project_id}/sequences/{seq}/lock")
 async def release_lock(request: Request, project_id: str, seq: int) -> Any:
-    _user(request)
-    _project_or_404(project_id)
+    user = _user(request)
+    info = _project_or_404(project_id)
     _seq_or_404(seq)
     body = await _body(request)
+    refused = await _check_access_async(user, info)
+    if refused is not None:
+        return refused
     if not await run_in_threadpool(store().release, project_id, seq, str(body.get("token") or "")):
         return _conflict("lock_lost", _LOCK_LOST)
     publish(project_id, "lock_changed", {"seq": seq, "holder": None})
@@ -596,7 +638,7 @@ def _put_sequence(user: dict[str, Any], info: dict[str, Any], seq: int, body: di
     st = store()
     username = str(user["username"])
     with _project_lock(project_id):
-        meta = team_files.read_meta(user, info["folder"])
+        meta = _require_member(user, team_files.read_meta(user, info["folder"]))
         meta_schema = int(meta.get("schema_version") or 0)
         refused = _app_gate(meta, app_version, schema)
         if refused is not None:
@@ -636,7 +678,8 @@ def _delete_sequence(user: dict[str, Any], info: dict[str, Any], seq: int, body:
     st = store()
     username = str(user["username"])
     with _project_lock(project_id):
-        _meta, _shared, sequences = team_files.read_project(user, info["folder"])
+        meta, _shared, sequences = team_files.read_project(user, info["folder"])
+        _require_member(user, meta)
         if not st.check_lock(project_id, seq, token):
             return _conflict("lock_lost", _LOCK_LOST)
         current = st.revision(project_id, f"seq:{seq}")
@@ -712,6 +755,7 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
     st = store()
     with _project_lock(project_id):
         meta, shared, sequences = team_files.read_project(user, info["folder"])
+        _require_member(user, meta)
         refused = _app_gate(meta, app_version, schema)
         if refused is not None:
             return refused
@@ -759,12 +803,12 @@ async def keep(request: Request, project_id: str) -> Any:
     value = body.get("keep")
     if not isinstance(value, bool):
         raise HTTPException(status_code=400, detail="keep must be true or false")
-    if str(user["username"]) != info["creator"] and not _is_admin(user):
-        raise HTTPException(status_code=403, detail="Only the project's creator or a Drive admin can change Keep")
     try:
-        await run_in_threadpool(_check_access, user, info)
+        await run_in_threadpool(lambda: _check_access(user, info, admin_ok=True))
     except FSError as e:
         return _fs_error(e)
+    if str(user["username"]) != info["creator"] and not _is_admin(user):
+        raise HTTPException(status_code=403, detail="Only the project's creator or a Drive admin can change Keep")
     store().set_keep(project_id, value)
     return {"keep": value}
 
@@ -796,10 +840,15 @@ def _upload_share(project_id: str) -> str:
 
 @router.get("/projects/{project_id}/media")
 def media_download(request: Request, project_id: str, path: str = "") -> Any:
+    """One original (`?path=Day 1/A001.mov`), or without a path the list of every original."""
     user = _user(request)
     info = _project_or_404(project_id)
     try:
         _check_access(user, info)
+        if not path:
+            files, truncated = team_files.list_media(user, info["folder"])
+            return {"files": files, "count": len(files), "bytes": sum(int(f["size"]) for f in files),
+                    "truncated": truncated}
         opened = team_files.open_media(user, info["folder"], path)
     except FSError as e:
         return _fs_error(e)
