@@ -1,9 +1,9 @@
 """Dev-only InFocus Drive for the InFocus Cut team-editing end-to-end check.
 
-Starts the real FastAPI app with uvicorn on 127.0.0.1 only, over a throwaway drive root, with two
+Starts the real FastAPI app with uvicorn on 127.0.0.1 only, over a throwaway drive root, with three
 fictional members (`student1`, `student2`, `student3`) whose `ifd_` CLI tokens are written to files. It uses
 the same stand-ins as `tests/test_team_projects.py`: the token lookup is a fixed table (no NAS
-accounts), nobody is an admin, and it runs unprivileged, so `fsops.as_user` / `as_root` do
+accounts), only the fictional `teacher1` is an admin, and it runs unprivileged, so `fsops.as_user` / `as_root` do
 nothing (the setuid switch only happens as root).
 
 Never for production. It refuses to start unless `INFOCUS_DEV_E2E=1`, refuses to run as root,
@@ -13,7 +13,9 @@ and binds only to the loopback address.
 
 Writes `<dir>/student1.token`, `<dir>/student2.token` and `<dir>/student3.token` (mode 0600), keeps the drive root in
 `<dir>/drive` and the databases in `<dir>/config`, and prints `READY http://127.0.0.1:<port>` once
-it answers. `INFOCUS_DEV_TEAM_LOCK_TTL_S` shortens the lock expiry (default 120 s).
+it answers. For the editing dashboard in a browser, open
+`<url>/dev/sign-in?user=student1&next=/editing` (or `teacher1`, the admin) instead of Google.
+`INFOCUS_DEV_TEAM_LOCK_TTL_S` shortens the lock expiry (default 120 s).
 """
 
 from __future__ import annotations
@@ -28,6 +30,9 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException, Request
+from fastapi.responses import RedirectResponse
+
 LOOPBACK = "127.0.0.1"
 ENABLE_ENV = "INFOCUS_DEV_E2E"
 TTL_ENV = "INFOCUS_DEV_TEAM_LOCK_TTL_S"
@@ -39,6 +44,10 @@ USERS: dict[str, dict[str, Any]] = {
     "student3": {"username": "student3", "uid": 1003, "gid": 100, "email": "student3@example.org",
                  "name": "Student Three"},
 }
+# A fictional Drive admin for the editing dashboard's "All projects" view. Browser only: no
+# token file, and not in the invite directory.
+ADMIN: dict[str, Any] = {"username": "teacher1", "uid": 1090, "gid": 100, "email": "teacher1@example.org",
+                         "name": "Teacher One"}
 APP_DIR = Path(__file__).resolve().parents[2] / "app"
 
 
@@ -96,6 +105,31 @@ def prepare(base: Path, port: int, ttl: int) -> dict[str, str]:
     return tokens
 
 
+def session_user(name: str) -> dict[str, Any] | None:
+    """The browser session for `GET /dev/sign-in?user=…` (the dashboard has no tokens)."""
+    found = USERS.get(name) or (ADMIN if name == ADMIN["username"] else None)
+    return None if found is None else dict(found, picture=None)
+
+
+def is_admin(name: str) -> bool:
+    return name == ADMIN["username"]
+
+
+def add_dev_sign_in(app: Any, safe_next: Any) -> None:
+    """`GET /dev/sign-in?user=student1&next=/editing`: a cookie session as a fictional member,
+    standing in for Google sign-in so the editing dashboard can be used in a browser."""
+    @app.get("/dev/sign-in")
+    def dev_sign_in(request: Request, user: str = "", next: str = "/editing") -> RedirectResponse:
+        found = session_user(user)
+        if found is None:
+            raise HTTPException(status_code=404, detail="No such dev user")
+        request.session["user"] = found
+        return RedirectResponse(safe_next(next), status_code=303)
+
+    # Ahead of the app's catch-all page route, which would otherwise answer first.
+    app.router.routes.insert(0, app.router.routes.pop())
+
+
 def patch_app(tokens: dict[str, str]) -> Any:
     """Import the app with the test suite's stand-ins for NAS accounts and admins."""
     sys.path.insert(0, str(APP_DIR))
@@ -109,8 +143,9 @@ def patch_app(tokens: dict[str, str]) -> Any:
 
     cli_tokens.lookup = lookup
     team_people.directory = people
-    main.is_nas_admin = lambda name: False
+    main.is_nas_admin = is_admin
     main.list_shares_for_user = lambda username, uid, gid: []
+    add_dev_sign_in(main.app, main._safe_next_url)
     return main.app
 
 

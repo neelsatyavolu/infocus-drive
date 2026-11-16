@@ -54,3 +54,12 @@ def test_tokens_are_private_files(tmp_path, monkeypatch):
 def test_three_members_with_display_names():
     assert launcher.people() == {"student1": "Student One", "student2": "Student Two",
                                  "student3": "Student Three"}
+
+
+def test_browser_sign_in_users_are_fictional_and_only_teacher1_is_admin():
+    assert launcher.session_user("student2")["username"] == "student2"
+    teacher = launcher.session_user("teacher1")
+    assert teacher["username"] == "teacher1" and teacher["uid"] >= 1000
+    assert launcher.is_admin("teacher1") and not launcher.is_admin("student1")
+    assert launcher.session_user("root") is None and launcher.session_user("") is None
+    assert "teacher1" not in launcher.people()
