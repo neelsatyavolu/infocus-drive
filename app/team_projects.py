@@ -15,6 +15,7 @@ import asyncio
 import json
 import re
 import threading
+import time
 import uuid
 from functools import lru_cache
 from pathlib import Path
@@ -24,6 +25,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+import team_cleanup
 import team_files
 from config import get_settings
 from fsops import FSError
@@ -478,6 +480,35 @@ def open_project(request: Request, project_id: str) -> Any:
     st = store()
     st.record_open(project_id, str(user["username"]))
     return {"ok": True, "last_open": st.last_open(project_id)}
+
+
+def _export_mark(request: Request, project_id: str) -> str | JSONResponse:
+    user = _user(request)
+    info = _project_or_404(project_id)
+    try:
+        _check_access(user, info)
+    except FSError as e:
+        return _fs_error(e)
+    return info["id"]
+
+
+@router.post("/exports/{project_id}/begin")
+def begin_export(request: Request, project_id: str) -> Any:
+    """The app is exporting from this project: daily cleanup leaves it alone (lapses after 6 h)."""
+    marked = _export_mark(request, project_id)
+    if isinstance(marked, JSONResponse):
+        return marked
+    team_cleanup.begin_export(marked, time.time())
+    return {"ok": True}
+
+
+@router.post("/exports/{project_id}/end")
+def end_export(request: Request, project_id: str) -> Any:
+    marked = _export_mark(request, project_id)
+    if isinstance(marked, JSONResponse):
+        return marked
+    team_cleanup.end_export(marked)
+    return {"ok": True}
 
 
 @router.get("/projects/{project_id}/events")

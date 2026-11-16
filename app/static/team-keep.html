@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="color-scheme" content="dark light" />
+  <title>Keep a team project · InFocus Drive</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=20261002-foldershare" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261002-foldershare" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+  <link rel="stylesheet" href="/assets/app.css?v=20261002-foldershare" />
+  <script type="module" src="/assets/team-keep.js?v=20261116-teamkeep"></script>
+</head>
+<body class="share-body">
+<div class="share">
+  <header class="share__bar">
+    <div class="wordmark">
+      <img src="/assets/infocus-wordmark.png?v=20261002-foldershare" alt="InFocus" width="70" height="30" decoding="async" />
+      <span>Drive</span>
+    </div>
+  </header>
+  <main class="share__main">
+    <section class="share__card cli-auth" aria-live="polite">
+      <p id="keep-loading">Loading…</p>
+
+      <div id="keep-signin" hidden>
+        <h1 class="cli-auth__title">Sign in to keep this project</h1>
+        <p>Sign in to InFocus Drive first. Then come back to this tab. It updates on its own.</p>
+        <div class="cli-auth__actions">
+          <a class="btn btn--primary" id="keep-google" href="/auth/login">Continue with Google</a>
+          <a class="btn" href="/" target="_blank" rel="noopener">Other sign-in options</a>
+        </div>
+      </div>
+
+      <div id="keep-ask" hidden>
+        <h1 class="cli-auth__title">Keep this team project?</h1>
+        <p>Nobody has opened it for a while, so it is due to move to the Recycle bin. Keep it and the 30-day clock starts again.</p>
+        <div class="cli-auth__actions">
+          <button type="button" class="btn btn--primary" id="keep-button">Keep</button>
+        </div>
+      </div>
+
+      <div id="keep-done" hidden>
+        <h1 class="cli-auth__title">Kept</h1>
+        <p>The project stays on the Drive. It will only be cleaned up if nobody opens it for another 30 days.</p>
+      </div>
+
+      <div id="keep-error" hidden>
+        <h1 class="cli-auth__title">Can't keep the project</h1>
+        <p id="keep-error-text"></p>
+      </div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

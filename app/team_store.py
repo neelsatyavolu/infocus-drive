@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at REAL NOT NULL,
     last_open REAL NOT NULL,
     keep INTEGER NOT NULL DEFAULT 0,
-    notified INTEGER NOT NULL DEFAULT 0
+    notified REAL NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS members (
     project_id TEXT NOT NULL,
@@ -295,10 +295,14 @@ class TeamStore:
         return [r["id"] for r in rows]
 
     def mark_notified(self, project_id: str) -> None:
+        """Record the cleanup notice; `notified` holds when it went out (0 = not sent)."""
         with self._tx() as conn:
-            conn.execute("UPDATE projects SET notified = 1 WHERE id = ?", (project_id,))
+            conn.execute("UPDATE projects SET notified = ? WHERE id = ?", (max(1.0, self.clock()), project_id))
 
     def notified(self, project_id: str) -> bool:
+        return self.notified_at(project_id) > 0
+
+    def notified_at(self, project_id: str) -> float:
         with self._conn() as conn:
             row = conn.execute("SELECT notified FROM projects WHERE id = ?", (project_id,)).fetchone()
-        return bool(row and row["notified"])
+        return float(row["notified"]) if row and row["notified"] else 0.0

@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     team_db_path: str = "/config/team_projects.sqlite3"
     # Sequence lock lifetime after the last heartbeat; shorten only for local end-to-end tests.
     team_lock_ttl_s: int = 120
+    # Daily 03:00 cleanup of team projects nobody opened for 30 days (app/team_cleanup.py).
+    team_cleanup_enabled: bool = True
 
     session_cookie: str = "infocus_drive_session"
     session_max_age: int = 60 * 60 * 24 * 5  # 5 days

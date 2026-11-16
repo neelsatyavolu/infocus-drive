@@ -260,3 +260,44 @@ def write_shared(user: dict[str, Any], folder_rel: str, shared: dict[str, Any]) 
         _write_bytes(root / PROJECT_FILE, data)
         hashes = {**(meta.get("file_hashes") or {}), PROJECT_FILE: _sha(data)}
         _write_bytes(root / META_FILE, _dump({**meta, "file_hashes": hashes}))
+
+
+def recycle_project(folder_rel: str) -> list[str]:
+    """Move `<name>.fcteam` and its `<name> Media` into the share's `#recycle`.
+
+    Used by the daily cleanup, which has no member to act as, so it runs as
+    root under the `as_user` lock. Only renames (same share, nothing is copied
+    or deleted), keeps the tree like Samba's recycle (`#recycle/Team Projects/…`)
+    and adds `.#1`, `.#2` … when an older copy is already in the bin. Refuses
+    anything but the two project folders, symlinks, and shares without a bin.
+    Returns the recycle paths written.
+    """
+    project = _project_dir(folder_rel)
+    root = fsops.drive_root()
+    media = root / media_folder_for(folder_rel)
+    moved: list[str] = []
+    with fsops.as_root():
+        bin_dir = fsops.recycle_dir()
+        if not bin_dir.is_dir() or bin_dir.is_symlink():
+            raise FSError("This share has no Recycle bin", 409)
+        # Media first: if the project move then fails, the next run retries it, and
+        # the project is never left in the bin with its media behind.
+        sources = [p for p in (media, project) if os.path.lexists(p)]
+        if project not in sources:
+            raise FSError("Team project not found", 404)
+        for src in sources:
+            if src.is_symlink() or not src.is_dir():
+                raise FSError("Team project folder is not a plain folder", 409)
+        dest_dir = bin_dir / TEAM_ROOT_REL
+        if dest_dir.is_symlink():
+            raise FSError("Recycle bin folder is not a plain folder", 409)
+        dest_dir.mkdir(exist_ok=True)
+        try:
+            os.chmod(dest_dir, 0o777)  # same as fsops.delete, so members can recycle into it too
+        except OSError:
+            pass
+        for src in sources:
+            dest = fsops._versioned_dest(dest_dir / src.name)
+            os.rename(src, dest)
+            moved.append(str(dest.relative_to(root)))
+    return moved

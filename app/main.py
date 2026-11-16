@@ -42,6 +42,7 @@ import personal_folders
 from email_auth import check_origin, router as email_auth_router
 from meetings_service import internal_router as scribe_internal_router, router as meetings_router
 from wordpress_relay import router as wordpress_router
+import team_cleanup
 import team_projects
 from ugos_sso import router as ugos_sso_router
 from file_links import (
@@ -127,10 +128,12 @@ async def lifespan(app):
     # process owns background jobs.
     if os.environ.get("IFD_UPLOAD_WORKER") != "1":
         personal_folders.start_worker()
+        team_cleanup.start_worker()
     try:
         yield
     finally:
         personal_folders.stop_worker()
+        team_cleanup.stop_worker()
 
 
 app = FastAPI(title="InFocus Drive", docs_url=None, redoc_url=None, lifespan=lifespan)
@@ -2593,6 +2596,16 @@ _CLI_PAGE_HEADERS = {
     # `Origin: null`, which check_origin rightly rejects.
     "Referrer-Policy": "same-origin",
 }
+# Keep page for team-project cleanup notices: same lockdown, no form posts.
+_TEAM_KEEP_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+        "form-action 'none'; base-uri 'none'; frame-ancestors 'none'"
+    ),
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+}
 
 
 def _cli_request_params(port: Any, state: Any, challenge: Any) -> tuple[int, str, str]:
@@ -2613,6 +2626,12 @@ def _cli_request_params(port: Any, state: Any, challenge: Any) -> tuple[int, str
 def cli_authorize_page() -> FileResponse:
     # Static page; it validates via /api/me and POST /api/cli/authorize.
     return FileResponse(STATIC / "cli-authorize.html", headers=_CLI_PAGE_HEADERS)
+
+
+@app.get("/team/keep")
+def team_keep_page() -> FileResponse:
+    # Static page from the cleanup notice email; it calls POST /api/team/projects/{id}/open.
+    return FileResponse(STATIC / "team-keep.html", headers=_TEAM_KEEP_HEADERS)
 
 
 @app.post("/api/cli/authorize")
