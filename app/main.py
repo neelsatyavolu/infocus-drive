@@ -43,7 +43,9 @@ from email_auth import check_origin, router as email_auth_router
 from meetings_service import internal_router as scribe_internal_router, router as meetings_router
 from wordpress_relay import router as wordpress_router
 import team_cleanup
+import team_dashboard
 import team_files
+import team_media
 import team_members
 import team_projects
 from ugos_sso import router as ugos_sso_router
@@ -146,6 +148,8 @@ app.include_router(scribe_internal_router)
 app.include_router(wordpress_router)
 app.include_router(team_projects.router)
 app.include_router(team_members.router)
+app.include_router(team_media.router)
+app.include_router(team_dashboard.router)
 # Late-bound so tests that patch main's auth helpers reach the team routes too.
 team_projects.bind(
     require_user=lambda request: _require_user(request),
@@ -185,6 +189,15 @@ app.add_middleware(
 
 STATIC = Path(__file__).parent / "static"
 app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
+
+
+@app.middleware("http")
+async def editing_host_root(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """The editing host's front page is the team-project dashboard (`team_dashboard`)."""
+    if (request.url.path == "/" and request.method in ("GET", "HEAD")
+            and team_dashboard.is_editing_host(request.headers.get("host"))):
+        return team_dashboard.page()
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -1291,7 +1304,8 @@ def auth_login(request: Request) -> RedirectResponse:
             "next": _safe_next_url(request.query_params.get("next")),
         }
     )
-    redirect_uri = f"{settings.public_base_url.rstrip('/')}/auth/callback"
+    # The editing dashboard's host gets its own cookie, so Google returns there (team_dashboard).
+    redirect_uri = f"{team_dashboard.oauth_origin(request.headers.get('host'), settings.public_base_url)}/auth/callback"
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": redirect_uri,
@@ -1512,7 +1526,8 @@ async def auth_callback(request: Request, code: str | None = None, state: str | 
             raise HTTPException(status_code=400, detail="Google sign-in belongs to another browser or was already used")
         browser_verified = True
 
-    redirect_uri = f"{settings.public_base_url.rstrip('/')}/auth/callback"
+    # The editing dashboard's host gets its own cookie, so Google returns there (team_dashboard).
+    redirect_uri = f"{team_dashboard.oauth_origin(request.headers.get('host'), settings.public_base_url)}/auth/callback"
     async with httpx.AsyncClient(timeout=20) as client:
         token_res = await client.post(
             GOOGLE_TOKEN,
@@ -1678,6 +1693,15 @@ def api_usage(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="Storage usage unavailable") from e
 
 
+def _note_team_media(share: str, rels: list[Any], user: dict[str, Any]) -> None:
+    """A website change inside a team project's media folder → `media_changed` (team_media)."""
+    try:
+        root = share_path(share)
+    except FSError:
+        return
+    team_media.note_web_change(root, [str(r or "") for r in rels], str(user.get("username") or ""))
+
+
 @app.post("/api/mkdir")
 def api_mkdir(request: Request, path: str = Form(""), name: str = Form(...)) -> dict[str, Any]:
     user = _require_user(request)
@@ -1699,7 +1723,9 @@ def api_rename(request: Request, path: str = Form(...), new_name: str = Form(...
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path)
             team_files.guard_new_name(new_name)
-            return rename(path, new_name, user["uid"], user["gid"])
+            result = rename(path, new_name, user["uid"], user["gid"])
+        _note_team_media(share, [path, result.get("path")], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -1712,7 +1738,9 @@ def api_move(request: Request, path: str = Form(...), dest: str = Form(...)) -> 
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path)
             team_files.guard_web_path(dest)
-            return move_item(path, dest, user["uid"], user["gid"])
+            result = move_item(path, dest, user["uid"], user["gid"])
+        _note_team_media(share, [path, result.get("path")], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -1725,7 +1753,9 @@ def api_delete(request: Request, path: str = Form(...)) -> dict[str, Any]:
     try:
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path, whole_project_ok=True)
-            return delete(path, user["uid"], user["gid"])
+            result = delete(path, user["uid"], user["gid"])
+        _note_team_media(share, [path], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -1839,6 +1869,7 @@ async def api_upload(
         await pump_task
         if pump_error:
             raise pump_error[0]
+        _note_team_media(share, [result.get("path") if isinstance(result, dict) else ""], user)
         return result
     except FSError as e:
         pump_task.cancel()
@@ -2001,12 +2032,14 @@ def api_upload_complete(
             # Prefer the share recorded at init (client header should match).
             share = str(meta["share"])
         with use_share_root(share_path(share)):
-            return complete_session(
+            result = complete_session(
                 upload_id,
                 username=str(user.get("username") or ""),
                 uid=int(user["uid"]),
                 expect_mtime_ns=expect_mtime_ns,
             )
+        _note_team_media(share, [result.get("path")], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 

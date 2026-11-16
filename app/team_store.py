@@ -160,6 +160,12 @@ class TeamStore:
             "keep": bool(row["keep"]),
         }
 
+    def project_for_folder(self, folder_rel: str) -> str | None:
+        """The id of the project whose row points at `folder_rel` (one row per folder)."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT id FROM projects WHERE folder = ? LIMIT 1", (folder_rel,)).fetchone()
+        return str(row["id"]) if row else None
+
     def set_folder(self, project_id: str, folder_rel: str) -> None:
         with self._tx() as conn:
             self._retire_folder(conn, folder_rel, project_id)
@@ -349,6 +355,14 @@ class TeamStore:
                 "SELECT user FROM members WHERE project_id = ? ORDER BY user", (project_id,)
             ).fetchall()
         return [r["user"] for r in rows]
+
+    def member_opens(self, project_id: str) -> dict[str, float]:
+        """When each person last opened the project (username → unix time)."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT user, last_open FROM members WHERE project_id = ?", (project_id,)
+            ).fetchall()
+        return {r["user"]: float(r["last_open"] or 0) for r in rows}
 
     def set_keep(self, project_id: str, keep: bool) -> None:
         with self._tx() as conn:
