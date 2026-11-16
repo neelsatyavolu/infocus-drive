@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261102-prores";
-import * as api from "./api.js?v=20261102-prores";
-import { ApiError } from "./api.js?v=20261102-prores";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261115-appbundle";
+import * as api from "./api.js?v=20261115-appbundle";
+import { ApiError } from "./api.js?v=20261115-appbundle";
 import {
   describeKind,
   displayName,
@@ -15,13 +15,14 @@ import {
   formatModified,
   formatSize,
   formatSpeed,
+  isAppBundle,
   isRecycleName,
   isRecycleRoot,
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261102-prores";
-import { $, el, icon, show } from "./dom.js?v=20261102-prores";
+} from "./format.js?v=20261115-appbundle";
+import { $, el, icon, show } from "./dom.js?v=20261115-appbundle";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +31,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261102-prores";
+} from "./quick.js?v=20261115-appbundle";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -271,6 +272,11 @@ function highlightMatch(text, query) {
   ];
 }
 
+/** Folders open on click; a Mac .app is a folder on disk but downloads like a file. */
+function isOpenableFolder(item) {
+  return item.is_dir && !isAppBundle(item);
+}
+
 function formatSearchPath(item) {
   if (item.is_dir) {
     const parent = item.parent || "";
@@ -497,9 +503,9 @@ async function openSearchResult(item, revealOnly = false) {
 
   if (revealOnly) {
     // Keep query so the destination list stays filtered to this name.
-    navigate(item.is_dir ? item.path : parent);
+    navigate(isOpenableFolder(item) ? item.path : parent);
     const targetPath = item.path;
-    const destPath = item.is_dir ? item.path : parent;
+    const destPath = isOpenableFolder(item) ? item.path : parent;
     const startedAt = loadRequestId;
     const finish = () => {
       if (state.loading) return false;
@@ -527,7 +533,7 @@ async function openSearchResult(item, revealOnly = false) {
   state.query = "";
   if ($("search")) $("search").value = "";
 
-  if (item.is_dir) {
+  if (isOpenableFolder(item)) {
     navigate(item.path);
     return;
   }
@@ -1968,7 +1974,7 @@ function renderRows(items) {
     const selected = state.selection.has(item.path);
 
     const row = el("div", {
-      class: `row${item.is_dir ? " row--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
+      class: `row${isOpenableFolder(item) ? " row--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
       role: "row",
       "aria-selected": String(selected),
       "data-path": item.path,
@@ -1977,7 +1983,7 @@ function renderRows(items) {
         if (state.suppressClick) return;
         if (event.target.closest(".row__dots, .menu, .checkbox")) return;
         // Folders open; media files preview; other files select (checkbox also selects).
-        if (item.is_dir || previewKind(item)) {
+        if (isOpenableFolder(item) || previewKind(item)) {
           openItem(item);
           return;
         }
@@ -1990,7 +1996,7 @@ function renderRows(items) {
       },
     });
     bindItemDrag(row, item);
-    if (item.is_dir) bindFolderDrop(row, item.path);
+    if (isOpenableFolder(item)) bindFolderDrop(row, item.path);
 
     row.append(
       el("button", {
@@ -2090,7 +2096,11 @@ function buildRowMenu(item) {
       run: () => openMoveModal(selected),
     });
   } else {
-    if (item.is_dir) {
+    if (isAppBundle(item)) {
+      entries.push({ label: "Download", symbol: "#i-download", run: () => downloadItems([item]) });
+      entries.push({ label: "Show package contents", symbol: "#i-chev-r", run: () => navigate(item.path) });
+      entries.push({ label: "Share…", symbol: "#i-share", run: () => openShareModal(item) });
+    } else if (item.is_dir) {
       entries.push({ label: "Open", symbol: "#i-chev-r", run: () => openItem(item) });
       entries.push({
         label: "Download as ZIP",
@@ -2111,7 +2121,7 @@ function buildRowMenu(item) {
       { label: "Rename", symbol: "#i-pencil", run: () => openRenameModal(item) },
       { label: "Move to…", symbol: "#i-move", run: () => openMoveModal([item]) },
     );
-    if (item.is_dir && !isRecycleRoot(item.path) && !isUnderRecycle(item.path)) {
+    if (isOpenableFolder(item) && !isRecycleRoot(item.path) && !isUnderRecycle(item.path)) {
       entries.push({
         label: isFavorite(item.path) ? "Remove favorite" : "Add to favorites",
         symbol: "#i-star",
@@ -2193,7 +2203,7 @@ function renderGrid(items) {
     const tile = el(
       "div",
       {
-        class: `tile${item.is_dir ? " tile--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
+        class: `tile${isOpenableFolder(item) ? " tile--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
         role: "button",
         tabindex: "0",
         "aria-selected": String(selected),
@@ -2201,7 +2211,7 @@ function renderGrid(items) {
         ondblclick: () => openItem(item),
         onclick: (event) => {
           if (state.suppressClick) return;
-          if (item.is_dir || previewKind(item)) {
+          if (isOpenableFolder(item) || previewKind(item)) {
             openItem(item);
             return;
           }
@@ -2227,7 +2237,7 @@ function renderGrid(items) {
       ],
     );
     bindItemDrag(tile, item);
-    if (item.is_dir) bindFolderDrop(tile, item.path);
+    if (isOpenableFolder(item)) bindFolderDrop(tile, item.path);
     grid.append(tile);
 
     // Portal like renderRows — the grid clips absolutely-positioned children.
@@ -2345,7 +2355,7 @@ function jumpToTyped(ch) {
 }
 
 function openItem(item) {
-  if (item.is_dir) {
+  if (isOpenableFolder(item)) {
     navigate(item.path);
     return;
   }
@@ -2397,7 +2407,7 @@ function downloadItems(items) {
     url: api.downloadZipUrl(paths),
     size,
     kind: describeKind({ name: zipName, is_dir: false }),
-    detailLabel: items.length === 1 ? "Folder zip" : `${items.length} items`,
+    detailLabel: items.length === 1 ? (isAppBundle(items[0]) ? "Mac app" : "Folder zip") : `${items.length} items`,
     // Start the save picker now so Chromium still counts this as a user gesture.
     saveHandlePromise: api.saveFilePicker(zipName),
   });
@@ -2411,7 +2421,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261102-prores").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261115-appbundle").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
