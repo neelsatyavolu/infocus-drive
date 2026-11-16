@@ -249,6 +249,7 @@ def list_projects(request: Request) -> list[dict[str, Any]]:
             "folder": folder,
             "locks": _locks_json(project_id),
             "last_open": st.last_open(project_id),
+            "cleanup": team_cleanup.cleanup_status(st, project_id),
         })
     return out
 
@@ -322,6 +323,7 @@ def get_project(request: Request, project_id: str) -> Any:
         "shared_rev": st.revision(project_id, "shared"),
         "locks": _locks_json(project_id),
         "slot": st.slot_for(project_id, username),
+        "cleanup": team_cleanup.cleanup_status(st, project_id),
     }
 
 

@@ -139,6 +139,24 @@ def _move(store: TeamStore, info: dict[str, Any], now: float, move: MoveToRecycl
     )
 
 
+def cleanup_status(store: TeamStore, project_id: str) -> dict[str, Any] | None:
+    """What the app shows about cleanup: a pending move after the notice, or Keep forever.
+
+    None when neither applies (no notice sent, or an open since reset the clock).
+    `move_after` is the earliest time the daily run (03:00) may move the project.
+    """
+    info = store.project(project_id)
+    if info is None:
+        return None
+    if info["keep"]:
+        return {"notice_sent_at": None, "move_after": None, "keep": True}
+    notified_at = store.notified_at(project_id)
+    if not notified_at:
+        return None
+    move_after = max(info["last_open"] + MOVE_AFTER_S, notified_at + (MOVE_AFTER_S - NOTICE_AFTER_S))
+    return {"notice_sent_at": notified_at, "move_after": move_after, "keep": False}
+
+
 def run_cleanup(store: TeamStore, now: float, send_email: SendEmail, move_to_recycle: MoveToRecycle,
                 log: Log) -> CleanupReport:
     """Send due notices and move due projects. Each project is handled on its own."""

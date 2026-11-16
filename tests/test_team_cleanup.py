@@ -353,3 +353,49 @@ def test_worker_not_started_when_disabled(monkeypatch):
     monkeypatch.setenv("TEAM_CLEANUP_ENABLED", "0")
     team_cleanup.get_settings.cache_clear()
     assert team_cleanup.start_worker() is False
+
+
+def test_cleanup_status_none_until_notice(store, clock):
+    pid = store.create_project("Team Projects/A.fcteam", "A", "student1")
+    assert team_cleanup.cleanup_status(store, pid) is None
+    clock.now += NOTICE_AFTER_S + DAY
+    assert team_cleanup.cleanup_status(store, pid) is None
+
+
+def test_cleanup_status_after_notice(store, clock):
+    pid = store.create_project("Team Projects/A.fcteam", "A", "student1")
+    opened = clock.now
+    clock.now += NOTICE_AFTER_S + 2 * DAY
+    run(store, clock, Effects())
+    assert team_cleanup.cleanup_status(store, pid) == {
+        "notice_sent_at": clock.now,
+        "move_after": clock.now + (MOVE_AFTER_S - NOTICE_AFTER_S),  # 7 days after the notice, past 30 days
+        "keep": False,
+    }
+    assert clock.now + (MOVE_AFTER_S - NOTICE_AFTER_S) > opened + MOVE_AFTER_S
+    store.record_open(pid, "student2")
+    assert team_cleanup.cleanup_status(store, pid) is None
+
+
+def test_cleanup_status_keep_forever(store):
+    pid = store.create_project("Team Projects/A.fcteam", "A", "student1")
+    store.set_keep(pid, True)
+    assert team_cleanup.cleanup_status(store, pid) == {"notice_sent_at": None, "move_after": None, "keep": True}
+
+
+def test_cleanup_status_in_list_and_get(client):
+    pid = create(client)["id"]
+    import team_projects
+    st = team_projects.store()
+    listed = client.get("/api/team/projects", headers=as_("student2")).json()
+    assert listed[0]["cleanup"] is None
+    st.mark_notified(pid)
+    notice = st.notified_at(pid)
+    listed = client.get("/api/team/projects", headers=as_("student2")).json()
+    assert listed[0]["cleanup"]["notice_sent_at"] == notice and listed[0]["cleanup"]["keep"] is False
+    assert listed[0]["cleanup"]["move_after"] >= notice + (MOVE_AFTER_S - NOTICE_AFTER_S)
+    # Opening the project resets the clock, so the project GET no longer has a pending move.
+    assert client.get(f"/api/team/projects/{pid}", headers=as_("student2")).json()["cleanup"] is None
+    st.set_keep(pid, True)
+    got = client.get(f"/api/team/projects/{pid}", headers=as_("student2")).json()
+    assert got["cleanup"] == {"notice_sent_at": None, "move_after": None, "keep": True}
