@@ -117,6 +117,7 @@ const KIND_META = {
   doc: { label: "Document", icon: "#i-doc", color: "hsl(var(--muted-foreground))" },
   zip: { label: "Archive", icon: "#i-zip", color: "hsl(var(--muted-foreground))" },
   project: { label: "Project file", icon: "#i-file", color: "hsl(var(--chart-5))" },
+  teamProject: { label: "InFocus Cut project", icon: "#i-video", color: "var(--brand-green)" },
   file: { label: "File", icon: "#i-file", color: "hsl(var(--muted-foreground))" },
 };
 
@@ -132,8 +133,22 @@ export function isRecycleName(name) {
   return Boolean(name) && (name === "#recycle" || name.toLowerCase() === "#recycle");
 }
 
+/**
+ * True for an InFocus Cut team project folder (`<name>.fcteam`). The Drive shows it
+ * as one item: it doesn't open like a folder, and the server refuses edits inside it.
+ */
+export function isTeamProject(item) {
+  return Boolean(item && item.is_dir) && String(item.name || "").toLowerCase().endsWith(".fcteam");
+}
+
+/** A folder the browser can open, list in the tree, or drop files into. */
+export function isBrowsableFolder(item) {
+  return Boolean(item && item.is_dir) && !isTeamProject(item);
+}
+
 /** Classify an /api/files entry into a kind with label, icon id and accent colour. */
 export function describeKind(item) {
+  if (isTeamProject(item)) return KIND_META.teamProject;
   if (item.is_dir) {
     if (isRecycleName(item.name) || item.path === "#recycle") return KIND_META.recycle;
     return KIND_META.folder;

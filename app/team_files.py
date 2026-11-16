@@ -301,3 +301,34 @@ def recycle_project(folder_rel: str) -> list[str]:
             os.rename(src, dest)
             moved.append(str(dest.relative_to(root)))
     return moved
+
+
+# Web file routes ---------------------------------------------------------------
+# Only this module writes inside a `.fcteam` folder. The normal file routes
+# (mkdir, rename, move, delete, upload) call these guards inside their share
+# root, so a project can't be edited past the server's revisions and hashes.
+
+_IN_CUT = "Team projects can only be changed in InFocus Cut"
+
+
+def _fcteam(name: str) -> bool:
+    return name.lower().endswith(FCTEAM_SUFFIX)
+
+
+def guard_web_path(rel: str, *, whole_project_ok: bool = False) -> None:
+    """Refuse a path inside a `.fcteam` folder (after symlinks), or the folder itself.
+
+    `whole_project_ok` lets the folder itself through (delete into `#recycle`).
+    """
+    root = fsops.drive_root()
+    parts = fsops.resolve_rel(rel).relative_to(root).parts
+    if any(_fcteam(p) for p in parts[:-1]):
+        raise FSError(_IN_CUT, 403)
+    if parts and _fcteam(parts[-1]) and not whole_project_ok:
+        raise FSError(_IN_CUT, 403)
+
+
+def guard_new_name(name: str) -> None:
+    """`.fcteam` names are made by InFocus Cut only."""
+    if any(_fcteam(p) for p in Path((name or "").strip()).parts):
+        raise FSError("Names ending in .fcteam are reserved for InFocus Cut team projects", 400)

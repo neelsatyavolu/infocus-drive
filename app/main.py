@@ -43,6 +43,7 @@ from email_auth import check_origin, router as email_auth_router
 from meetings_service import internal_router as scribe_internal_router, router as meetings_router
 from wordpress_relay import router as wordpress_router
 import team_cleanup
+import team_files
 import team_projects
 from ugos_sso import router as ugos_sso_router
 from file_links import (
@@ -1677,6 +1678,8 @@ def api_mkdir(request: Request, path: str = Form(""), name: str = Form(...)) -> 
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            team_files.guard_web_path(path)
+            team_files.guard_new_name(name)
             return mkdir(path, name, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -1688,6 +1691,8 @@ def api_rename(request: Request, path: str = Form(...), new_name: str = Form(...
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            team_files.guard_web_path(path)
+            team_files.guard_new_name(new_name)
             return rename(path, new_name, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -1699,6 +1704,8 @@ def api_move(request: Request, path: str = Form(...), dest: str = Form(...)) -> 
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            team_files.guard_web_path(path)
+            team_files.guard_web_path(dest)
             return move_item(path, dest, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -1711,6 +1718,7 @@ def api_delete(request: Request, path: str = Form(...)) -> dict[str, Any]:
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            team_files.guard_web_path(path, whole_project_ok=True)
             return delete(path, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -1750,6 +1758,12 @@ async def api_upload(
     user = _require_user(request)
     share = _active_share(request, user)
     share_root = share_path(share)
+    try:
+        with use_share_root(share_root):
+            team_files.guard_web_path(path)
+            team_files.guard_new_name(file.filename or "")
+    except FSError as e:
+        raise _fs_http(e) from e
     max_bytes = MAX_UPLOAD_BYTES
     # Prefer declared multipart size when present so a truncated stream never
     # becomes the final file. Unknown size still refuses commit on pump errors.
@@ -1849,6 +1863,8 @@ def api_upload_init(
         # Folder uploads pass nested paths (webkitRelativePath) that may not
         # exist yet — mirror write_upload_stream and mkdir -p the parents.
         with use_share_root(share_path(share)):
+            team_files.guard_web_path(path or "")
+            team_files.guard_new_name(name)
             parent = resolve_rel(path or "")
             if not parent.is_dir():
                 rel = (path or "").strip().lstrip("/")

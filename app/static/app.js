@@ -2,12 +2,14 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261102-prores";
-import * as api from "./api.js?v=20261102-prores";
-import { ApiError } from "./api.js?v=20261102-prores";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261116-teamproj";
+import * as api from "./api.js?v=20261116-teamproj";
+import { ApiError } from "./api.js?v=20261116-teamproj";
 import {
   describeKind,
   displayName,
+  isBrowsableFolder,
+  isTeamProject,
   fileExt,
   folderLabel,
   formatEta,
@@ -20,8 +22,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261102-prores";
-import { $, el, icon, show } from "./dom.js?v=20261102-prores";
+} from "./format.js?v=20261116-teamproj";
+import { $, el, icon, show } from "./dom.js?v=20261116-teamproj";
 import {
   setQuickScope,
   listFavorites,
@@ -30,7 +32,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261102-prores";
+} from "./quick.js?v=20261116-teamproj";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -385,7 +387,7 @@ function renderSearchPanel() {
   searchUi.results.forEach((item, index) => {
     const kind = describeKind(item);
     const isActive = index === searchUi.active;
-    const meta = item.is_dir ? "Folder" : formatSize(item.size);
+    const meta = isTeamProject(item) ? describeKind(item).label : item.is_dir ? "Folder" : formatSize(item.size);
     const row = el(
       "button",
       {
@@ -497,9 +499,9 @@ async function openSearchResult(item, revealOnly = false) {
 
   if (revealOnly) {
     // Keep query so the destination list stays filtered to this name.
-    navigate(item.is_dir ? item.path : parent);
+    navigate(isBrowsableFolder(item) ? item.path : parent);
     const targetPath = item.path;
-    const destPath = item.is_dir ? item.path : parent;
+    const destPath = isBrowsableFolder(item) ? item.path : parent;
     const startedAt = loadRequestId;
     const finish = () => {
       if (state.loading) return false;
@@ -528,7 +530,7 @@ async function openSearchResult(item, revealOnly = false) {
   if ($("search")) $("search").value = "";
 
   if (item.is_dir) {
-    navigate(item.path);
+    openItem(item);
     return;
   }
 
@@ -814,7 +816,7 @@ async function loadFolder(path) {
     state.loading = false;
     state.showSkeleton = false;
     // Keep sidebar tree in sync with the open folder.
-    state.treeChildren[state.path] = state.items.filter((item) => item.is_dir);
+    state.treeChildren[state.path] = state.items.filter(isBrowsableFolder);
     // Expand path ancestors; collapse anything no longer on the path so
     // Up / browser-back doesn't leave a trail of open folders.
     syncTreeExpanded(state.path);
@@ -934,7 +936,7 @@ function cssPath(path) {
 async function refreshShortcuts() {
   try {
     const data = await api.listFiles("");
-    state.shortcuts = (data.items || []).filter((item) => item.is_dir);
+    state.shortcuts = (data.items || []).filter(isBrowsableFolder);
     state.treeChildren[""] = state.shortcuts;
   } catch {
     state.shortcuts = [];
@@ -979,7 +981,7 @@ async function ensureTreeChildren(path) {
   renderTree();
   try {
     const data = await api.listFiles(path);
-    state.treeChildren[path] = (data.items || []).filter((item) => item.is_dir);
+    state.treeChildren[path] = (data.items || []).filter(isBrowsableFolder);
   } catch {
     state.treeChildren[path] = [];
   }
@@ -1968,7 +1970,7 @@ function renderRows(items) {
     const selected = state.selection.has(item.path);
 
     const row = el("div", {
-      class: `row${item.is_dir ? " row--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
+      class: `row${isBrowsableFolder(item) ? " row--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
       role: "row",
       "aria-selected": String(selected),
       "data-path": item.path,
@@ -1977,7 +1979,7 @@ function renderRows(items) {
         if (state.suppressClick) return;
         if (event.target.closest(".row__dots, .menu, .checkbox")) return;
         // Folders open; media files preview; other files select (checkbox also selects).
-        if (item.is_dir || previewKind(item)) {
+        if (isBrowsableFolder(item) || previewKind(item)) {
           openItem(item);
           return;
         }
@@ -1990,7 +1992,7 @@ function renderRows(items) {
       },
     });
     bindItemDrag(row, item);
-    if (item.is_dir) bindFolderDrop(row, item.path);
+    if (isBrowsableFolder(item)) bindFolderDrop(row, item.path);
 
     row.append(
       el("button", {
@@ -2089,6 +2091,9 @@ function buildRowMenu(item) {
       symbol: "#i-move",
       run: () => openMoveModal(selected),
     });
+  } else if (isTeamProject(item)) {
+    // Edited in InFocus Cut only: no open, share, rename or move here (the server refuses them too).
+    entries.push({ label: "Download as ZIP", symbol: "#i-download", run: () => downloadItems([item]) });
   } else {
     if (item.is_dir) {
       entries.push({ label: "Open", symbol: "#i-chev-r", run: () => openItem(item) });
@@ -2193,7 +2198,7 @@ function renderGrid(items) {
     const tile = el(
       "div",
       {
-        class: `tile${item.is_dir ? " tile--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
+        class: `tile${isBrowsableFolder(item) ? " tile--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
         role: "button",
         tabindex: "0",
         "aria-selected": String(selected),
@@ -2201,7 +2206,7 @@ function renderGrid(items) {
         ondblclick: () => openItem(item),
         onclick: (event) => {
           if (state.suppressClick) return;
-          if (item.is_dir || previewKind(item)) {
+          if (isBrowsableFolder(item) || previewKind(item)) {
             openItem(item);
             return;
           }
@@ -2227,7 +2232,7 @@ function renderGrid(items) {
       ],
     );
     bindItemDrag(tile, item);
-    if (item.is_dir) bindFolderDrop(tile, item.path);
+    if (isBrowsableFolder(item)) bindFolderDrop(tile, item.path);
     grid.append(tile);
 
     // Portal like renderRows — the grid clips absolutely-positioned children.
@@ -2345,6 +2350,10 @@ function jumpToTyped(ch) {
 }
 
 function openItem(item) {
+  if (isTeamProject(item)) {
+    toast("Open this team project in InFocus Cut.");
+    return;
+  }
   if (item.is_dir) {
     navigate(item.path);
     return;
@@ -2411,7 +2420,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261102-prores").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261116-teamproj").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3220,7 +3229,7 @@ function openMoveModal(items) {
     let folders = [];
     try {
       const data = await api.listFiles(path);
-      folders = (data.items || []).filter((item) => item.is_dir && !movingPaths.has(item.path));
+      folders = (data.items || []).filter((item) => isBrowsableFolder(item) && !movingPaths.has(item.path));
     } catch (error) {
       listRow.textContent = "";
       listRow.append(el("div", { class: "picker__empty" }, [icon("#i-lock", 20), error.message]));

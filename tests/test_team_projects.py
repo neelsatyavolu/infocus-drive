@@ -382,3 +382,74 @@ def test_as_user_lock_not_held_during_sse(client):
         assert lock(client, pid, 2).status_code == 200
         assert client.get(f"/api/team/projects/{pid}", headers=as_("student1")).status_code == 200
         assert not fsops._as_user_lock.locked()
+
+
+FCTEAM = "Team Projects/Robotics.fcteam"
+
+
+@pytest.fixture
+def web(client, monkeypatch):
+    """The client, with the normal file routes pointed at the test drive."""
+    monkeypatch.setattr(main, "share_path", lambda share: client.drive)
+    return client
+
+
+def test_web_mutation_inside_fcteam_refused(web):
+    client = web
+    create(client)
+    h = as_("student1")
+    attempts = [
+        ("/api/mkdir", {"path": FCTEAM, "name": "x"}),
+        ("/api/mkdir", {"path": f"{FCTEAM}/sequences", "name": "x"}),
+        ("/api/rename", {"path": f"{FCTEAM}/project.json", "new_name": "p.json"}),
+        ("/api/rename", {"path": FCTEAM, "new_name": "Other.fcteam"}),
+        ("/api/delete", {"path": f"{FCTEAM}/meta.json"}),
+        ("/api/move", {"path": f"{FCTEAM}/sequences/2.json", "dest": "Team Projects"}),
+        ("/api/move", {"path": FCTEAM, "dest": "Team Projects/Robotics Media"}),
+        ("/api/move", {"path": "Team Projects/Robotics Media", "dest": FCTEAM}),
+        ("/api/upload/init", {"path": f"{FCTEAM}/sequences", "name": "9.json", "size": "3"}),
+        ("/api/upload/init", {"path": "Team Projects", "name": "Fake.fcteam", "size": "3"}),
+    ]
+    for url, data in attempts:
+        r = client.post(url, data=data, headers=h)
+        assert r.status_code in (400, 403), (url, data, r.status_code, r.text)
+    r = client.post("/api/upload", data={"path": FCTEAM}, files={"file": ("x.json", b"{}")}, headers=h)
+    assert r.status_code == 403
+    r = client.post("/api/upload", data={"path": f"{FCTEAM}/deep/er"}, files={"file": ("x.json", b"{}")}, headers=h)
+    assert r.status_code == 403
+    folder = client.drive / FCTEAM
+    assert sorted(p.name for p in folder.iterdir()) == ["meta.json", "project.json", "sequences"]
+    assert client.get(f"/api/team/projects/{client.get('/api/team/projects', headers=h).json()[0]['id']}",
+                      headers=h).status_code == 200
+
+
+def test_web_refuses_new_fcteam_names(web):
+    client = web
+    (client.drive / "Shows").mkdir()
+    h = as_("student1")
+    assert client.post("/api/mkdir", data={"path": "Shows", "name": "Fake.fcteam"}, headers=h).status_code == 400
+    assert client.post("/api/rename", data={"path": "Shows", "new_name": "Shows.fcteam"},
+                       headers=h).status_code == 400
+    assert (client.drive / "Shows").is_dir() and not (client.drive / "Shows" / "Fake.fcteam").exists()
+
+
+def test_web_can_still_delete_whole_project_and_use_media_folder(web):
+    client = web
+    create(client)
+    h = as_("student1")
+    (client.drive / "#recycle").mkdir()
+    r = client.post("/api/upload", data={"path": "Team Projects/Robotics Media"},
+                    files={"file": ("A002.mov", b"xx")}, headers=h)
+    assert r.status_code == 200, r.text
+    r = client.post("/api/delete", data={"path": FCTEAM}, headers=h)
+    assert r.status_code == 200, r.text
+    assert (client.drive / "#recycle" / FCTEAM).is_dir()
+
+
+def test_symlink_into_fcteam_refused(web):
+    client = web
+    create(client)
+    (client.drive / "Shortcut").symlink_to(client.drive / FCTEAM)
+    r = client.post("/api/delete", data={"path": "Shortcut/meta.json"}, headers=as_("student1"))
+    assert r.status_code in (400, 403)
+    assert (client.drive / FCTEAM / "meta.json").is_file()
