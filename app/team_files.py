@@ -293,6 +293,8 @@ def delete_sequence(user: dict[str, Any], folder_rel: str, seq_id: int) -> str:
 def write_shared(user: dict[str, Any], folder_rel: str, shared: dict[str, Any]) -> None:
     root = _project_dir(folder_rel)
     data = _dump(shared)
+    if len(data) > MAX_FILE_BYTES:
+        raise FSError("Team project file is too large", 413)  # it could not be read back
     with _as(user):
         meta = _read_meta(root)
         _write_bytes(root / PROJECT_FILE, data)

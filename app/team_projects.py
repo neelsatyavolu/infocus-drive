@@ -44,6 +44,21 @@ DEVICE_HEADER = "X-Drive-Device"
 MAX_DEVICE_LEN = 64
 _BAD_DEVICE = re.compile(r"[\x00-\x1f\x7f]")
 
+# Project-level keys of the FilmCraft `Project` JSON that `POST …/shared` takes in
+# `fields`, with their JSON type. Not `items`/`root` (upserts and bins), `next_id`
+# (ids come from each member's slot) or `name` (the project's folder name).
+SHARED_FIELDS: dict[str, type] = {
+    "settings": dict,
+    "custom_colors": list,
+    "custom_color_names": dict,
+    "luts": list,
+    "transcripts": dict,
+    "search_bins": list,
+    "source_graphics": dict,
+    "narrations": dict,
+    "notes": str,
+}
+
 _hooks: dict[str, Callable[..., Any]] = {}
 
 
@@ -503,6 +518,21 @@ async def delete_sequence(request: Request, project_id: str, seq: int) -> Any:
         return _fs_error(e)
 
 
+def _shared_fields(value: Any) -> dict[str, Any]:
+    """`fields` of a shared post: allowlisted project-level keys, each replaced whole."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise HTTPException(status_code=400, detail="fields must be an object")
+    for key, field in value.items():
+        kind = SHARED_FIELDS.get(key)
+        if kind is None:
+            raise HTTPException(status_code=400, detail=f"fields.{key} is not a shared project field")
+        if not isinstance(field, kind):
+            raise HTTPException(status_code=400, detail=f"fields.{key} must be a JSON {kind.__name__}")
+    return dict(value)
+
+
 def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any]) -> JSONResponse | dict:
     project_id = info["id"]
     base = body.get("base_rev")
@@ -524,6 +554,7 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
             raise HTTPException(status_code=400, detail="Sequences are saved with PUT …/sequences/{id}")
         clean[str(item_id)] = item
     delete_ids = [_item_id(d) for d in deletes]
+    fields = _shared_fields(body.get("fields"))
     st = store()
     with _project_lock(project_id):
         _meta, shared, sequences = team_files.read_project(user, info["folder"])
@@ -537,14 +568,14 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
         items = {**(shared.get("items") or {}), **clean}
         for item_id in delete_ids:
             items.pop(str(item_id), None)
-        updated = {**shared, "items": items}
+        updated = {**shared, **fields, "items": items}
         if bins is not None:
             updated["root"] = bins
         if "root" in updated:
             updated["root"] = _file_unbinned_media(updated["root"], items)
         team_files.write_shared(user, info["folder"], updated)
         rev = st.bump_revision(project_id, "shared", None)
-    publish(project_id, "shared_updated", {"rev": rev})
+    publish(project_id, "shared_updated", {"rev": rev, "fields": sorted(fields)} if fields else {"rev": rev})
     return {"rev": rev}
 
 

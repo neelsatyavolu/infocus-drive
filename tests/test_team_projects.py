@@ -738,3 +738,60 @@ def test_delete_sequence_event(client):
         assert delete_seq(client, pid, 3, token, 0).status_code == 200
         assert read_event(lines) == ("sequence_deleted", {"seq": 3, "rev": 1, "by": "student1"})
         assert read_event(lines) == ("lock_changed", {"seq": 3, "holder": None})
+
+
+def post_fields(client, pid, fields, user="student1", base=0):
+    return client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": base, "fields": fields},
+                       headers=as_(user))
+
+
+def test_shared_fields_merge_per_key_last_writer_wins(client):
+    pid = create(client)["id"]
+    a = post_fields(client, pid, {"settings": {"fps": 30}, "notes": "Shoot B-roll first",
+                                  "transcripts": {"1": {"words": []}}})
+    assert a.status_code == 200 and a.json() == {"rev": 1}
+    b = post_fields(client, pid, {"notes": "Interview at 3"}, user="student2")
+    assert b.status_code == 200 and b.json() == {"rev": 2}
+    shared = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()["shared"]
+    assert shared["settings"] == {"fps": 30} and shared["notes"] == "Interview at 3"
+    assert shared["transcripts"] == {"1": {"words": []}}
+    assert set(shared["items"]) == {"1"} and shared["name"] == "Robotics" and shared["next_id"] == 4
+
+
+def test_shared_fields_with_items_in_one_post(client):
+    pid = create(client)["id"]
+    r = client.post(f"/api/team/projects/{pid}/shared",
+                    json={"base_rev": 0, "upserts": {"10": media_item(10)}, "fields": {"luts": []}},
+                    headers=as_("student1"))
+    assert r.status_code == 200
+    shared = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()["shared"]
+    assert "10" in shared["items"] and shared["luts"] == []
+
+
+@pytest.mark.parametrize("fields", [
+    {"items": {}}, {"root": {}}, {"next_id": 9}, {"name": "Other"}, {"blob": "x"},
+    {"notes": 5}, {"settings": []}, {"luts": {}}, {"custom_color_names": "x"}, {"notes": None},
+    [], "notes",
+])
+def test_shared_fields_rejects_unknown_keys_and_wrong_types(client, fields):
+    pid = create(client)["id"]
+    assert post_fields(client, pid, fields).status_code == 400
+    assert client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()["shared_rev"] == 0
+
+
+def test_shared_fields_size_cap(client, monkeypatch):
+    pid = create(client)["id"]
+    monkeypatch.setattr(team_projects.team_files, "MAX_FILE_BYTES", 2048)
+    r = post_fields(client, pid, {"notes": "x" * 4096})
+    assert r.status_code == 413
+    got = client.get(f"/api/team/projects/{pid}", headers=as_("student1")).json()
+    assert "notes" not in got["shared"] and got["shared_rev"] == 0
+
+
+def test_shared_fields_event_names_keys(client):
+    pid = create(client)["id"]
+    with client.stream("GET", f"/api/team/projects/{pid}/events", headers=as_("student2")) as stream:
+        lines = stream.iter_lines()
+        next(lines)
+        assert post_fields(client, pid, {"notes": "hi", "settings": {}}).status_code == 200
+        assert read_event(lines) == ("shared_updated", {"rev": 1, "fields": ["notes", "settings"]})
