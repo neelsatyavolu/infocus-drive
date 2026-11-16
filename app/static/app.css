@@ -4790,6 +4790,25 @@ html.light .share__img {
   height: 42px;
 }
 
+/* Copied file link landing (Drive app modal) */
+.file-link .share__head {
+  margin-bottom: 18px;
+}
+
+.file-link__title {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.file-link .modal__hint {
+  margin: 2px 0 0;
+}
+
+.file-link__folder {
+  width: 100%;
+  margin-top: 8px;
+}
+
 .share__crumbs {
   display: flex;
   flex-wrap: wrap;

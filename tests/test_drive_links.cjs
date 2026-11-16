@@ -5,7 +5,7 @@ const vm = require('node:vm');
 
 const source = readFileSync(new URL('../app/static/app.js', `file://${__filename}`), 'utf8');
 function setup() {
-  const calls = { loads: [], previews: [], messages: [], login: 0 };
+  const calls = { loads: [], previews: [], downloadScreens: [], messages: [], login: 0 };
   const context = vm.createContext({
     URL, URLSearchParams, Set, location: { hash: '#/', search: '', origin: 'https://drive.infocuspaly.com' },
     state: { me: { authenticated: true }, share: 'InFocus Drive',
@@ -20,6 +20,8 @@ function setup() {
     showLogin: () => { calls.login++; },
     toast: message => calls.messages.push(message),
     openPreview: item => calls.previews.push(item.path),
+    openFileLinkScreen: item => calls.downloadScreens.push(item.path),
+    isOpenableFolder: item => item.is_dir && !item.path.endsWith('.app'),
     previewKind: item => item.path.endsWith('.pdf'),
     visibleItems: () => context.state.items,
     store() {}, setQuickScope() {}, clearSearch() {}, loadUsage() {}, refreshShortcuts() {},
@@ -87,15 +89,30 @@ test('unavailable share and server fallback never list the wrong drive', async (
   }
 });
 
-test('file links select the file and preview only supported types', async () => {
+test('file links preview supported types and show a download screen for the rest', async () => {
   for (const filename of ['doc.pdf', 'archive.zip']) {
     const { context: c, calls } = setup();
     c.location.hash = `#/?share=InFocus+Drive&file=${filename}`;
     c.state.items = [{ path: filename, is_dir: false }];
     await c.loadRoute();
     assert.ok(c.state.selection.has(filename));
-    assert.equal(calls.previews.length, filename.endsWith('.pdf') ? 1 : 0);
+    const previewable = filename.endsWith('.pdf');
+    assert.equal(calls.previews.length, previewable ? 1 : 0);
+    assert.deepEqual(calls.downloadScreens, previewable ? [] : [filename]);
   }
+});
+
+test('Mac app links are file links that open the download screen', async () => {
+  const { context: c, calls } = setup();
+  const app = { path: 'Pkg/Install.app', is_dir: true };
+  await c.copyItemLinks([app]);
+  const link = new URL(calls.clipboard);
+  assert.equal(link.searchParams.get('file'), app.path);
+  assert.equal(link.searchParams.get('path'), null);
+  c.location.hash = c.openLinkHash(link.search);
+  c.state.items = [app];
+  await c.loadRoute();
+  assert.deepEqual(calls.downloadScreens, [app.path]);
 });
 
 test('missing files show a message without opening another file', async () => {
