@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261115-appbundle2";
-import * as api from "./api.js?v=20261115-appbundle2";
-import { ApiError } from "./api.js?v=20261115-appbundle2";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261115-filelink";
+import * as api from "./api.js?v=20261115-filelink";
+import { ApiError } from "./api.js?v=20261115-filelink";
 import {
   describeKind,
   displayName,
@@ -21,8 +21,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261115-appbundle2";
-import { $, el, icon, show } from "./dom.js?v=20261115-appbundle2";
+} from "./format.js?v=20261115-filelink";
+import { $, el, icon, show } from "./dom.js?v=20261115-filelink";
 import {
   setQuickScope,
   listFavorites,
@@ -31,7 +31,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261115-appbundle2";
+} from "./quick.js?v=20261115-filelink";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -583,7 +583,7 @@ async function copyItemLinks(items) {
   const links = items.map((item) => {
     // Path in the query, not the hash, so iMessage/Slack previews can show the item.
     const url = new URL("/open", base);
-    url.search = new URLSearchParams({ share: state.share, [item.is_dir ? "path" : "file"]: item.path });
+    url.search = new URLSearchParams({ share: state.share, [isOpenableFolder(item) ? "path" : "file"]: item.path });
     return url.href;
   });
   const text = links.join("\n");
@@ -761,7 +761,7 @@ async function loadRoute() {
   if (location.hash !== hash || state.error || state.loading) return;
   const file = params.get("file");
   if (!file) return;
-  const item = state.items.find((entry) => entry.path === file && !entry.is_dir);
+  const item = state.items.find((entry) => entry.path === file && !isOpenableFolder(entry));
   if (!item) {
     toast("File not found or you don't have access to it", "warn");
     return;
@@ -773,6 +773,40 @@ async function loadRoute() {
   render();
   scrollItemIntoView(item);
   if (previewKind(item)) openPreview(item);
+  else openFileLinkScreen(item);
+}
+
+/** Landing card for a copied file link: what the file is and one Download button. */
+function openFileLinkScreen(item) {
+  const kind = describeKind(item);
+  const parent = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : "";
+  const body = el("div", { class: "modal__body file-link" }, [
+    el("div", { class: "share__head" }, [
+      el("div", { class: "share__kind", style: `color:${kind.color}` }, [icon(kind.icon, 22)]),
+      el("div", { class: "share__head-text" }, [
+        el("h3", { class: "file-link__title", text: displayName(item.name) }),
+        el("p", {
+          class: "share__meta",
+          text: [kind.label, itemSizeLabel(item), formatModified(item.mtime)].filter(Boolean).join(" · "),
+        }),
+        el("p", { class: "modal__hint", text: `In ${folderLabel(parent)}` }),
+      ]),
+    ]),
+    el(
+      "button",
+      {
+        type: "button",
+        class: "btn btn--primary btn--modal share__download",
+        onclick: () => {
+          closeModal();
+          downloadItems([item]);
+        },
+      },
+      [icon("#i-download", 16), "Download"],
+    ),
+    el("button", { type: "button", class: "btn btn--modal file-link__folder", text: "Show in folder", onclick: closeModal }),
+  ]);
+  openModal(el("div", { class: "modal" }, [body]));
 }
 
 function navigate(path) {
@@ -2421,7 +2455,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261115-appbundle2").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261115-filelink").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
