@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS locks (
     user TEXT NOT NULL,
     token TEXT NOT NULL,
     expires_at REAL NOT NULL,
+    device TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (project_id, seq_id)
 );
 CREATE TABLE IF NOT EXISTS revisions (
@@ -65,6 +66,7 @@ class LockResult:
     token: str | None
     holder: str | None
     expires_at: float
+    device: str | None = None
 
 
 class TeamStore:
@@ -76,6 +78,9 @@ class TeamStore:
         with self._conn() as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(_SCHEMA)
+            columns = {r["name"] for r in conn.execute("PRAGMA table_info(locks)")}
+            if "device" not in columns:  # databases made before locks were per device
+                conn.execute("ALTER TABLE locks ADD COLUMN device TEXT NOT NULL DEFAULT ''")
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -166,23 +171,37 @@ class TeamStore:
 
     # Locks -----------------------------------------------------------------
 
-    def take_lock(self, project_id: str, seq_id: int, user: str) -> LockResult:
+    def take_lock(self, project_id: str, seq_id: int, user: str, device: str = "") -> LockResult:
+        """Take the lock for `user` on `device` (one Mac). Re-entrant on the same device.
+
+        Taking it again from the same user and device keeps the token and resets
+        the expiry. The same user on another device is refused like a teammate,
+        so a second Mac can't silently take over a lock the first is using.
+        """
         now = self.clock()
         with self._tx() as conn:
             if conn.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone() is None:
                 return LockResult(False, None, None, 0.0)
             row = conn.execute(
-                "SELECT user, expires_at FROM locks WHERE project_id = ? AND seq_id = ?", (project_id, seq_id)
+                "SELECT user, token, device, expires_at FROM locks WHERE project_id = ? AND seq_id = ?",
+                (project_id, seq_id),
             ).fetchone()
-            if row is not None and row["expires_at"] > now and row["user"] != user:
-                return LockResult(False, None, row["user"], float(row["expires_at"]))
-            token = secrets.token_urlsafe(24)
             expires = now + self.lock_ttl_s
+            if row is not None and row["expires_at"] > now:
+                if row["user"] != user or row["device"] != device:
+                    return LockResult(False, None, row["user"], float(row["expires_at"]), row["device"])
+                conn.execute(
+                    "UPDATE locks SET expires_at = ? WHERE project_id = ? AND seq_id = ?",
+                    (expires, project_id, seq_id),
+                )
+                return LockResult(True, str(row["token"]), user, expires, device)
+            token = secrets.token_urlsafe(24)
             conn.execute(
-                "INSERT OR REPLACE INTO locks (project_id, seq_id, user, token, expires_at) VALUES (?, ?, ?, ?, ?)",
-                (project_id, seq_id, user, token, expires),
+                "INSERT OR REPLACE INTO locks (project_id, seq_id, user, token, expires_at, device) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (project_id, seq_id, user, token, expires, device),
             )
-            return LockResult(True, token, user, expires)
+            return LockResult(True, token, user, expires, device)
 
     def check_lock(self, project_id: str, seq_id: int, token: str) -> bool:
         """True while `token` is the current, unexpired lock on the sequence."""

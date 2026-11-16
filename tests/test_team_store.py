@@ -55,6 +55,42 @@ def test_second_taker_refused_with_holder(store, pid):
     assert not got.ok and got.token is None and got.holder == "student1"
 
 
+def test_same_user_same_device_is_reentrant(store, pid, clock):
+    first = store.take_lock(pid, 7, "student1", device="Edit Mac")
+    clock.now += 30
+    again = store.take_lock(pid, 7, "student1", device="Edit Mac")
+    assert again.ok and again.token == first.token
+    assert again.expires_at == clock.now + LOCK_TTL_S
+    assert store.check_lock(pid, 7, first.token)
+
+
+def test_same_user_other_device_refused(store, pid):
+    first = store.take_lock(pid, 7, "student1", device="Edit Mac")
+    other = store.take_lock(pid, 7, "student1", device="Home Mac")
+    assert not other.ok and other.token is None
+    assert other.holder == "student1" and other.device == "Edit Mac"
+    assert store.check_lock(pid, 7, first.token)
+
+
+def test_missing_device_is_its_own_device(store, pid):
+    first = store.take_lock(pid, 7, "student1")
+    assert store.take_lock(pid, 7, "student1").token == first.token
+    assert not store.take_lock(pid, 7, "student1", device="Edit Mac").ok
+
+
+def test_device_column_added_to_old_database(tmp_path, clock):
+    import sqlite3
+    path = tmp_path / "old.sqlite3"
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE locks (project_id TEXT NOT NULL, seq_id INTEGER NOT NULL, user TEXT NOT NULL, "
+                 "token TEXT NOT NULL, expires_at REAL NOT NULL, PRIMARY KEY (project_id, seq_id))")
+    conn.commit()
+    conn.close()
+    old = TeamStore(path, clock=clock)
+    project = old.create_project("Team Projects/A.fcteam", "A", "student1")
+    assert old.take_lock(project, 1, "student1", device="Edit Mac").ok
+
+
 def test_lock_expires_after_ttl(store, pid, clock):
     first = store.take_lock(pid, 7, "student1")
     clock.now += LOCK_TTL_S + 1

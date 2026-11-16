@@ -93,8 +93,9 @@ def create(client, user="student1", name="Robotics", project=None):
     return r.json()
 
 
-def lock(client, pid, seq, user="student1"):
-    return client.post(f"/api/team/projects/{pid}/sequences/{seq}/lock", headers=as_(user))
+def lock(client, pid, seq, user="student1", device=None):
+    headers = as_(user) if device is None else {**as_(user), "X-Drive-Device": device}
+    return client.post(f"/api/team/projects/{pid}/sequences/{seq}/lock", headers=headers)
 
 
 def put(client, pid, seq, token, base_rev, user="student1", **extra):
@@ -159,6 +160,33 @@ def test_lock_conflict_returns_holder(client):
     assert second.status_code == 409 and second.json()["holder"] == "student1"
     listed = client.get("/api/team/projects", headers=as_("student2")).json()
     assert listed[0]["locks"]["2"]["holder"] == "student1"
+
+
+def test_lock_same_account_two_macs(client):
+    pid = create(client)["id"]
+    first = lock(client, pid, 2, device="Edit Mac")
+    assert first.status_code == 200
+    again = lock(client, pid, 2, device="Edit Mac")
+    assert again.status_code == 200 and again.json()["token"] == first.json()["token"]
+    other = lock(client, pid, 2, device="Home Mac")
+    assert other.status_code == 409
+    body = other.json()
+    assert body["holder"] == "student1" and body["device"] == "Edit Mac" and body["expires_at"] > time.time()
+    # The first Mac's token still works.
+    assert put(client, pid, 2, first.json()["token"], 0).status_code == 200
+
+
+def test_lock_held_by_teammate_hides_device(client):
+    pid = create(client)["id"]
+    lock(client, pid, 2, device="Edit Mac")
+    body = lock(client, pid, 2, user="student2", device="Home Mac").json()
+    assert body["holder"] == "student1" and body["device"] is None
+
+
+def test_lock_rejects_bad_device_header(client):
+    pid = create(client)["id"]
+    assert lock(client, pid, 2, device="x" * 65).status_code == 400
+    assert lock(client, pid, 2, device="bad\tname").status_code == 400
 
 
 def test_heartbeat_and_release(client):

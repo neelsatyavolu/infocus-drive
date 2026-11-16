@@ -39,6 +39,9 @@ MAX_ID = (1 << 53) - 1
 SUBSCRIBER_QUEUE = 256
 _PROJECT_ID = re.compile(r"^[0-9a-f]{32}$")
 _VERSION = re.compile(r"^[0-9]{1,6}(\.[0-9]{1,6}){0,3}$")
+DEVICE_HEADER = "X-Drive-Device"
+MAX_DEVICE_LEN = 64
+_BAD_DEVICE = re.compile(r"[\x00-\x1f\x7f]")
 
 _hooks: dict[str, Callable[..., Any]] = {}
 
@@ -157,6 +160,14 @@ def _version(value: Any) -> tuple[int, ...]:
 def _schema(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 1_000_000:
         raise HTTPException(status_code=400, detail="schema_version must be a number")
+    return value
+
+
+def _device(request: Request) -> str:
+    """The Mac taking a lock (`X-Drive-Device`); a missing header counts as one more device."""
+    value = (request.headers.get(DEVICE_HEADER) or "").strip()
+    if len(value) > MAX_DEVICE_LEN or _BAD_DEVICE.search(value):
+        raise HTTPException(status_code=400, detail=f"{DEVICE_HEADER} must be a short device name")
     return value
 
 
@@ -308,9 +319,13 @@ def take_lock(request: Request, project_id: str, seq: int) -> Any:
         _check_access(user, info)
     except FSError as e:
         return _fs_error(e)
-    got = store().take_lock(project_id, seq, str(user["username"]))
+    device = _device(request)
+    username = str(user["username"])
+    got = store().take_lock(project_id, seq, username, device)
     if not got.ok:
-        return _error(409, {"holder": got.holder, "expires_at": got.expires_at})
+        # `device` only for your own other Mac; a teammate's device name stays private.
+        return _error(409, {"holder": got.holder, "expires_at": got.expires_at,
+                            "device": got.device if got.holder == username else None})
     publish(project_id, "lock_changed", {"seq": seq, "holder": got.holder})
     return {"token": got.token, "expires_at": got.expires_at}
 
