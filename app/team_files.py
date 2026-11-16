@@ -36,6 +36,7 @@ MAX_FILE_BYTES = 64 * 1024 * 1024
 MAX_NAME_LEN = 100
 _SEQ_FILE = re.compile(r"^([1-9][0-9]{0,15})\.json$")
 _BAD_NAME = re.compile(r"[\x00-\x1f\x7f/\\]")
+_BAD_MEDIA_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 
 
 class FilesChanged(FSError):
@@ -260,6 +261,63 @@ def write_shared(user: dict[str, Any], folder_rel: str, shared: dict[str, Any]) 
         _write_bytes(root / PROJECT_FILE, data)
         hashes = {**(meta.get("file_hashes") or {}), PROJECT_FILE: _sha(data)}
         _write_bytes(root / META_FILE, _dump({**meta, "file_hashes": hashes}))
+
+
+def _media_path(folder_rel: str, rel: str, *, allow_root: bool) -> tuple[Path, Path, str]:
+    """(target, media root, target rel to the drive root) for a path inside `<name> Media/`.
+
+    Always under the drive root (never the member's active share). Refuses
+    traversal, absolute paths and backslashes (400), and a symlink anywhere on
+    the way, including the media folder itself (404, like `_project_dir`).
+    """
+    _project_dir(folder_rel)
+    media_rel = media_folder_for(folder_rel)
+    rel = rel or ""
+    segments = rel.split("/") if rel else []
+    if (
+        (not segments and not allow_root)
+        or _BAD_MEDIA_PATH.search(rel)
+        or any(s in ("", ".", "..") for s in segments)
+    ):
+        raise FSError("Invalid media path", 400)
+    root = fsops.drive_root()
+    media = root.joinpath(*Path(media_rel).parts)
+    target = media.joinpath(*segments)
+    target_rel = "/".join([media_rel, *segments])
+    if fsops.resolve_rel(target_rel) != target or fsops.resolve_rel(media_rel) != media:
+        raise FSError("Media file not found", 404)
+    return target, media, target_rel
+
+
+def valid_media_name(name: Any) -> str:
+    """A plain file name for an upload into the media folder (no folders, no `.fcteam`)."""
+    if (
+        not isinstance(name, str)
+        or not name
+        or len(name) > 255
+        or name in (".", "..")
+        or _BAD_NAME.search(name)
+    ):
+        raise FSError("Invalid file name", 400)
+    guard_new_name(name)
+    return name
+
+
+def open_media(user: dict[str, Any], folder_rel: str, rel: str) -> fsops.AuthorizedFile:
+    """Open an original in the project's media folder as the member, for download."""
+    target, media, _ = _media_path(folder_rel, rel, allow_root=False)
+    return fsops.open_authorized_path(target, media, int(user["uid"]), int(user["gid"]), name=target.name)
+
+
+def media_upload_dir(user: dict[str, Any], folder_rel: str, rel_dir: str) -> tuple[Path, str]:
+    """(folder, rel to the drive root) to upload into, made as the member if missing."""
+    target, _media, target_rel = _media_path(folder_rel, rel_dir, allow_root=True)
+    if not target.is_dir():
+        fsops.ensure_dir(target_rel, int(user["uid"]), int(user["gid"]))
+        target, _media, target_rel = _media_path(folder_rel, rel_dir, allow_root=True)
+        if not target.is_dir():
+            raise FSError("Media folder not found", 404)
+    return target, target_rel
 
 
 def recycle_project(folder_rel: str) -> list[str]:

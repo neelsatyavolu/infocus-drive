@@ -481,3 +481,109 @@ def test_symlink_into_fcteam_refused(web):
     r = client.post("/api/delete", data={"path": "Shortcut/meta.json"}, headers=as_("student1"))
     assert r.status_code in (400, 403)
     assert (client.drive / FCTEAM / "meta.json").is_file()
+
+
+MEDIA = "Team Projects/Robotics Media"
+
+
+@pytest.fixture
+def media(client, tmp_path, monkeypatch):
+    """A project with one original, while the member's active share is some other folder."""
+    import chunk_upload
+    monkeypatch.setattr(chunk_upload, "SESSION_ROOT", tmp_path / "chunks")
+    chunk_upload._sessions.clear()
+    other = tmp_path / "other share"
+    (other / MEDIA).mkdir(parents=True)
+    (other / MEDIA / "A001.mov").write_bytes(b"wrong share")
+    monkeypatch.setattr(main, "share_path", lambda share: other)
+    pid = create(client)["id"]
+    (client.drive / MEDIA / "Day 1").mkdir()
+    (client.drive / MEDIA / "Day 1" / "A001.mov").write_bytes(b"0123456789")
+    client.pid = pid
+    return client
+
+
+def get_media(client, path, user="student1", **headers):
+    return client.get(f"/api/team/projects/{client.pid}/media", params={"path": path},
+                      headers={**as_(user), **headers})
+
+
+def test_media_download_reads_team_folder_not_active_share(media):
+    r = get_media(media, "Day 1/A001.mov")
+    assert r.status_code == 200 and r.content == b"0123456789"
+    assert r.headers["accept-ranges"] == "bytes" and r.headers["etag"]
+    assert r.headers["content-security-policy"] == "sandbox"
+
+
+def test_media_download_range_and_if_range(media):
+    full = get_media(media, "Day 1/A001.mov")
+    etag = full.headers["etag"]
+    part = get_media(media, "Day 1/A001.mov", Range="bytes=2-5")
+    assert part.status_code == 206 and part.content == b"2345"
+    assert part.headers["content-range"] == "bytes 2-5/10"
+    same = get_media(media, "Day 1/A001.mov", Range="bytes=8-", **{"If-Range": etag})
+    assert same.status_code == 206 and same.content == b"89"
+    changed = get_media(media, "Day 1/A001.mov", Range="bytes=8-", **{"If-Range": '"old"'})
+    assert changed.status_code == 200 and changed.content == b"0123456789"
+
+
+def test_media_download_refuses_paths_outside_media(media):
+    (media.drive / MEDIA / "link.json").symlink_to(media.drive / FCTEAM / "meta.json")
+    (media.drive / MEDIA / "Linked").symlink_to(media.drive / FCTEAM)
+    (media.drive / "Team Projects" / "secret.mov").write_bytes(b"no")
+    for bad in ["", "../secret.mov", "/etc/passwd", "Day 1/../../secret.mov", "./A.mov", "a\\b.mov",
+                "../Robotics.fcteam/meta.json"]:
+        assert get_media(media, bad).status_code == 400, bad
+    for hidden in ["link.json", "Linked/meta.json", "Day 1", "missing.mov"]:
+        assert get_media(media, hidden).status_code == 404, hidden
+
+
+def test_media_download_needs_project_access(media):
+    assert get_media(media, "Day 1/A001.mov", user="outsider").status_code == 403
+    assert media.get(f"/api/team/projects/{media.pid}/media", params={"path": "Day 1/A001.mov"}).status_code == 401
+    assert media.get("/api/team/projects/" + "0" * 32 + "/media", params={"path": "A001.mov"},
+                     headers=as_("student1")).status_code == 404
+
+
+def upload_init(client, user="student1", **body):
+    return client.post(f"/api/team/projects/{client.pid}/media/upload/init", json=body, headers=as_(user))
+
+
+def test_media_upload_lands_in_team_media_folder(media):
+    data = b"fresh footage"
+    init = upload_init(media, path="Day 2", name="B001.mov", size=len(data))
+    assert init.status_code == 200, init.text
+    upload_id = init.json()["upload_id"]
+    r = media.put("/api/upload/chunk", params={"upload_id": upload_id, "index": 0}, content=data,
+                  headers=as_("student1"))
+    assert r.status_code == 200, r.text
+    # The generic complete resolves a share; the team marker is no valid share id (400), and
+    # even a share that resolves elsewhere can't take the partial file (409).
+    import shares
+    with pytest.raises(fsops.FSError):
+        shares.share_path(f"@team:{media.pid}")
+    assert media.post("/api/upload/complete", data={"upload_id": upload_id},
+                      headers=as_("student1")).status_code in (400, 409)
+    done = media.post(f"/api/team/projects/{media.pid}/media/upload/complete", json={"upload_id": upload_id},
+                      headers=as_("student1"))
+    assert done.status_code == 200, done.text
+    assert (media.drive / MEDIA / "Day 2" / "B001.mov").read_bytes() == data
+    assert get_media(media, "Day 2/B001.mov").content == data
+
+
+def test_media_upload_complete_checks_project_and_owner(media):
+    upload_id = upload_init(media, name="B001.mov", size=4).json()["upload_id"]
+    assert media.post(f"/api/team/projects/{media.pid}/media/upload/complete", json={"upload_id": upload_id},
+                      headers=as_("student2")).status_code in (403, 404)
+    other = create(media, name="Band")["id"]
+    assert media.post(f"/api/team/projects/{other}/media/upload/complete", json={"upload_id": upload_id},
+                      headers=as_("student1")).status_code == 400
+
+
+def test_media_upload_init_validation(media):
+    assert upload_init(media, path="../Robotics.fcteam", name="x.mov", size=4).status_code == 400
+    assert upload_init(media, name="../x.mov", size=4).status_code == 400
+    assert upload_init(media, name="Fake.fcteam", size=4).status_code == 400
+    assert upload_init(media, name="x.mov", size=-1).status_code == 400
+    assert upload_init(media, name="x.mov", size=60 * 1024 ** 4).status_code == 413
+    assert upload_init(media, user="outsider", name="x.mov", size=4).status_code == 403

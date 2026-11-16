@@ -134,6 +134,7 @@ docker-compose.yml   infocus-drive :8787 + gateway host network (requires .env k
 | GET | `/cli/install.ps1` | Unauthenticated CLI installer (Windows PowerShell: `irm … \| iex`) |
 | GET | `/mac/install.sh` | Unauthenticated installer for InFocus for Mac (docs/MAC-APP.md) |
 | GET/POST | `/api/team/projects` `/api/team/projects/{id}` | InFocus Cut team projects under `Team Projects/`; sequence locks (`…/sequences/{seq}/lock`, per user + Mac via `X-Drive-Device`, heartbeat, force = admin), `PUT …/sequences/{seq}`, `POST …/shared`, SSE `…/events`, `…/keep`, `…/open` |
+| GET/POST | `/api/team/projects/{id}/media?path=` `…/media/upload/init` `…/media/upload/complete` | Originals in `Team Projects/<name> Media/` under the drive root, never the active share: download with Range/If-Range/ETag; chunked upload (chunks, status and abort via `/api/upload/*`) |
 | POST | `/api/team/exports/{id}/begin` `/end` | Mark an InFocus Cut export in progress (daily cleanup skips it; lapses after 6 h) |
 | GET | `/team/keep?project=` | Keep page from the cleanup notice email (calls `POST …/open`) |
 

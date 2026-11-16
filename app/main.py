@@ -145,7 +145,11 @@ app.include_router(scribe_internal_router)
 app.include_router(wordpress_router)
 app.include_router(team_projects.router)
 # Late-bound so tests that patch main's auth helpers reach the team routes too.
-team_projects.bind(require_user=lambda request: _require_user(request), is_admin=lambda name: is_nas_admin(name))
+team_projects.bind(
+    require_user=lambda request: _require_user(request),
+    is_admin=lambda name: is_nas_admin(name),
+    file_response=lambda opened: _user_file_response(opened, False),
+)
 
 # Allow infocus-packages (and local dev) browsers to upload/play Package Cycles media.
 app.add_middleware(

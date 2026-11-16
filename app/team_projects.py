@@ -27,6 +27,7 @@ from starlette.concurrency import run_in_threadpool
 
 import team_cleanup
 import team_files
+from chunk_upload import complete_session, create_session, get_session
 from config import get_settings
 from fsops import FSError
 from team_store import TeamStore
@@ -46,9 +47,15 @@ _BAD_DEVICE = re.compile(r"[\x00-\x1f\x7f]")
 _hooks: dict[str, Callable[..., Any]] = {}
 
 
-def bind(*, require_user: Callable[[Request], dict[str, Any]], is_admin: Callable[[str], bool]) -> None:
+def bind(
+    *,
+    require_user: Callable[[Request], dict[str, Any]],
+    is_admin: Callable[[str], bool],
+    file_response: Callable[[Any], Any],
+) -> None:
     _hooks["require_user"] = require_user
     _hooks["is_admin"] = is_admin
+    _hooks["file_response"] = file_response  # main's download response (Range, If-Range, ETag, sandbox CSP)
 
 
 def _user(request: Request) -> dict[str, Any]:
@@ -495,6 +502,98 @@ def open_project(request: Request, project_id: str) -> Any:
     st = store()
     st.record_open(project_id, str(user["username"]))
     return {"ok": True, "last_open": st.last_open(project_id)}
+
+
+# Media ------------------------------------------------------------------------
+# Originals live in `Team Projects/<name> Media/` under the drive root. These
+# routes never use the member's active share, unlike `/api/download` and
+# `/api/upload/*`. Uploads reuse the chunked sessions: init and complete here,
+# chunks, status and abort through the normal `/api/upload/*` routes.
+
+
+def _upload_share(project_id: str) -> str:
+    """Marks a session as a team upload. Not a valid share id, so `/api/upload/complete` refuses it."""
+    return f"@team:{project_id}"
+
+
+@router.get("/projects/{project_id}/media")
+def media_download(request: Request, project_id: str, path: str = "") -> Any:
+    user = _user(request)
+    info = _project_or_404(project_id)
+    try:
+        _check_access(user, info)
+        opened = team_files.open_media(user, info["folder"], path)
+    except FSError as e:
+        return _fs_error(e)
+    return _hooks["file_response"](opened)
+
+
+def _int_field(body: dict[str, Any], key: str, *, required: bool) -> int | None:
+    value = body.get(key)
+    if value is None and not required:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise HTTPException(status_code=400, detail=f"{key} must be a number")
+    return value
+
+
+@router.post("/projects/{project_id}/media/upload/init")
+async def media_upload_init(request: Request, project_id: str) -> Any:
+    user = _user(request)
+    info = _project_or_404(project_id)
+    body = await _body(request)
+    size = _int_field(body, "size", required=True)
+    chunk_size = _int_field(body, "chunk_size", required=False)
+    rel_dir = body.get("path") or ""
+    if not isinstance(rel_dir, str):
+        raise HTTPException(status_code=400, detail="path must be a string")
+
+    def work() -> dict[str, Any]:
+        _check_access(user, info)
+        name = team_files.valid_media_name(body.get("name"))
+        dest, dest_rel = team_files.media_upload_dir(user, info["folder"], rel_dir)
+        return create_session(
+            username=str(user["username"]),
+            uid=int(user["uid"]),
+            gid=int(user["gid"]),
+            share=_upload_share(project_id),
+            rel_dir=dest_rel,
+            filename=name,
+            size=int(size or 0),
+            chunk_size=chunk_size,
+            dest_dir=dest,
+        )
+
+    try:
+        return await run_in_threadpool(work)
+    except FSError as e:
+        return _fs_error(e)
+
+
+@router.post("/projects/{project_id}/media/upload/complete")
+async def media_upload_complete(request: Request, project_id: str) -> Any:
+    user = _user(request)
+    info = _project_or_404(project_id)
+    body = await _body(request)
+    upload_id = body.get("upload_id")
+    if not isinstance(upload_id, str):
+        raise HTTPException(status_code=400, detail="upload_id is required")
+    expect_mtime_ns = body.get("expect_mtime_ns")
+    if expect_mtime_ns is not None and (isinstance(expect_mtime_ns, bool) or not isinstance(expect_mtime_ns, int)):
+        raise HTTPException(status_code=400, detail="expect_mtime_ns must be a number")
+    username, uid = str(user["username"]), int(user["uid"])
+
+    def work() -> dict[str, Any]:
+        _check_access(user, info)
+        meta = get_session(upload_id, username=username, uid=uid)
+        if meta.get("share") != _upload_share(project_id):
+            raise FSError("This upload is not for this team project", 400)
+        return complete_session(upload_id, username=username, uid=uid, expect_mtime_ns=expect_mtime_ns)
+
+    try:
+        return await run_in_threadpool(work)
+    except FSError as e:
+        return _fs_error(e)
 
 
 def _export_mark(request: Request, project_id: str) -> str | JSONResponse:
