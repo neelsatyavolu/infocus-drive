@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261115-appbundle";
-import * as api from "./api.js?v=20261115-appbundle";
-import { ApiError } from "./api.js?v=20261115-appbundle";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261115-appbundle2";
+import * as api from "./api.js?v=20261115-appbundle2";
+import { ApiError } from "./api.js?v=20261115-appbundle2";
 import {
   describeKind,
   displayName,
@@ -21,8 +21,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261115-appbundle";
-import { $, el, icon, show } from "./dom.js?v=20261115-appbundle";
+} from "./format.js?v=20261115-appbundle2";
+import { $, el, icon, show } from "./dom.js?v=20261115-appbundle2";
 import {
   setQuickScope,
   listFavorites,
@@ -31,7 +31,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261115-appbundle";
+} from "./quick.js?v=20261115-appbundle2";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -820,7 +820,7 @@ async function loadFolder(path) {
     state.loading = false;
     state.showSkeleton = false;
     // Keep sidebar tree in sync with the open folder.
-    state.treeChildren[state.path] = state.items.filter((item) => item.is_dir);
+    state.treeChildren[state.path] = state.items.filter(isOpenableFolder);
     // Expand path ancestors; collapse anything no longer on the path so
     // Up / browser-back doesn't leave a trail of open folders.
     syncTreeExpanded(state.path);
@@ -985,7 +985,7 @@ async function ensureTreeChildren(path) {
   renderTree();
   try {
     const data = await api.listFiles(path);
-    state.treeChildren[path] = (data.items || []).filter((item) => item.is_dir);
+    state.treeChildren[path] = (data.items || []).filter(isOpenableFolder);
   } catch {
     state.treeChildren[path] = [];
   }
@@ -2421,7 +2421,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261115-appbundle").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261115-appbundle2").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
