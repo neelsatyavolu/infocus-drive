@@ -212,7 +212,7 @@ def test_put_requires_current_lock(client):
     assert ok.status_code == 200 and ok.json() == {"rev": 1}
     client.post(f"/api/team/projects/{pid}/sequences/2/lock/force", headers=as_("admin1"))
     lost = put(client, pid, 2, token, 1)
-    assert lost.status_code == 409 and lost.json()["error"] == "lock lost"
+    assert lost.status_code == 409 and lost.json()["error"] == "lock_lost"
 
 
 def test_put_stale_base_rejected(client):
@@ -220,7 +220,7 @@ def test_put_stale_base_rejected(client):
     token = lock(client, pid, 2).json()["token"]
     assert put(client, pid, 2, token, 0).json() == {"rev": 1}
     stale = put(client, pid, 2, token, 0)
-    assert stale.status_code == 409 and stale.json() == {"error": "stale", "rev": 1}
+    assert stale.status_code == 409 and stale.json()["error"] == "stale" and stale.json()["rev"] == 1
 
 
 def test_put_sequence_must_match_path(client):
@@ -262,7 +262,7 @@ def test_shared_bins_need_current_base(client):
     stale = client.post(f"/api/team/projects/{pid}/shared",
                         json={"base_rev": 0, "upserts": {}, "deletes": [], "bins": {"name": "root"}},
                         headers=as_("student2"))
-    assert stale.status_code == 409 and stale.json() == {"error": "stale", "rev": 1}
+    assert stale.status_code == 409 and stale.json()["error"] == "stale" and stale.json()["rev"] == 1
     ok = client.post(f"/api/team/projects/{pid}/shared",
                      json={"base_rev": 1, "upserts": {}, "deletes": [], "bins": {"name": "root", "children": [1]}},
                      headers=as_("student2"))
@@ -313,7 +313,8 @@ def test_hash_mismatch_409(client):
     seq_file.write_text(json.dumps(seq_item(2)))
     r = client.get(f"/api/team/projects/{pid}", headers=as_("student1"))
     assert r.status_code == 409
-    assert r.json() == {"error": "project files were changed outside InFocus Cut"}
+    assert r.json()["error"] == "files_changed"
+    assert r.json()["message"] == "project files were changed outside InFocus Cut"
 
 
 def test_extra_sequence_file_is_a_mismatch(client):
@@ -587,3 +588,31 @@ def test_media_upload_init_validation(media):
     assert upload_init(media, name="x.mov", size=-1).status_code == 400
     assert upload_init(media, name="x.mov", size=60 * 1024 ** 4).status_code == 413
     assert upload_init(media, user="outsider", name="x.mov", size=4).status_code == 403
+
+
+def test_every_409_has_an_error_code(client):
+    pid = create(client)["id"]
+    h = as_("student1")
+    token = lock(client, pid, 2).json()["token"]
+    held = lock(client, pid, 2, user="student2")
+    assert held.json()["error"] == "lock_held" and held.json()["holder"] == "student1"
+    assert held.json()["expires_at"] > time.time() and held.json()["message"]
+    assert put(client, pid, 2, token, 0).json()["rev"] == 1
+    stale = put(client, pid, 2, token, 0).json()
+    assert stale["error"] == "stale" and stale["rev"] == 1
+    lost = put(client, pid, 2, "nope", 1).json()
+    assert lost["error"] == "lock_lost" and lost["message"]
+    hb = client.post(f"/api/team/projects/{pid}/sequences/2/lock/heartbeat", json={"token": "nope"}, headers=h)
+    assert hb.status_code == 409 and hb.json()["error"] == "lock_lost"
+    rel = client.request("DELETE", f"/api/team/projects/{pid}/sequences/2/lock", json={"token": "nope"}, headers=h)
+    assert rel.status_code == 409 and rel.json()["error"] == "lock_lost"
+    used = client.post(f"/api/team/projects/{pid}/shared", json={"base_rev": 0, "upserts": {}, "deletes": [1]},
+                       headers=h)
+    assert used.status_code == 409 and used.json()["error"] == "item_in_use" and used.json()["item"] == 1
+    dup = client.post("/api/team/projects", json={"name": "Robotics", **APP}, headers=h)
+    assert dup.status_code == 409 and dup.json()["error"] == "name_taken" and dup.json()["detail"]
+    seq_file = client.drive / "Team Projects" / "Robotics.fcteam" / "sequences" / "3.json"
+    seq_file.write_text(json.dumps(seq_item(3, clips=[1])))
+    changed = client.get(f"/api/team/projects/{pid}", headers=h)
+    assert changed.status_code == 409 and changed.json()["error"] == "files_changed"
+    assert "changed outside" in changed.json()["message"]

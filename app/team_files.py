@@ -39,11 +39,19 @@ _BAD_NAME = re.compile(r"[\x00-\x1f\x7f/\\]")
 _BAD_MEDIA_PATH = re.compile(r"[\x00-\x1f\x7f\\]")
 
 
-class FilesChanged(FSError):
+class TeamConflict(FSError):
+    """A 409 with a machine-readable `code` (the `error` field of team API 409 bodies)."""
+
+    def __init__(self, message: str, code: str) -> None:
+        super().__init__(message, 409)
+        self.code = code
+
+
+class FilesChanged(TeamConflict):
     """A project file no longer matches the hash the server recorded."""
 
     def __init__(self) -> None:
-        super().__init__("project files were changed outside InFocus Cut", 409)
+        super().__init__("project files were changed outside InFocus Cut", "files_changed")
 
 
 def valid_name(name: str) -> str:
@@ -91,7 +99,7 @@ def _as(user: dict[str, Any]) -> Iterator[None]:
     except PermissionError as e:
         raise FSError("You don't have access to this team project", 403) from e
     except FileExistsError as e:
-        raise FSError("A team project with that name already exists", 409) from e
+        raise TeamConflict("A team project with that name already exists", "name_taken") from e
     except FileNotFoundError as e:
         raise FSError("Team project not found", 404) from e
     except (OSError, ValueError) as e:
@@ -140,7 +148,7 @@ def _seq_rel(seq_id: int) -> str:
 def _read_meta(root: Path) -> dict[str, Any]:
     meta = json.loads(_read_bytes(root / META_FILE))
     if not isinstance(meta, dict) or not isinstance(meta.get("id"), str):
-        raise FSError("Team project metadata is invalid", 409)
+        raise TeamConflict("Team project metadata is invalid", "invalid_project")
     return meta
 
 

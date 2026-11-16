@@ -118,9 +118,17 @@ def _error(status: int, body: dict[str, Any]) -> JSONResponse:
     return JSONResponse(status_code=status, content=body)
 
 
+def _conflict(code: str, message: str, **extra: Any) -> JSONResponse:
+    """Every team 409: `error` is a stable code, `message` is for people, plus route fields."""
+    return _error(409, {"error": code, "message": message, **extra})
+
+
+_LOCK_LOST = "Your lock on this sequence expired or was released"
+
+
 def _fs_error(e: FSError) -> JSONResponse:
-    if isinstance(e, team_files.FilesChanged):
-        return _error(409, {"error": str(e)})
+    if e.status == 409:
+        return _conflict(getattr(e, "code", "conflict"), str(e), detail=str(e))
     return _error(e.status, {"detail": str(e)})
 
 
@@ -331,8 +339,8 @@ def take_lock(request: Request, project_id: str, seq: int) -> Any:
     got = store().take_lock(project_id, seq, username, device)
     if not got.ok:
         # `device` only for your own other Mac; a teammate's device name stays private.
-        return _error(409, {"holder": got.holder, "expires_at": got.expires_at,
-                            "device": got.device if got.holder == username else None})
+        return _conflict("lock_held", f"{got.holder} is editing this sequence", holder=got.holder,
+                         expires_at=got.expires_at, device=got.device if got.holder == username else None)
     publish(project_id, "lock_changed", {"seq": seq, "holder": got.holder})
     return {"token": got.token, "expires_at": got.expires_at}
 
@@ -345,7 +353,7 @@ async def heartbeat(request: Request, project_id: str, seq: int) -> Any:
     body = await _body(request)
     st = store()
     if not await run_in_threadpool(st.heartbeat, project_id, seq, str(body.get("token") or "")):
-        return _error(409, {"error": "lock lost"})
+        return _conflict("lock_lost", _LOCK_LOST)
     held = st.locks(project_id).get(seq)
     return {"expires_at": held[1] if held else 0.0}
 
@@ -357,7 +365,7 @@ async def release_lock(request: Request, project_id: str, seq: int) -> Any:
     _seq_or_404(seq)
     body = await _body(request)
     if not await run_in_threadpool(store().release, project_id, seq, str(body.get("token") or "")):
-        return _error(409, {"error": "lock lost"})
+        return _conflict("lock_lost", _LOCK_LOST)
     publish(project_id, "lock_changed", {"seq": seq, "holder": None})
     return {"ok": True}
 
@@ -394,10 +402,10 @@ def _put_sequence(user: dict[str, Any], info: dict[str, Any], seq: int, body: di
             return _error(426, {"error": "update InFocus Cut", "schema_version": meta_schema,
                                 "min_app_version": min_app})
         if not st.check_lock(project_id, seq, str(body.get("token") or "")):
-            return _error(409, {"error": "lock lost"})
+            return _conflict("lock_lost", _LOCK_LOST)
         current = st.revision(project_id, f"seq:{seq}")
         if base != current:
-            return _error(409, {"error": "stale", "rev": current})
+            return _conflict("stale", "This sequence changed since you loaded it", rev=current)
         # A newer schema raises the bar: older apps could drop its new fields.
         updates = ({"schema_version": schema, "min_app_version": body["app_version"]}
                    if schema > meta_schema else None)
@@ -446,10 +454,10 @@ def _post_shared(user: dict[str, Any], info: dict[str, Any], body: dict[str, Any
         current = st.revision(project_id, "shared")
         if bins is not None and base != current:
             # Upserts and deletes merge by id; the bin tree is replaced whole, so it needs the latest base.
-            return _error(409, {"error": "stale", "rev": current})
+            return _conflict("stale", "The bins changed since you loaded them", rev=current)
         for item_id in delete_ids:
             if any(_references(seq_json, item_id) for seq_json in sequences.values()):
-                return _error(409, {"error": "item is used by a sequence", "item": item_id})
+                return _conflict("item_in_use", "item is used by a sequence", item=item_id)
         items = {**(shared.get("items") or {}), **clean}
         for item_id in delete_ids:
             items.pop(str(item_id), None)
