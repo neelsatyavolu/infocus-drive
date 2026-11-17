@@ -323,7 +323,7 @@
 }
 
 .ed-invites-sub {
-  margin: -4px 0 10px;
+  margin: 6px 0 4px;
   font-size: 13px;
   color: hsl(var(--muted-foreground));
 }

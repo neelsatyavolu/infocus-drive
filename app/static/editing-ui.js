@@ -81,8 +81,9 @@ export function distinctInitials(people) {
 
 function hue(text) {
   let h = 0;
-  for (const ch of String(text || "")) h = (h * 31 + ch.codePointAt(0)) % 360;
-  return h;
+  for (const ch of String(text || "")) h = (h * 31 + ch.codePointAt(0)) % 100003;
+  // golden-angle steps, so "student1" and "student2" land far apart on the wheel
+  return Math.round((h * 137.508) % 360);
 }
 
 export function avatar(person, online = false, letters = null) {
