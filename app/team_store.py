@@ -2,7 +2,10 @@
 
 Only the server's own SQLite file lives here; project files on the Drive are
 read and written by `team_files`. Nothing in this module touches the Drive, so
-callers never hold `fsops.as_user` while using it.
+callers never hold `fsops.as_user` while using it. Every connection is opened and
+used under `fsops.as_root`: `as_user` changes the euid of the whole process, and a
+query running while another request is inside it would run as that member and
+fail with "attempt to write a readonly database" (WAL needs write access even to read).
 
 Take and bump run inside `BEGIN IMMEDIATE`, so two requests racing for one lock
 or one revision are serialized by SQLite: exactly one wins.
@@ -18,6 +21,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterator
+
+import fsops
 
 HEARTBEAT_S = 20
 LOCK_TTL_S = 120
@@ -101,12 +106,13 @@ class TeamStore:
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path, timeout=15, isolation_level=None)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-        finally:
-            conn.close()
+        with fsops.as_root():
+            conn = sqlite3.connect(self.db_path, timeout=15, isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            try:
+                yield conn
+            finally:
+                conn.close()
 
     @contextmanager
     def _tx(self) -> Iterator[sqlite3.Connection]:
