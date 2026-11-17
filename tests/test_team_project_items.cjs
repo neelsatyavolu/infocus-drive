@@ -33,12 +33,15 @@ test('opening a team project shows a hint instead of navigating into it', async 
   const calls = { navigate: [], toasts: [] };
   const context = vm.createContext({
     isTeamProject: f.isTeamProject,
+    isBrowsableFolder: f.isBrowsableFolder,
+    isAppBundle: f.isAppBundle,
     previewKind: f.previewKind,
     navigate: (path) => calls.navigate.push(path),
     toast: (message) => calls.toasts.push(message),
     openPreview() {},
     downloadItems() {},
   });
+  vm.runInContext(extract('isOpenableFolder'), context);
   vm.runInContext(extract('openItem'), context);
   context.openItem(project);
   assert.deepEqual(calls.navigate, []);
@@ -49,12 +52,13 @@ test('opening a team project shows a hint instead of navigating into it', async 
 
 test('row and tile clicks, folder drops and the tree skip team projects', () => {
   for (const snippet of [
-    'if (isBrowsableFolder(item)) bindFolderDrop(row, item.path);',
-    'if (isBrowsableFolder(item)) bindFolderDrop(tile, item.path);',
-    'state.treeChildren[path] = (data.items || []).filter(isBrowsableFolder);',
-    'class: `row${isBrowsableFolder(item) ? " row--folder" : ""}',
+    'return isBrowsableFolder(item) && !isAppBundle(item);',
+    'if (isOpenableFolder(item)) bindFolderDrop(row, item.path);',
+    'if (isOpenableFolder(item)) bindFolderDrop(tile, item.path);',
+    'state.treeChildren[path] = (data.items || []).filter(isOpenableFolder);',
+    'class: `row${isOpenableFolder(item) ? " row--folder" : ""}',
   ]) {
     assert.ok(appSource.includes(snippet), snippet);
   }
-  assert.equal((appSource.match(/if \(isBrowsableFolder\(item\) \|\| previewKind\(item\)\) \{/g) || []).length, 2);
+  assert.equal((appSource.match(/if \(isOpenableFolder\(item\) \|\| previewKind\(item\)\) \{/g) || []).length, 2);
 });

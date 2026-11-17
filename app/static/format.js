@@ -110,6 +110,7 @@ for (const [kind, list] of Object.entries(EXTENSIONS)) {
 
 const KIND_META = {
   folder: { label: "Folder", icon: "#i-folder", color: "var(--brand-green)" },
+  app: { label: "Mac app", icon: "#i-app", color: "var(--brand-green)" },
   recycle: { label: "Recycle", icon: "#i-recycle", color: "hsl(var(--muted-foreground))" },
   video: { label: "Video", icon: "#i-video", color: "var(--brand-amber)" },
   image: { label: "Image", icon: "#i-image", color: "hsl(var(--chart-4))" },
@@ -146,11 +147,17 @@ export function isBrowsableFolder(item) {
   return Boolean(item && item.is_dir) && !isTeamProject(item);
 }
 
+/** A Mac app bundle: a folder named Something.app that Finder shows as one app. */
+export function isAppBundle(item) {
+  return Boolean(item?.is_dir) && fileExt(item.name) === "app";
+}
+
 /** Classify an /api/files entry into a kind with label, icon id and accent colour. */
 export function describeKind(item) {
   if (isTeamProject(item)) return KIND_META.teamProject;
   if (item.is_dir) {
     if (isRecycleName(item.name) || item.path === "#recycle") return KIND_META.recycle;
+    if (isAppBundle(item)) return KIND_META.app;
     return KIND_META.folder;
   }
   return KIND_META[KIND_BY_EXT.get(fileExt(item.name)) || "file"];

@@ -2,9 +2,9 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261116-teamproj";
-import * as api from "./api.js?v=20261116-teamproj";
-import { ApiError } from "./api.js?v=20261116-teamproj";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261117-teamproj";
+import * as api from "./api.js?v=20261117-teamproj";
+import { ApiError } from "./api.js?v=20261117-teamproj";
 import {
   describeKind,
   displayName,
@@ -17,13 +17,14 @@ import {
   formatModified,
   formatSize,
   formatSpeed,
+  isAppBundle,
   isRecycleName,
   isRecycleRoot,
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261116-teamproj";
-import { $, el, icon, show } from "./dom.js?v=20261116-teamproj";
+} from "./format.js?v=20261117-teamproj";
+import { $, el, icon, show } from "./dom.js?v=20261117-teamproj";
 import {
   setQuickScope,
   listFavorites,
@@ -32,7 +33,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261116-teamproj";
+} from "./quick.js?v=20261117-teamproj";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -273,6 +274,11 @@ function highlightMatch(text, query) {
   ];
 }
 
+/** Folders open on click; a Mac .app is a folder on disk but downloads like a file. */
+function isOpenableFolder(item) {
+  return isBrowsableFolder(item) && !isAppBundle(item);
+}
+
 function formatSearchPath(item) {
   if (item.is_dir) {
     const parent = item.parent || "";
@@ -499,9 +505,9 @@ async function openSearchResult(item, revealOnly = false) {
 
   if (revealOnly) {
     // Keep query so the destination list stays filtered to this name.
-    navigate(isBrowsableFolder(item) ? item.path : parent);
+    navigate(isOpenableFolder(item) ? item.path : parent);
     const targetPath = item.path;
-    const destPath = isBrowsableFolder(item) ? item.path : parent;
+    const destPath = isOpenableFolder(item) ? item.path : parent;
     const startedAt = loadRequestId;
     const finish = () => {
       if (state.loading) return false;
@@ -529,8 +535,12 @@ async function openSearchResult(item, revealOnly = false) {
   state.query = "";
   if ($("search")) $("search").value = "";
 
-  if (item.is_dir) {
+  if (isTeamProject(item)) {
     openItem(item);
+    return;
+  }
+  if (isOpenableFolder(item)) {
+    navigate(item.path);
     return;
   }
 
@@ -579,7 +589,7 @@ async function copyItemLinks(items) {
   const links = items.map((item) => {
     // Path in the query, not the hash, so iMessage/Slack previews can show the item.
     const url = new URL("/open", base);
-    url.search = new URLSearchParams({ share: state.share, [item.is_dir ? "path" : "file"]: item.path });
+    url.search = new URLSearchParams({ share: state.share, [isOpenableFolder(item) ? "path" : "file"]: item.path });
     return url.href;
   });
   const text = links.join("\n");
@@ -757,7 +767,7 @@ async function loadRoute() {
   if (location.hash !== hash || state.error || state.loading) return;
   const file = params.get("file");
   if (!file) return;
-  const item = state.items.find((entry) => entry.path === file && !entry.is_dir);
+  const item = state.items.find((entry) => entry.path === file && !isOpenableFolder(entry));
   if (!item) {
     toast("File not found or you don't have access to it", "warn");
     return;
@@ -769,6 +779,43 @@ async function loadRoute() {
   render();
   scrollItemIntoView(item);
   if (previewKind(item)) openPreview(item);
+  else openFileLinkScreen(item);
+}
+
+/** Landing card for a copied file link: what the file is and one Download button. */
+function openFileLinkScreen(item) {
+  const kind = describeKind(item);
+  const parent = item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : "";
+  const body = el("div", { class: "modal__body file-link" }, [
+    el("div", { class: "share__head" }, [
+      el("div", { class: "share__kind", style: `color:${kind.color}` }, [icon(kind.icon, 22)]),
+      el("div", { class: "share__head-text" }, [
+        el("h3", { class: "file-link__title", text: displayName(item.name) }),
+        el("p", {
+          class: "share__meta",
+          // A Mac app's size is still loading when the card opens; leave it out rather than show "…".
+          text: [kind.label, item.is_dir && !item._sizeLoaded ? "" : itemSizeLabel(item), formatModified(item.mtime)]
+            .filter(Boolean)
+            .join(" · "),
+        }),
+        el("p", { class: "modal__hint", text: `In ${folderLabel(parent)}` }),
+      ]),
+    ]),
+    el(
+      "button",
+      {
+        type: "button",
+        class: "btn btn--primary btn--modal share__download",
+        onclick: () => {
+          closeModal();
+          downloadItems([item]);
+        },
+      },
+      [icon("#i-download", 16), "Download"],
+    ),
+    el("button", { type: "button", class: "btn btn--modal file-link__folder", text: "Show in folder", onclick: closeModal }),
+  ]);
+  openModal(el("div", { class: "modal" }, [body]));
 }
 
 function navigate(path) {
@@ -816,7 +863,7 @@ async function loadFolder(path) {
     state.loading = false;
     state.showSkeleton = false;
     // Keep sidebar tree in sync with the open folder.
-    state.treeChildren[state.path] = state.items.filter(isBrowsableFolder);
+    state.treeChildren[state.path] = state.items.filter(isOpenableFolder);
     // Expand path ancestors; collapse anything no longer on the path so
     // Up / browser-back doesn't leave a trail of open folders.
     syncTreeExpanded(state.path);
@@ -936,7 +983,7 @@ function cssPath(path) {
 async function refreshShortcuts() {
   try {
     const data = await api.listFiles("");
-    state.shortcuts = (data.items || []).filter(isBrowsableFolder);
+    state.shortcuts = (data.items || []).filter(isOpenableFolder);
     state.treeChildren[""] = state.shortcuts;
   } catch {
     state.shortcuts = [];
@@ -981,7 +1028,7 @@ async function ensureTreeChildren(path) {
   renderTree();
   try {
     const data = await api.listFiles(path);
-    state.treeChildren[path] = (data.items || []).filter(isBrowsableFolder);
+    state.treeChildren[path] = (data.items || []).filter(isOpenableFolder);
   } catch {
     state.treeChildren[path] = [];
   }
@@ -1970,7 +2017,7 @@ function renderRows(items) {
     const selected = state.selection.has(item.path);
 
     const row = el("div", {
-      class: `row${isBrowsableFolder(item) ? " row--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
+      class: `row${isOpenableFolder(item) ? " row--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
       role: "row",
       "aria-selected": String(selected),
       "data-path": item.path,
@@ -1979,7 +2026,7 @@ function renderRows(items) {
         if (state.suppressClick) return;
         if (event.target.closest(".row__dots, .menu, .checkbox")) return;
         // Folders open; media files preview; other files select (checkbox also selects).
-        if (isBrowsableFolder(item) || previewKind(item)) {
+        if (isOpenableFolder(item) || previewKind(item)) {
           openItem(item);
           return;
         }
@@ -1992,7 +2039,7 @@ function renderRows(items) {
       },
     });
     bindItemDrag(row, item);
-    if (isBrowsableFolder(item)) bindFolderDrop(row, item.path);
+    if (isOpenableFolder(item)) bindFolderDrop(row, item.path);
 
     row.append(
       el("button", {
@@ -2095,7 +2142,11 @@ function buildRowMenu(item) {
     // Edited in InFocus Cut only: no open, share, rename or move here (the server refuses them too).
     entries.push({ label: "Download as ZIP", symbol: "#i-download", run: () => downloadItems([item]) });
   } else {
-    if (item.is_dir) {
+    if (isAppBundle(item)) {
+      entries.push({ label: "Download", symbol: "#i-download", run: () => downloadItems([item]) });
+      entries.push({ label: "Show package contents", symbol: "#i-chev-r", run: () => navigate(item.path) });
+      entries.push({ label: "Share…", symbol: "#i-share", run: () => openShareModal(item) });
+    } else if (item.is_dir) {
       entries.push({ label: "Open", symbol: "#i-chev-r", run: () => openItem(item) });
       entries.push({
         label: "Download as ZIP",
@@ -2116,7 +2167,7 @@ function buildRowMenu(item) {
       { label: "Rename", symbol: "#i-pencil", run: () => openRenameModal(item) },
       { label: "Move to…", symbol: "#i-move", run: () => openMoveModal([item]) },
     );
-    if (item.is_dir && !isRecycleRoot(item.path) && !isUnderRecycle(item.path)) {
+    if (isOpenableFolder(item) && !isRecycleRoot(item.path) && !isUnderRecycle(item.path)) {
       entries.push({
         label: isFavorite(item.path) ? "Remove favorite" : "Add to favorites",
         symbol: "#i-star",
@@ -2198,7 +2249,7 @@ function renderGrid(items) {
     const tile = el(
       "div",
       {
-        class: `tile${isBrowsableFolder(item) ? " tile--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
+        class: `tile${isOpenableFolder(item) ? " tile--folder" : ""}${index === state.cursorIndex ? " is-cursor" : ""}`,
         role: "button",
         tabindex: "0",
         "aria-selected": String(selected),
@@ -2206,7 +2257,7 @@ function renderGrid(items) {
         ondblclick: () => openItem(item),
         onclick: (event) => {
           if (state.suppressClick) return;
-          if (isBrowsableFolder(item) || previewKind(item)) {
+          if (isOpenableFolder(item) || previewKind(item)) {
             openItem(item);
             return;
           }
@@ -2232,7 +2283,7 @@ function renderGrid(items) {
       ],
     );
     bindItemDrag(tile, item);
-    if (isBrowsableFolder(item)) bindFolderDrop(tile, item.path);
+    if (isOpenableFolder(item)) bindFolderDrop(tile, item.path);
     grid.append(tile);
 
     // Portal like renderRows — the grid clips absolutely-positioned children.
@@ -2354,7 +2405,7 @@ function openItem(item) {
     toast("Open this team project in InFocus Cut.");
     return;
   }
-  if (item.is_dir) {
+  if (isOpenableFolder(item)) {
     navigate(item.path);
     return;
   }
@@ -2406,7 +2457,7 @@ function downloadItems(items) {
     url: api.downloadZipUrl(paths),
     size,
     kind: describeKind({ name: zipName, is_dir: false }),
-    detailLabel: items.length === 1 ? "Folder zip" : `${items.length} items`,
+    detailLabel: items.length === 1 ? (isAppBundle(items[0]) ? "Mac app" : "Folder zip") : `${items.length} items`,
     // Start the save picker now so Chromium still counts this as a user gesture.
     saveHandlePromise: api.saveFilePicker(zipName),
   });
@@ -2420,7 +2471,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261116-teamproj").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261117-teamproj").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3229,7 +3280,7 @@ function openMoveModal(items) {
     let folders = [];
     try {
       const data = await api.listFiles(path);
-      folders = (data.items || []).filter((item) => isBrowsableFolder(item) && !movingPaths.has(item.path));
+      folders = (data.items || []).filter((item) => isOpenableFolder(item) && !movingPaths.has(item.path));
     } catch (error) {
       listRow.textContent = "";
       listRow.append(el("div", { class: "picker__empty" }, [icon("#i-lock", 20), error.message]));
