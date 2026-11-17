@@ -3,7 +3,7 @@
 // per file, and resume: the session id is kept per file, so adding the same file again
 // after a closed tab or a dropped connection only sends the missing chunks.
 
-import { ApiError, uploadComplete, uploadInit, uploadStatus } from "./editing-api.js?v=20261117-dash";
+import { ApiError, uploadComplete, uploadInit, uploadStatus } from "./editing-api.js?v=20261118-dash";
 
 const MIB = 1024 * 1024;
 export const STREAMS = 4; // parallel chunk PUTs per file

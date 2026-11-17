@@ -1,10 +1,10 @@
 // Editing dashboard: sign-in, the project list (and the admin's "All projects"), and
 // routing to one project (?project=<id>, editing-detail.js). Data comes from the team API.
 
-import { $, el } from "./dom.js?v=20261117-dash";
-import * as api from "./editing-api.js?v=20261117-dash";
-import { renderDetail, stopDetail } from "./editing-detail.js?v=20261117-dash";
-import { avatars, fail, initials, nameList, notice, plural, shortAgo, showOnly, sizeText } from "./editing-ui.js?v=20261117-dash";
+import { $, el } from "./dom.js?v=20261118-dash";
+import * as api from "./editing-api.js?v=20261118-dash";
+import { renderDetail, stopDetail } from "./editing-detail.js?v=20261118-dash";
+import { avatars, fail, initials, nameList, notice, plural, shortAgo, showOnly, sizeText } from "./editing-ui.js?v=20261118-dash";
 
 const PROJECT_ID = /^[0-9a-f]{32}$/;
 let me = null;

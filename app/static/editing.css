@@ -1,8 +1,12 @@
 /* Editing dashboard (editing.html). Tokens and buttons come from app.css; this file only
    lays out the page. Flat, rules between rows, one 6px radius (DESIGN.md). */
 
+/* The page is only as tall as its content: no full-height padding under a short project. */
+.share-body.ed-body {
+  min-height: 0;
+}
+
 .ed {
-  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }

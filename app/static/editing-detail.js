@@ -2,11 +2,11 @@
 // upload, the team with invites, and storage and cleanup. It follows the project's change
 // feed (members) or polls (an admin who isn't a member), so it stays current by itself.
 
-import { $, el } from "./dom.js?v=20261117-dash";
-import * as api from "./editing-api.js?v=20261117-dash";
-import { uploadFootage } from "./editing-upload.js?v=20261117-dash";
-import { ago, avatar, dateText, distinctInitials, notice, plural, showOnly, sizeText } from "./editing-ui.js?v=20261117-dash";
-import { formatSpeed } from "./format.js?v=20261117-dash";
+import { $, el } from "./dom.js?v=20261118-dash";
+import * as api from "./editing-api.js?v=20261118-dash";
+import { uploadFootage } from "./editing-upload.js?v=20261118-dash";
+import { ago, avatar, dateText, notice, plural, showOnly, sizeText } from "./editing-ui.js?v=20261118-dash";
+import { formatSpeed } from "./format.js?v=20261118-dash";
 
 const EVENTS = ["lock_changed", "sequence_updated", "sequence_deleted", "shared_updated", "media_changed"];
 const POLL_MS = 30_000;
@@ -117,22 +117,21 @@ function footageList(files, total) {
   ]);
 }
 
-function memberRow(m, seqNames, letters) {
+function memberRow(m, seqNames) {
   const editing = m.editing.map((id) => seqNames.get(id) || `Sequence ${id}`).join(", ");
   const seen = m.last_seen ? `Last seen ${ago(m.last_seen)}` : "Offline";
   const now = editing ? (m.online ? `Editing ${editing}` : `${seen} · still holds ${editing}`)
     : m.online ? "Online now" : m.last_seen ? seen : "Hasn't opened it yet";
   return el("li", { class: "ed-person" }, [
-    avatar(m, m.online, letters.get(m.username)),
+    avatar(m, m.online),
     el("div", { class: "ed-person__text" }, [el("span", { text: m.name }), el("span", { class: "ed-dim", text: now })]),
   ]);
 }
 
 function team(ov) {
   const line = errorLine();
-  const letters = distinctInitials([...ov.members, ...ov.invites]);
   const invites = ov.invites.map((i) => el("li", { class: "ed-person" }, [
-    avatar(i, false, letters.get(i.username)),
+    avatar(i),
     el("div", { class: "ed-person__text" }, [el("span", { text: i.name }), el("span", { class: "ed-dim", text: "Invited, hasn't joined" })]),
     ov.can_edit ? el("button", { type: "button", class: "btn btn--quiet", text: "Cancel", "aria-label": `Cancel invite for ${i.name}`,
       onclick: (event) => guarded(event.currentTarget, line, async () => {
@@ -141,7 +140,7 @@ function team(ov) {
       }) }) : null,
   ]));
   return [
-    el("ul", { class: "ed-list" }, ov.members.map((m) => memberRow(m, new Map(ov.sequences.map((s) => [s.id, s.name])), letters))),
+    el("ul", { class: "ed-list" }, ov.members.map((m) => memberRow(m, new Map(ov.sequences.map((s) => [s.id, s.name]))))),
     invites.length ? el("h3", { class: "ed-minor", text: "Invited" }) : null,
     invites.length ? el("ul", { class: "ed-list" }, invites) : null,
     ov.open_to_all ? notice("Anyone on the Drive can open this project, so there's nobody to invite.") : null,
