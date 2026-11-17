@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     shows_root: str = "Shows"
     # The package zips the automatic show editor installs (read-only, like shows_root). Empty turns it off.
     graphics_root: str = "All Resources/Graphic Files"
+    # The infocus-graphics repo's Drive sync (GitHub Actions) key: it may only write the package folders next to
+    # GRAPHICS_ROOT and the package zips in it (app/graphics_publish.py). Empty turns publishing off.
+    graphics_publish_token: str = ""
     # infocus-packages origin for the Drive roster (same token as packages_service_token).
     packages_roster_url: str = ""
     # Last-seen packages emails; used to delete NAS users who left the roster.

@@ -94,6 +94,13 @@ import link_preview
 import thumbs
 import webproxy
 from zipstream import stream_zip_store, zip_store_content_length
+from graphics_publish import (
+    MANIFEST_NAME as PUBLISH_MANIFEST,
+    MAX_MANIFEST_BYTES as PUBLISH_MANIFEST_MAX,
+    package_dir as publish_package_dir,
+    publish_path,
+    require_publish_token,
+)
 from service_auth import (
     assert_readable_service_path,
     assert_under_packages_root,
@@ -861,6 +868,101 @@ async def service_upload_complete(request: Request) -> dict[str, Any]:
             return complete_session(upload_id, username=ident.username, uid=ident.uid)
     except FSError as e:
         raise _fs_http(e) from e
+
+
+# ---- infocus-graphics Drive sync (app/graphics_publish.py): its own key, package folders and zips only ----
+
+@app.post("/api/service/graphics-publish/upload/init")
+async def graphics_publish_init(request: Request) -> dict[str, Any]:
+    require_publish_token(request)
+    form = await request.form()
+    rel = publish_path(str(form.get("path") or ""))
+    ident = service_identity()
+    parent = str(Path(rel).parent).replace("\\", "/")
+    try:
+        ensure_dir(parent, ident.uid, ident.gid)
+        return create_session(
+            username=ident.username, uid=ident.uid, gid=ident.gid, share=DEFAULT_SHARE, rel_dir=parent,
+            filename=Path(rel).name, size=int(form.get("size") or 0),
+            chunk_size=int(form.get("chunk_size") or CHUNK_SIZE_DEFAULT),
+        )
+    except FSError as e:
+        raise _fs_http(e) from e
+
+
+def _publish_session(request: Request, upload_id: str) -> None:
+    require_publish_token(request)
+    publish_path(session_rel_path(peek_session(upload_id)))
+
+
+@app.put("/api/service/graphics-publish/upload/chunk")
+async def graphics_publish_chunk(request: Request, upload_id: str = Query(...), index: int = Query(..., ge=0)) -> dict[str, Any]:
+    try:
+        _publish_session(request, upload_id)
+        ident = service_identity()
+        return await _write_incoming_chunk(request, upload_id, index, ident.username, ident.uid)
+    except FSError as e:
+        raise _fs_http(e) from e
+
+
+@app.post("/api/service/graphics-publish/upload/complete")
+async def graphics_publish_complete(request: Request) -> dict[str, Any]:
+    form = await request.form()
+    upload_id = str(form.get("upload_id") or "")
+    try:
+        _publish_session(request, upload_id)
+        meta = peek_session(upload_id)
+        ident = service_identity()
+        with use_share_root(share_path(str(meta.get("share") or DEFAULT_SHARE))):
+            return complete_session(upload_id, username=ident.username, uid=ident.uid)
+    except FSError as e:
+        raise _fs_http(e) from e
+
+
+@app.post("/api/service/graphics-publish/delete")
+async def graphics_publish_delete(request: Request) -> dict[str, Any]:
+    """A file the workflow put there and the repo no longer has: moved to the Recycle folder."""
+    require_publish_token(request)
+    rel = publish_path(str((await request.json()).get("path") or ""))
+    ident = service_identity()
+    try:
+        return delete(rel, ident.uid, ident.gid)
+    except FSError as e:
+        raise _fs_http(e) from e
+
+
+@app.get("/api/service/graphics-publish/manifest")
+def graphics_publish_manifest(request: Request, package: str = Query(...)) -> dict[str, Any]:
+    require_publish_token(request)
+    path = resolve_rel(f"{publish_package_dir(package)}/{PUBLISH_MANIFEST}")
+    ident = service_identity()
+    try:
+        with as_user(ident.uid, ident.gid):
+            data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+@app.put("/api/service/graphics-publish/manifest")
+async def graphics_publish_save_manifest(request: Request, package: str = Query(...)) -> dict[str, bool]:
+    require_publish_token(request)
+    folder = publish_package_dir(package)
+    body = await request.body()
+    if len(body) > PUBLISH_MANIFEST_MAX:
+        raise HTTPException(status_code=413, detail="Manifest too large")
+    try:
+        if not isinstance(json.loads(body), dict):
+            raise ValueError
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="The manifest must be a JSON object") from e
+    ident = service_identity()
+    try:
+        ensure_dir(folder, ident.uid, ident.gid)
+        write_upload_stream(folder, PUBLISH_MANIFEST, iter([body]), ident.uid, ident.gid)
+    except FSError as e:
+        raise _fs_http(e) from e
+    return {"ok": True}
 
 
 def _require_service_read(request: Request, rel: str, token: str) -> None:
