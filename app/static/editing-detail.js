@@ -2,11 +2,11 @@
 // upload, the team with invites, and storage and cleanup. It follows the project's change
 // feed (members) or polls (an admin who isn't a member), so it stays current by itself.
 
-import { $, el } from "./dom.js?v=20261116-teamproj";
-import * as api from "./editing-api.js?v=20261116-teamproj";
-import { uploadFootage } from "./editing-upload.js?v=20261116-teamproj";
-import { ago, avatar, dateText, notice, plural, showOnly, sizeText } from "./editing-ui.js?v=20261116-teamproj";
-import { formatSpeed } from "./format.js?v=20261116-teamproj";
+import { $, el } from "./dom.js?v=20261117-dash";
+import * as api from "./editing-api.js?v=20261117-dash";
+import { uploadFootage } from "./editing-upload.js?v=20261117-dash";
+import { ago, avatar, dateText, distinctInitials, notice, plural, showOnly, sizeText } from "./editing-ui.js?v=20261117-dash";
+import { formatSpeed } from "./format.js?v=20261117-dash";
 
 const EVENTS = ["lock_changed", "sequence_updated", "sequence_deleted", "shared_updated", "media_changed"];
 const POLL_MS = 30_000;
@@ -70,6 +70,8 @@ function head(ov, link) {
   return el("div", { class: "ed-detail-head" }, [
     link("?", "← Team projects", "ed-back"),
     el("div", { class: "ed-title-row" }, [el("h1", { class: "ed-title", text: ov.name }), tag]),
+    ov.role === "admin" ? el("p", { class: "ed-admin-note",
+      text: "You're not in this team. You can release locks and keep or recycle the project." }) : null,
     el("p", { class: "ed-sub" }, `Made by ${ov.creator.name} · opened ${ago(ov.last_open)}`),
     ov.can_edit ? el("div", { class: "ed-open" }, [
       el("p", {}, ["To edit, open InFocus Cut, go to ", el("strong", { text: "Team" }), " and pick ",
@@ -81,15 +83,21 @@ function head(ov, link) {
 
 function sequences(ov) {
   const line = errorLine();
+  const online = new Map(ov.members.map((m) => [m.username, m.online]));
   const rows = ov.sequences.map((seq) => {
-    const release = ov.is_admin && seq.holder ? el("button", { type: "button", class: "btn btn--quiet", text: "Release",
-      onclick: (event) => guarded(event.currentTarget, line, async () => {
-        await api.forceRelease(ov.id, seq.id);
-        refresh();
-      }) }) : null;
-    const status = seq.holder
-      ? el("span", { class: "ed-seq__who" }, [el("span", { class: "ed-live", "aria-hidden": "true" }), `${seq.holder.name} is editing`])
-      : el("span", { class: "ed-dim", text: "Free to edit" });
+    const release = ov.is_admin && seq.holder ? el("button", { type: "button", class: "btn", text: "Release lock",
+      onclick: (event) => {
+        if (!confirm(`Release the lock on ${seq.name}? ${seq.holder.name} may lose unsaved changes.`)) return;
+        guarded(event.currentTarget, line, async () => {
+          await api.forceRelease(ov.id, seq.id);
+          refresh();
+        });
+      } }) : null;
+    // a lock outlives a closed laptop for a while: say so instead of looking live
+    const away = seq.holder && online.get(seq.holder.username) === false;
+    const status = !seq.holder ? el("span", { class: "ed-dim", text: "Free to edit" })
+      : away ? el("span", { class: "ed-dim", text: `Held by ${seq.holder.name} (offline)` })
+        : el("span", { class: "ed-seq__who" }, [el("span", { class: "ed-live", "aria-hidden": "true" }), `${seq.holder.name} is editing`]);
     return el("li", { class: "ed-seq" }, [el("span", { class: "ed-seq__name", text: seq.name }), status, release]);
   });
   return [rows.length ? el("ul", { class: "ed-list" }, rows) : notice("No sequences yet. Make one in InFocus Cut."), line];
@@ -102,26 +110,29 @@ function footageList(files, total) {
     el("ul", { class: "ed-list ed-files" }, shown.map((f) => el("li", { class: "ed-file" }, [
       el("span", { class: "ed-file__name", text: f.path, title: f.path }),
       el("span", { class: "mono ed-file__size", text: sizeText(f.size) }),
-      el("span", { class: "ed-dim ed-file__when", text: ago(f.mtime) }),
+      el("span", { class: "ed-dim ed-file__when", text: f.by ? `${f.by} · ${ago(f.mtime)}` : ago(f.mtime),
+        title: f.by ? `Added by ${f.by}` : "" }),
     ]))),
     total > shown.length ? notice(`And ${total - shown.length} more.`) : null,
   ]);
 }
 
-function memberRow(m, seqNames) {
+function memberRow(m, seqNames, letters) {
   const editing = m.editing.map((id) => seqNames.get(id) || `Sequence ${id}`).join(", ");
-  const now = editing ? `Editing ${editing}` : m.online ? "Online now"
-    : m.last_seen ? `Last seen ${ago(m.last_seen)}` : "Hasn't opened it yet";
+  const seen = m.last_seen ? `Last seen ${ago(m.last_seen)}` : "Offline";
+  const now = editing ? (m.online ? `Editing ${editing}` : `${seen} · still holds ${editing}`)
+    : m.online ? "Online now" : m.last_seen ? seen : "Hasn't opened it yet";
   return el("li", { class: "ed-person" }, [
-    avatar(m, m.online),
+    avatar(m, m.online, letters.get(m.username)),
     el("div", { class: "ed-person__text" }, [el("span", { text: m.name }), el("span", { class: "ed-dim", text: now })]),
   ]);
 }
 
 function team(ov) {
   const line = errorLine();
+  const letters = distinctInitials([...ov.members, ...ov.invites]);
   const invites = ov.invites.map((i) => el("li", { class: "ed-person" }, [
-    avatar(i),
+    avatar(i, false, letters.get(i.username)),
     el("div", { class: "ed-person__text" }, [el("span", { text: i.name }), el("span", { class: "ed-dim", text: "Invited, hasn't joined" })]),
     ov.can_edit ? el("button", { type: "button", class: "btn btn--quiet", text: "Cancel", "aria-label": `Cancel invite for ${i.name}`,
       onclick: (event) => guarded(event.currentTarget, line, async () => {
@@ -130,7 +141,7 @@ function team(ov) {
       }) }) : null,
   ]));
   return [
-    el("ul", { class: "ed-list" }, ov.members.map((m) => memberRow(m, new Map(ov.sequences.map((s) => [s.id, s.name]))))),
+    el("ul", { class: "ed-list" }, ov.members.map((m) => memberRow(m, new Map(ov.sequences.map((s) => [s.id, s.name])), letters))),
     invites.length ? el("h3", { class: "ed-minor", text: "Invited" }) : null,
     invites.length ? el("ul", { class: "ed-list" }, invites) : null,
     ov.open_to_all ? notice("Anyone on the Drive can open this project, so there's nobody to invite.") : null,
@@ -141,17 +152,30 @@ function team(ov) {
 function inviteForm(ov) {
   const line = errorLine();
   const input = el("input", { class: "field", id: "ed-invite-name", list: "ed-people", autocomplete: "off",
-    placeholder: "Type a name", "aria-describedby": "ed-invite-help" });
+    placeholder: "Type 2+ letters of a name", "aria-describedby": "ed-invite-help" });
   const options = el("datalist", { id: "ed-people" });
   const byLabel = new Map();
-  api.people().then(({ people }) => {
-    for (const p of people) {
-      const label = p.name === p.username ? p.name : `${p.name} (${p.username})`;
-      byLabel.set(label.toLowerCase(), p.username);
-      byLabel.set(p.username.toLowerCase(), p.username);
-      options.append(el("option", { value: label }));
-    }
-  }).catch((error) => showError(line, error));
+  // The Drive only answers name searches (2+ letters, 20 matches), never the whole roster.
+  let timer = 0;
+  let asked = "";
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2 || byLabel.has(q.toLowerCase())) return;
+    timer = setTimeout(() => {
+      asked = q;
+      api.people(q).then(({ people }) => {
+        if (asked !== q) return;
+        options.replaceChildren();
+        for (const p of people) {
+          const label = p.name === p.username ? p.name : `${p.name} (${p.username})`;
+          byLabel.set(label.toLowerCase(), p.username);
+          byLabel.set(p.username.toLowerCase(), p.username);
+          options.append(el("option", { value: label }));
+        }
+      }).catch((error) => showError(line, error));
+    }, 250);
+  });
   const button = el("button", { type: "submit", class: "btn btn--primary", text: "Invite" });
   const form = el("form", { class: "ed-invite-form", onsubmit: (event) => {
     event.preventDefault();

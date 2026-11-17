@@ -127,7 +127,7 @@ def _overview(user: dict[str, Any], info: dict[str, Any]) -> dict[str, Any]:
         "invites": fields["invites"],
         "sequences": seqs,
         "media_folder": team_files.media_folder_for(info["folder"]),
-        **team_files.media_usage(user, info["folder"]),
+        **team_files.cached_media_usage(user, info["folder"], st.revision(project_id, MEDIA_REV)),
         "media_rev": st.revision(project_id, MEDIA_REV),
         "cleanup": team_cleanup.cleanup_status(st, project_id),
         "keep": st.is_keep(project_id),

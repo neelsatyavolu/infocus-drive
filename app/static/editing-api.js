@@ -46,7 +46,7 @@ export const signOut = () => api("/auth/logout", { method: "POST" });
 export const projects = (all) => api(`/api/team/projects${all ? "?all=1" : ""}`);
 export const overview = (id) => api(team(id, "/overview"));
 export const media = (id) => api(team(id, "/media"));
-export const people = () => api("/api/team/people");
+export const people = (q) => api(`/api/team/people?q=${encodeURIComponent(q)}`);
 export const invite = (id, users) => api(team(id, "/invites"), { method: "POST", json: { users } });
 export const cancelInvite = (id, user) =>
   api(team(id, `/invites/${encodeURIComponent(user)}`), { method: "DELETE" });

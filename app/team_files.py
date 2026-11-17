@@ -20,6 +20,8 @@ import json
 import os
 import re
 import shutil
+import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -353,7 +355,7 @@ def _listed(name: str) -> bool:
 
 
 def list_media(user: dict[str, Any], folder_rel: str) -> tuple[list[dict[str, Any]], bool]:
-    """([{path, size, mtime}], truncated) for the originals in the project's media folder.
+    """([{path, size, mtime, uid}], truncated) for the originals in the project's media folder.
 
     Read as the member, so files anyone put there (InFocus Cut, or the Drive
     website) show up. Symlinks and hidden entries are left out; at most
@@ -383,7 +385,7 @@ def list_media(user: dict[str, Any], folder_rel: str) -> tuple[list[dict[str, An
                     if len(files) >= MAX_MEDIA_LIST:
                         return sorted(files, key=lambda f: f["path"]), True
                     st = entry.stat(follow_symlinks=False)
-                    files.append({"path": rel, "size": st.st_size, "mtime": st.st_mtime})
+                    files.append({"path": rel, "size": st.st_size, "mtime": st.st_mtime, "uid": st.st_uid})
     return sorted(files, key=lambda f: f["path"]), False
 
 
@@ -394,6 +396,32 @@ def media_usage(user: dict[str, Any], folder_rel: str) -> dict[str, int]:
     except FSError:
         files = []
     return {"media_count": len(files), "media_bytes": sum(int(f["size"]) for f in files)}
+
+
+# media_usage per project folder, keyed on the footage revision (bumped by every upload,
+# website change or delete). The TTL catches files copied in over SMB, which don't bump it.
+_USAGE_TTL_S = 300.0
+_usage_cache: dict[str, tuple[int, float, dict[str, int]]] = {}
+_usage_lock = threading.Lock()
+
+
+def cached_media_usage(user: dict[str, Any], folder_rel: str, rev: int) -> dict[str, int]:
+    """`media_usage` without walking the folder on every project list or dashboard poll."""
+    now = time.monotonic()
+    try:
+        key = f"{fsops.drive_root()}|{folder_rel}"
+    except FSError:
+        return media_usage(user, folder_rel)
+    with _usage_lock:
+        hit = _usage_cache.get(key)
+    if hit is not None and hit[0] == rev and now - hit[1] < _USAGE_TTL_S:
+        return dict(hit[2])
+    usage = media_usage(user, folder_rel)
+    with _usage_lock:
+        if len(_usage_cache) > 2000:
+            _usage_cache.clear()
+        _usage_cache[key] = (rev, now, usage)
+    return dict(usage)
 
 
 def _media_path(folder_rel: str, rel: str, *, allow_root: bool) -> tuple[Path, Path, str]:

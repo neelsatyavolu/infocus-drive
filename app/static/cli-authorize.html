@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261002-foldershare" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
   <link rel="stylesheet" href="/assets/app.css?v=20261002-foldershare" />
-  <script type="module" src="/assets/cli-authorize.js?v=20261002-foldershare"></script>
+  <script type="module" src="/assets/cli-authorize.js?v=20261116-switch"></script>
 </head>
 <body class="share-body">
 <div class="share">
@@ -36,6 +36,7 @@
       <form id="cli-consent" method="post" action="/api/cli/authorize" hidden>
         <h1 class="cli-auth__title">Allow terminal access?</h1>
         <p><strong id="cli-device"></strong> wants to use InFocus Drive as <strong id="cli-user"></strong>.</p>
+        <p><button type="button" class="btn btn--quiet" id="cli-switch">Not you? Use another account</button></p>
         <p>Check that your terminal shows this code:</p>
         <p class="cli-auth__code" id="cli-code" aria-label="Confirmation code"></p>
         <p class="cli-auth__note">It can list, read, upload, change and delete files you can reach on the Drive. Only allow this if you just ran <code>infocus login</code> on your own computer and the code matches.</p>

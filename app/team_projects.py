@@ -118,7 +118,7 @@ def _project_lock(project_id: str) -> threading.Lock:
 
 # Change feed -----------------------------------------------------------------
 
-_subscribers: dict[str, set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]]] = {}
+_subscribers: dict[str, set[tuple[asyncio.AbstractEventLoop, asyncio.Queue, str]]] = {}
 _subscribers_guard = threading.Lock()
 _stream_counts: dict[str, int] = {}  # open streams per user, under `_subscribers_guard`
 _watching: dict[str, dict[str, int]] = {}  # project → user → open streams, under `_subscribers_guard`
@@ -172,9 +172,32 @@ def publish(project_id: str, event: str, data: dict[str, Any]) -> None:
     message = f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
     with _subscribers_guard:
         targets = list(_subscribers.get(project_id, ()))
-    for loop, queue in targets:
+    for loop, queue, _who in targets:
         try:
             loop.call_soon_threadsafe(_offer, queue, message)
+        except RuntimeError:
+            pass  # loop closed
+
+
+def _offer_end(queue: asyncio.Queue) -> None:
+    """Queue the end-of-stream marker, dropping an old event if the queue is full."""
+    try:
+        queue.put_nowait(None)
+    except asyncio.QueueFull:
+        try:
+            queue.get_nowait()
+            queue.put_nowait(None)
+        except (asyncio.QueueEmpty, asyncio.QueueFull):
+            pass
+
+
+def disconnect(project_id: str, username: str) -> None:
+    """End every open change feed `username` has on the project (they left it). Any thread."""
+    with _subscribers_guard:
+        targets = [e for e in _subscribers.get(project_id, ()) if e[2] == username]
+    for loop, queue, _who in targets:
+        try:
+            loop.call_soon_threadsafe(_offer_end, queue)
         except RuntimeError:
             pass  # loop closed
 
@@ -432,7 +455,7 @@ def list_projects(request: Request, everyone: bool = Query(False, alias="all")) 
             "last_open": st.last_open(project_id),
             "cleanup": team_cleanup.cleanup_status(st, project_id),
             **team_access.people_fields(meta, username, role, names),
-            **team_files.media_usage(user, folder),
+            **team_files.cached_media_usage(user, folder, st.revision(project_id, MEDIA_REV)),
             "media_rev": st.revision(project_id, MEDIA_REV),
         })
     return out
@@ -893,7 +916,7 @@ async def events(request: Request, project_id: str) -> Any:
                             "detail": "Too many open change feeds; close another InFocus Cut window"})
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue(maxsize=SUBSCRIBER_QUEUE)
-    entry = (loop, queue)
+    entry = (loop, queue, username)
     with _subscribers_guard:
         _subscribers.setdefault(project_id, set()).add(entry)
     _watch(project_id, username, 1)
@@ -903,11 +926,15 @@ async def events(request: Request, project_id: str) -> Any:
             yield ": subscribed\n\n"
             while True:
                 try:
-                    yield await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_S)
+                    message = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_S)
                 except asyncio.TimeoutError:
                     if await request.is_disconnected():
                         return
                     yield ": keepalive\n\n"
+                    continue
+                if message is None:
+                    return  # no longer a member (`disconnect`)
+                yield message
         finally:
             done()
 

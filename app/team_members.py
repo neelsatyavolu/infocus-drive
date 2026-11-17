@@ -13,12 +13,13 @@ import threading
 import time
 from typing import Any, Callable
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 import team_access
 import team_files
+import team_limits
 import team_people
 from fsops import FSError
 from team_cleanup import send_notice_email
@@ -31,6 +32,7 @@ from team_projects import (
     _project_or_404,
     _slot,
     _user,
+    disconnect,
     publish,
     store,
 )
@@ -51,9 +53,14 @@ def _bad_request(code: str, message: str) -> JSONResponse:
 
 
 def send_invite_email(username: str, inviter: str, project: str) -> None:
-    """Best-effort email to the invitee; never raises and never logs the address."""
-    subject = f"{inviter} invited you to {project} in InFocus Cut"
-    text = f"{subject}. Open InFocus Cut ▸ Team to join."
+    """Best-effort email to the invitee; never raises and never logs the address.
+
+    The subject carries no text a member chose; the body names the project, shortened
+    and without links (`team_limits.email_safe_name`).
+    """
+    subject = f"{inviter} invited you to a team project in InFocus Cut"
+    text = (f"{inviter} invited you to the team project \"{team_limits.email_safe_name(project)}\" "
+            "in InFocus Cut. Open InFocus Cut ▸ Team to join.")
     try:
         send_notice_email(username, subject, text)
     except Exception:  # noqa: BLE001 - an email must never fail the invite
@@ -86,13 +93,31 @@ def _people_or_error(value: Any, names: dict[str, str]) -> list[str] | JSONRespo
 # Routes ---------------------------------------------------------------------------
 
 
+PEOPLE_MIN_QUERY = 2
+PEOPLE_MAX_RESULTS = 20
+
+
 @router.get("/people")
-def people(request: Request) -> dict[str, Any]:
-    """Drive members the caller can invite (everyone but the caller), by name."""
+def people(request: Request, q: str = Query("", max_length=80)) -> Any:
+    """Drive members the caller can invite whose name or user name contains `q`.
+
+    The Drive's roster includes minors, so it is never handed out whole: `q` needs at
+    least 2 characters (shorter gives an empty list), at most 20 matches come back, and
+    each member may search 60 times a minute (429 past that).
+    """
     username = str(_user(request)["username"])
+    query = q.strip().lower()
+    if len(query) < PEOPLE_MIN_QUERY:
+        return {"people": [], "min_query": PEOPLE_MIN_QUERY}
+    if not team_limits.people_searches.allow(username):
+        return _error(429, {"error": "slow_down", "message": "Too many searches. Wait a minute and try again.",
+                            "detail": "Too many searches"})
     names = team_people.directory()
-    found = [{"username": u, "name": n} for u, n in names.items() if u != username]
-    return {"people": sorted(found, key=lambda p: (p["name"].lower(), p["username"]))}
+    found = [{"username": u, "name": n} for u, n in names.items()
+             if u != username and (query in u.lower() or query in n.lower())]
+    found.sort(key=lambda p: (not (p["name"].lower().startswith(query) or p["username"].startswith(query)),
+                              p["name"].lower(), p["username"]))
+    return {"people": found[:PEOPLE_MAX_RESULTS], "min_query": PEOPLE_MIN_QUERY}
 
 
 @router.post("/projects/{project_id}/invites")
@@ -121,7 +146,9 @@ async def invite(request: Request, project_id: str) -> Any:
     inviter = names.get(username) or username
     project = str(meta.get("name") or info["name"])
     for invited in pending:
-        if invited["user"] not in before:
+        # Cancel + invite again must not resend: one email per invitee and project a day,
+        # and a cap per inviter an hour (team_limits).
+        if invited["user"] not in before and team_limits.may_email(project_id, username, invited["user"]):
             _deliver(send_invite_email, invited["user"], inviter, project)
     return {"invites": [{"username": i["user"], "name": names.get(i["user"]) or i["user"],
                          "by": str(i.get("by") or "")} for i in pending]}
@@ -209,6 +236,7 @@ async def leave(request: Request, project_id: str) -> Any:
         released = await run_in_threadpool(work)
     except FSError as e:
         return _fs_error(e)
+    disconnect(project_id, username)
     for seq in released:
         publish(project_id, "lock_changed", {"seq": seq, "holder": None})
     return Response(status_code=204)

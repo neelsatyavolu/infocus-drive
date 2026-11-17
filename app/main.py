@@ -48,6 +48,7 @@ import team_files
 import team_media
 import team_members
 import team_projects
+import team_web_access
 from ugos_sso import router as ugos_sso_router
 from file_links import (
     DEFAULT_DAYS,
@@ -1613,8 +1614,11 @@ def api_list(request: Request, path: str = "") -> dict[str, Any]:
     user = _require_user(request)
     share = _active_share(request, user)
     try:
-        with use_share_root(share_path(share)):
+        with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
+            checker.check(resolve_rel(path), write=False)
             data = list_dir(path, user["uid"], user["gid"])
+            data["items"] = checker.visible(root, data["items"])
             data["has_recycle"] = has_recycle_bin()
             data["in_recycle"] = is_under_recycle(path or "")
         data["share"] = share
@@ -1629,6 +1633,7 @@ def api_upload_fingerprint(request: Request, path: str = Form(...), size: int = 
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, path, write=False)
             return {"fingerprint": upload_fingerprint(path, size, user["uid"], user["gid"])}
     except FSError as e:
         raise _fs_http(e) from e
@@ -1651,6 +1656,7 @@ def api_folder_sizes(
         return {"sizes": {}, "share": share}
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, *path, write=False)
             data = folder_sizes(path, user["uid"], user["gid"])
         data["share"] = share
         return data
@@ -1669,8 +1675,12 @@ def api_search(
     user = _require_user(request)
     share = _active_share(request, user)
     try:
-        with use_share_root(share_path(share)):
+        with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
+            checker.check(resolve_rel(path), write=False)
             data = search(q, path, user["uid"], user["gid"], limit=limit)
+            data["results"] = checker.visible(root, data.get("results") or [])
+            data["count"] = len(data["results"])
         data["share"] = share
         return data
     except FSError as e:
@@ -1693,6 +1703,18 @@ def api_usage(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="Storage usage unavailable") from e
 
 
+def _team_checker(user: dict[str, Any]) -> team_web_access.Checker:
+    """Team project membership for the website file routes (team_web_access)."""
+    return team_web_access.Checker(user, bool(is_nas_admin(str(user.get("username") or ""))))
+
+
+def _team_check(user: dict[str, Any], *rels: str, write: bool) -> None:
+    """Inside a `use_share_root` block: refuse paths of team projects this person isn't in."""
+    checker = _team_checker(user)
+    for rel in rels:
+        checker.check(resolve_rel(rel or ""), write=write)
+
+
 def _note_team_media(share: str, rels: list[Any], user: dict[str, Any]) -> None:
     """A website change inside a team project's media folder → `media_changed` (team_media)."""
     try:
@@ -1710,6 +1732,7 @@ def api_mkdir(request: Request, path: str = Form(""), name: str = Form(...)) -> 
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path)
             team_files.guard_new_name(name)
+            _team_check(user, path, write=True)
             return mkdir(path, name, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -1723,6 +1746,7 @@ def api_rename(request: Request, path: str = Form(...), new_name: str = Form(...
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path)
             team_files.guard_new_name(new_name)
+            _team_check(user, path, write=True)
             result = rename(path, new_name, user["uid"], user["gid"])
         _note_team_media(share, [path, result.get("path")], user)
         return result
@@ -1738,6 +1762,7 @@ def api_move(request: Request, path: str = Form(...), dest: str = Form(...)) -> 
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path)
             team_files.guard_web_path(dest)
+            _team_check(user, path, dest, write=True)
             result = move_item(path, dest, user["uid"], user["gid"])
         _note_team_media(share, [path, result.get("path")], user)
         return result
@@ -1753,6 +1778,7 @@ def api_delete(request: Request, path: str = Form(...)) -> dict[str, Any]:
     try:
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path, whole_project_ok=True)
+            _team_check(user, path, write=True)
             result = delete(path, user["uid"], user["gid"])
         _note_team_media(share, [path], user)
         return result
@@ -1798,6 +1824,7 @@ async def api_upload(
         with use_share_root(share_root):
             team_files.guard_web_path(path)
             team_files.guard_new_name(file.filename or "")
+            _team_check(user, path, write=True)
     except FSError as e:
         raise _fs_http(e) from e
     max_bytes = MAX_UPLOAD_BYTES
@@ -1902,6 +1929,7 @@ def api_upload_init(
         with use_share_root(share_path(share)):
             team_files.guard_web_path(path or "")
             team_files.guard_new_name(name)
+            _team_check(user, path or "", write=True)
             parent = resolve_rel(path or "")
             if not parent.is_dir():
                 rel = (path or "").strip().lstrip("/")
@@ -2200,6 +2228,7 @@ def api_download(
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, path, write=False)
             opened = open_for_download(path, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -2218,6 +2247,7 @@ def api_thumbnail(
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, path, write=False)
             opened = open_for_download(path, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -2245,13 +2275,16 @@ def api_thumbnail_warm(
     targets: list[Path] = []
     try:
         with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
             for rel in path[:_THUMB_WARM_MAX]:
                 if thumbs.thumb_kind(rel) is None:
                     continue
                 try:
-                    targets.append(resolve_rel(rel))
+                    target = resolve_rel(rel)
                 except FSError:
                     continue
+                if checker.may_read(target):
+                    targets.append(target)
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -2290,6 +2323,9 @@ def api_download_zip(
 
     try:
         with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
+            for rel in paths:
+                checker.check(resolve_rel(rel), write=False)
             entries = collect_zip_entries(
                 paths,
                 user["uid"],
@@ -2297,6 +2333,8 @@ def api_download_zip(
                 max_files=_ZIP_MAX_FILES,
                 max_total=_ZIP_MAX_TOTAL,
             )
+            # A folder above Team Projects (the drive root) leaves out other teams' files.
+            entries = [(arc, src) for arc, src in entries if checker.may_read(src)]
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -2452,6 +2490,9 @@ async def api_mint_file_link(request: Request) -> dict[str, Any]:
     try:
         with use_share_root(share_path(share)) as root:
             target = resolve_rel(rel)
+            _team_checker(user).check(target, write=False)
+            if target == team_web_access.team_dir():
+                raise FSError("This folder can't be shared", 400)
             with as_user(uid, gid):
                 is_dir = target.is_dir()
             if is_dir:

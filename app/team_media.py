@@ -13,13 +13,16 @@ without waiting for a poll.
 from __future__ import annotations
 
 import logging
+import pwd
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+import team_access
 import team_files
+import team_people
 from chunk_upload import complete_session, create_session, get_session
 from config import TEAM_ROOT_REL, get_settings
 from fsops import FSError
@@ -101,6 +104,38 @@ def _upload_share(project_id: str) -> str:
 # Routes ---------------------------------------------------------------------------------
 
 
+def owner_name(uid: int) -> str:
+    """The NAS account that owns a file (uploads are written as the member), or ""."""
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except (KeyError, OverflowError):
+        return ""
+
+
+def _with_added_by(user: dict[str, Any], folder: str, files: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The footage list as sent: each file gets `by` (a display name) when a teammate's
+    account owns it, so members see who added what. The uid itself never leaves."""
+    try:
+        meta = team_files.read_meta(user, folder)
+    except (FSError, OSError, ValueError, team_files.TeamConflict):
+        meta = None
+    names = team_people.directory() if files and meta is not None else {}
+    team = None if meta is None or team_access.is_open(meta) else set(team_access.members(meta))
+    owners: dict[int, str] = {}
+    out = []
+    for f in files:
+        uid = int(f.get("uid", -1))
+        if uid not in owners:
+            name = owner_name(uid) if names else ""
+            ok = name in names and (team is None or name in team)
+            owners[uid] = names[name] if ok else ""
+        item = {k: v for k, v in f.items() if k != "uid"}
+        if owners[uid]:
+            item["by"] = owners[uid]
+        out.append(item)
+    return out
+
+
 @router.get("/projects/{project_id}/media")
 def media_download(request: Request, project_id: str, path: str = "") -> Any:
     """One original (`?path=Day 1/A001.mov`, members only), or without a path the list of
@@ -111,6 +146,7 @@ def media_download(request: Request, project_id: str, path: str = "") -> Any:
         if not path:
             _check_access(user, info, admin_ok=True)
             files, truncated = team_files.list_media(user, info["folder"])
+            files = _with_added_by(user, info["folder"], files)
             return {"files": files, "count": len(files), "bytes": sum(int(f["size"]) for f in files),
                     "truncated": truncated, "rev": media_rev(project_id)}
         _check_access(user, info)

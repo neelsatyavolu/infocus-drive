@@ -282,8 +282,9 @@
   align-items: center;
   justify-content: center;
   background: hsl(var(--secondary));
+  background: hsl(var(--ed-hue, 0) 42% 36%);
   border: 2px solid hsl(var(--background));
-  color: hsl(var(--foreground));
+  color: #fff;
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -294,6 +295,36 @@
 }
 
 .ed-avatar--more {
+  background: hsl(var(--secondary));
+  color: hsl(var(--muted-foreground));
+}
+
+.ed-bar__avatar {
+  display: none;
+}
+
+.ed-row__seen,
+.ed-row__now {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ed-file__when {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ed-admin-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: hsl(var(--muted-foreground));
+}
+
+.ed-invites-sub {
+  margin: -4px 0 10px;
+  font-size: 13px;
   color: hsl(var(--muted-foreground));
 }
 
@@ -424,7 +455,7 @@
 
 .ed-file {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 9.5em;
+  grid-template-columns: minmax(0, 1fr) auto 14em;
   gap: 16px;
   align-items: center;
   padding: 8px 0;
@@ -590,6 +621,11 @@
     display: none;
   }
 
+  .ed-bar__avatar {
+    display: inline-flex;
+    margin-right: 4px;
+  }
+
   .ed-main {
     padding: 24px 16px 48px;
   }
@@ -605,10 +641,12 @@
 
   .ed-file {
     grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
   }
 
   .ed-file__when {
-    display: none;
+    grid-column: 1 / -1;
+    font-size: 12px;
   }
 
   .ed-row__people .ed-dim {

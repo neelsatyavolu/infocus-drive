@@ -9,6 +9,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 import main  # noqa: E402
+import team_limits  # noqa: E402
 import team_members  # noqa: E402
 import team_people  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
@@ -27,6 +28,9 @@ MEDIA = "Team Projects/Robotics Media"
 @pytest.fixture
 def team(client, monkeypatch):
     monkeypatch.setattr(team_people, "directory", lambda: dict(PEOPLE))
+    for name in ("people_searches", "inviter_emails", "invitee_emails"):  # fresh limits per test
+        old = getattr(team_limits, name)
+        monkeypatch.setattr(team_limits, name, team_limits.Window(old.limit, old.seconds))
     sent = []
     monkeypatch.setattr(team_members, "send_invite_email", lambda *args: sent.append(args))
     monkeypatch.setattr(team_members, "_deliver", lambda fn, *args: fn(*args))  # inline, not a thread
@@ -92,6 +96,22 @@ def test_list_counts_media_including_files_added_on_the_website(team):
     assert item["media_count"] == 2 and item["media_bytes"] == 13
 
 
+def test_list_reuses_media_counts_until_the_footage_changes(team, monkeypatch):
+    import team_files
+    pid = make(team)
+    (team.drive / MEDIA / "A001.mov").write_bytes(b"0123456789")
+    walks = []
+    real = team_files.media_usage
+    monkeypatch.setattr(team_files, "media_usage", lambda *a: walks.append(1) or real(*a))
+    for _ in range(3):
+        assert listed(team, "student1")[pid]["media_count"] == 1
+    assert len(walks) == 1
+    (team.drive / MEDIA / "B001.mov").write_bytes(b"abc")
+    import team_media
+    team_media.media_changed(pid, "B001.mov", "student1")  # what every footage change does
+    assert listed(team, "student1")[pid]["media_count"] == 2 and len(walks) == 2
+
+
 # Non-members ----------------------------------------------------------------------
 
 
@@ -145,15 +165,35 @@ def test_admin_can_still_force_release_and_set_keep(team):
 # People -----------------------------------------------------------------------------
 
 
-def test_people_lists_everyone_but_the_caller_without_emails(team):
-    r = team.get("/api/team/people", headers=as_("student1"))
+def test_people_search_finds_matches_but_not_the_caller_or_emails(team):
+    r = team.get("/api/team/people", params={"q": "stu"}, headers=as_("student1"))
     assert r.status_code == 200
     people = r.json()["people"]
-    assert {p["username"] for p in people} == {"student2", "student3", "admin1"}
+    assert {p["username"] for p in people} == {"student2", "student3"}
     assert {"username": "student2", "name": "Student Two"} in people
     assert all(set(p) == {"username", "name"} for p in people)
     assert "@" not in r.text
-    assert team.get("/api/team/people").status_code == 401
+    found = team.get("/api/team/people", params={"q": "THREE"}, headers=as_("student1")).json()["people"]
+    assert [p["username"] for p in found] == ["student3"]
+    assert team.get("/api/team/people", params={"q": "stu"}).status_code == 401
+
+
+def test_people_never_hands_out_the_whole_roster(team, monkeypatch):
+    for q in ("", "s", " s "):
+        r = team.get("/api/team/people", params={"q": q}, headers=as_("student1"))
+        assert r.json() == {"people": [], "min_query": 2}
+    many = {f"pupil{i}": f"Pupil {i}" for i in range(50)}
+    monkeypatch.setattr(team_people, "directory", lambda: many)
+    r = team.get("/api/team/people", params={"q": "pupil"}, headers=as_("student1"))
+    assert len(r.json()["people"]) == team_members.PEOPLE_MAX_RESULTS
+
+
+def test_people_search_is_rate_limited(team):
+    codes = [team.get("/api/team/people", params={"q": "stu"}, headers=as_("student1")).status_code
+             for _ in range(team_limits.PEOPLE_PER_MINUTE + 1)]
+    assert codes[:-1] == [200] * team_limits.PEOPLE_PER_MINUTE
+    assert codes[-1] == 429
+    assert team.get("/api/team/people", params={"q": "stu"}, headers=as_("student2")).status_code == 200
 
 
 def test_people_from_passwd(tmp_path, monkeypatch):
@@ -216,12 +256,39 @@ def test_invite_sends_a_best_effort_email(team):
     assert len(team.sent) == 1
 
 
+def test_cancel_and_invite_again_does_not_resend(team):
+    pid = make(team)
+    for _ in range(5):
+        assert invite(team, pid, ["student2"]).status_code == 200
+        assert team.delete(f"/api/team/projects/{pid}/invites/student2", headers=as_("student1")).status_code == 204
+    assert len(team.sent) == 1
+
+
+def test_invite_emails_per_inviter_are_capped(team, monkeypatch):
+    monkeypatch.setattr(team_people, "directory", lambda: {**PEOPLE, **{f"pupil{i}": f"Pupil {i}" for i in range(30)}})
+    monkeypatch.setattr(team_members.team_access, "MAX_TEAM", 100)
+    pid = make(team)
+    for start in (0, 10, 20):
+        assert invite(team, pid, [f"pupil{i}" for i in range(start, start + 10)]).status_code == 200
+    assert len(team.sent) == team_limits.EMAILS_PER_INVITER_HOUR
+
+
+def test_email_safe_name():
+    assert team_limits.email_safe_name("Robotics") == "Robotics"
+    assert "://" not in team_limits.email_safe_name("Win at https://evil.example.com now")
+    assert "." not in team_limits.email_safe_name("evil.example.com")
+    assert "<" not in team_limits.email_safe_name("<b>hi</b>")
+    assert len(team_limits.email_safe_name("x" * 100)) == team_limits.EMAIL_NAME_MAX
+    assert team_limits.email_safe_name("...") == "a team project"
+
+
 def test_invite_email_text_and_failures(monkeypatch, caplog):
     calls = []
     monkeypatch.setattr(team_members, "send_notice_email", lambda *a: calls.append(a))
     team_members.send_invite_email("student2", "Student One", "Robotics")
-    assert calls == [("student2", "Student One invited you to Robotics in InFocus Cut",
-                      "Student One invited you to Robotics in InFocus Cut. Open InFocus Cut ▸ Team to join.")]
+    assert calls == [("student2", "Student One invited you to a team project in InFocus Cut",
+                      'Student One invited you to the team project "Robotics" in InFocus Cut. '
+                      "Open InFocus Cut ▸ Team to join.")]
 
     def boom(*a):
         raise RuntimeError("Resend request failed")
@@ -355,7 +422,7 @@ def test_media_list_shows_files_from_the_website(team, monkeypatch, tmp_path):
     r = team.get(f"/api/team/projects/{pid}/media", headers=h)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["files"] == [{"path": "Day 3/C001.mov", "size": len(data), "mtime": body["files"][0]["mtime"]}]
+    assert [{k: f[k] for k in ("path", "size")} for f in body["files"]] == [{"path": "Day 3/C001.mov", "size": len(data)}]
     assert body["count"] == 1 and body["bytes"] == len(data) and body["truncated"] is False
     got = team.get(f"/api/team/projects/{pid}/media", params={"path": "Day 3/C001.mov"}, headers=h)
     assert got.status_code == 200 and got.content == data
@@ -371,3 +438,35 @@ def test_media_list_skips_hidden_and_links(team):
     (media / "link.mov").symlink_to(team.drive / META)
     r = team.get(f"/api/team/projects/{pid}/media", headers=as_("student1"))
     assert [f["path"] for f in r.json()["files"]] == ["A001.mov"]
+
+
+def test_leaving_ends_the_change_feed(team):
+    pid = make(team)
+    assert invite(team, pid, ["student2"]).status_code == 200
+    assert team.post(f"/api/team/projects/{pid}/join", headers=as_("student2")).status_code == 200
+    with team.stream("GET", f"/api/team/projects/{pid}/events", headers=as_("student2")) as stream:
+        assert stream.status_code == 200
+        lines = stream.iter_lines()
+        assert next(lines).startswith(":")  # subscribed
+        assert team.post(f"/api/team/projects/{pid}/leave", headers=as_("student2")).status_code == 204
+        rest = list(lines)  # the stream ends instead of carrying the project's events on
+    assert not any(line.startswith("event:") for line in rest)
+
+
+def test_media_list_names_who_added_each_file(team, monkeypatch):
+    import team_media
+    pid = make(team)
+    assert invite(team, pid, ["student2"]).status_code == 200
+    assert team.post(f"/api/team/projects/{pid}/join", headers=as_("student2")).status_code == 200
+    media = team.drive / MEDIA
+    (media / "A001.mov").write_bytes(b"x")
+    (media / "B001.mov").write_bytes(b"y")
+    uid = (media / "A001.mov").stat().st_uid
+    # every test file has the runner's uid: name it student2, then someone outside the team
+    monkeypatch.setattr(team_media, "owner_name", lambda u: "student2" if u == uid else "")
+    files = team.get(f"/api/team/projects/{pid}/media", headers=as_("student1")).json()["files"]
+    assert [f.get("by") for f in files] == [PEOPLE["student2"]] * 2
+    assert all("uid" not in f for f in files)
+    monkeypatch.setattr(team_media, "owner_name", lambda u: "student3")  # not a member
+    files = team.get(f"/api/team/projects/{pid}/media", headers=as_("student1")).json()["files"]
+    assert all("by" not in f for f in files)

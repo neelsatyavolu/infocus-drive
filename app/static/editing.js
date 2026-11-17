@@ -1,10 +1,10 @@
 // Editing dashboard: sign-in, the project list (and the admin's "All projects"), and
 // routing to one project (?project=<id>, editing-detail.js). Data comes from the team API.
 
-import { $, el } from "./dom.js?v=20261116-teamproj";
-import * as api from "./editing-api.js?v=20261116-teamproj";
-import { renderDetail, stopDetail } from "./editing-detail.js?v=20261116-teamproj";
-import { ago, avatars, fail, nameList, notice, plural, showOnly, sizeText } from "./editing-ui.js?v=20261116-teamproj";
+import { $, el } from "./dom.js?v=20261117-dash";
+import * as api from "./editing-api.js?v=20261117-dash";
+import { renderDetail, stopDetail } from "./editing-detail.js?v=20261117-dash";
+import { avatars, fail, initials, nameList, notice, plural, shortAgo, showOnly, sizeText } from "./editing-ui.js?v=20261117-dash";
 
 const PROJECT_ID = /^[0-9a-f]{32}$/;
 let me = null;
@@ -56,7 +56,9 @@ function editingNow(project) {
   if (!holders.length) return el("span", { class: "ed-dim", text: "Nobody editing" });
   const names = new Map((project.members || []).map((m) => [m.username, m.name]));
   const who = [...new Set(holders)].map((h) => names.get(h) || h);
-  return el("span", {}, [el("span", { class: "ed-live", "aria-hidden": "true" }), `${nameList(who)} editing`]);
+  // one line in the column: a name, or a count with the names on hover
+  const text = who.length === 1 ? `${who[0]} editing` : `${who.length} editing`;
+  return el("span", { title: `${nameList(who)} editing` }, [el("span", { class: "ed-live", "aria-hidden": "true" }), text]);
 }
 
 function invitationCard(project) {
@@ -100,7 +102,7 @@ function projectRow(project) {
       el("span", { class: "ed-dim", text: plural(project.media_count, "file") }),
     ]),
     el("div", { class: "ed-row__now" }, editingNow(project)),
-    el("div", { class: "ed-row__seen ed-dim", text: project.last_open ? `Opened ${ago(project.last_open)}` : "" }),
+    el("div", { class: "ed-row__seen ed-dim", text: project.last_open ? `Opened ${shortAgo(project.last_open)}` : "" }),
   ]);
 }
 
@@ -140,12 +142,13 @@ async function renderList() {
     ]),
     invited.length ? el("section", { class: "ed-block", "aria-label": "Invitations" }, [
       el("h2", { class: "eyebrow ed-block__title", text: "Invitations" }),
+      rest.length ? null : el("p", { class: "ed-invites-sub", text: "Join one to start editing with your team." }),
       el("ul", { class: "ed-invites" }, invited.map(invitationCard)),
     ]) : null,
     rest.length
       ? el("ul", { class: "ed-rows", "aria-label": "Projects" }, [listHeader(), ...rest.map(projectRow)])
-      : notice(invited.length ? "Join an invitation above to start editing."
-        : "No team projects yet. In InFocus Cut, open Team and choose New project, or ask a teammate to invite you."),
+      : invited.length ? null
+        : notice("No team projects yet. In InFocus Cut, open Team and choose New project, or ask a teammate to invite you."),
   ].filter(Boolean));
   showOnly("ed-list");
 }
@@ -185,6 +188,9 @@ async function boot() {
     return;
   }
   $("ed-me-name").textContent = me.name || me.nas_username || "";
+  $("ed-me-avatar").textContent = initials(me.name || me.nas_username || "");
+  $("ed-me-avatar").setAttribute("aria-label", `Signed in as ${me.name || me.nas_username || ""}`);
+  $("ed-me-avatar").title = $("ed-me-avatar").getAttribute("aria-label");
   $("ed-me").hidden = false;
   $("ed-signout").addEventListener("click", async () => {
     try {
