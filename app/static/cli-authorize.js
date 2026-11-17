@@ -64,6 +64,12 @@ function looksValid() {
   );
 }
 
+/** InFocus Cut signs in as "InFocus Cut" or "InFocus Cut on <Mac name>". */
+function isInFocusCut(device) {
+  const d = String(device || "").trim();
+  return d === "InFocus Cut" || d.startsWith("InFocus Cut on ");
+}
+
 /** Same code the terminal prints: first 8 hex digits of SHA-256("infocus-verify:" + state). */
 async function confirmationCode(state) {
   const bytes = new TextEncoder().encode(`infocus-verify:${state}`);
@@ -90,7 +96,18 @@ async function refresh() {
     await useAnotherAccount();
     return;
   }
-  $("cli-device").textContent = `InFocus CLI on ${request.device.trim() || "an unnamed device"}`;
+  if (isInFocusCut(request.device)) {
+    // InFocus Cut shows no code: say what is being connected in its words, not the terminal's.
+    document.title = "Connect InFocus Cut · InFocus Drive";
+    $("cli-title").textContent = "Connect InFocus Cut?";
+    $("cli-device").textContent = request.device.trim();
+    $("cli-code-hint").hidden = true;
+    $("cli-code").hidden = true;
+    $("cli-note").textContent =
+      "InFocus Cut will open and save your team projects and footage on the Drive. Only allow this if you just clicked Sign in with InFocus Drive in InFocus Cut.";
+  } else {
+    $("cli-device").textContent = `InFocus CLI on ${request.device.trim() || "an unnamed device"}`;
+  }
   $("cli-user").textContent = me.nas_username;
   $("cli-code").textContent = await confirmationCode(request.state);
   $("cli-port").value = request.port;
