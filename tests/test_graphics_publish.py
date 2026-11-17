@@ -129,3 +129,26 @@ def test_delete_moves_a_package_file_to_the_recycle_bin_and_nothing_else(client,
     assert res.status_code == 403
     res = client.post(f"{BASE}/delete", json={"path": PKG}, headers=KEY)
     assert res.status_code == 403
+
+
+def test_a_symlink_inside_a_package_cannot_lead_out_of_it(client, drive):
+    (drive / PKG).mkdir(parents=True)
+    (drive / PKG / "linked").symlink_to(drive / "All Resources" / "Past Shows")
+    assert upload(client, f"{PKG}/linked/show.mp4", b"x").status_code == 403
+    res = client.post(f"{BASE}/delete", json={"path": f"{PKG}/linked/show.mp4"}, headers=KEY)
+    assert res.status_code == 403
+    assert (drive / "All Resources" / "Past Shows" / "show.mp4").read_bytes() == b"keep"
+
+
+def test_an_empty_file_is_written_at_init(client, drive):
+    res = client.post(f"{BASE}/upload/init", data={"path": f"{PKG}/empty.txt", "size": 0}, headers=KEY)
+    assert res.status_code == 200 and res.json() == {"complete": True}
+    assert (drive / PKG / "empty.txt").read_bytes() == b""
+
+
+def test_a_package_folder_that_is_a_symlink_is_refused(client, drive):
+    (drive / PKG).symlink_to(drive / "All Resources" / "Past Shows")
+    assert upload(client, f"{PKG}/show.mp4", b"x").status_code == 403
+    res = client.put(f"{BASE}/manifest", params={"package": "InFocus Christmas 2026 Package"}, json={}, headers=KEY)
+    assert res.status_code == 403
+    assert (drive / "All Resources" / "Past Shows" / "show.mp4").read_bytes() == b"keep"

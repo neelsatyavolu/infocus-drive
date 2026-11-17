@@ -879,11 +879,15 @@ async def graphics_publish_init(request: Request) -> dict[str, Any]:
     rel = publish_path(str(form.get("path") or ""))
     ident = service_identity()
     parent = str(Path(rel).parent).replace("\\", "/")
+    size = int(form.get("size") or 0)
     try:
         ensure_dir(parent, ident.uid, ident.gid)
+        if size == 0:  # chunked sessions refuse empty files: write it now, nothing to send
+            write_upload_stream(parent, Path(rel).name, iter([b""]), ident.uid, ident.gid)
+            return {"complete": True}
         return create_session(
             username=ident.username, uid=ident.uid, gid=ident.gid, share=DEFAULT_SHARE, rel_dir=parent,
-            filename=Path(rel).name, size=int(form.get("size") or 0),
+            filename=Path(rel).name, size=size,
             chunk_size=int(form.get("chunk_size") or CHUNK_SIZE_DEFAULT),
         )
     except FSError as e:

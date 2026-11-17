@@ -16,6 +16,7 @@ import re
 from fastapi import HTTPException, Request
 
 from config import get_settings
+from fsops import FSError, resolve_rel
 from service_auth import _normalize_service_path
 
 PACKAGE_RE = re.compile(r"^InFocus [A-Za-z0-9][A-Za-z0-9 ]{0,40} Package$")
@@ -48,7 +49,19 @@ def resources_root() -> str:
 def package_dir(package: str) -> str:
     if not PACKAGE_RE.match(package or ""):
         raise HTTPException(status_code=403, detail="Not a package folder name")
-    return f"{resources_root()}/{package}"
+    folder = f"{resources_root()}/{package}"
+    _not_linked_away(folder)
+    return folder
+
+
+def _not_linked_away(folder: str) -> None:
+    """A package folder must really be in All Resources, not a symlink to somewhere else."""
+    try:
+        real, parent = resolve_rel(folder), resolve_rel(resources_root())
+    except FSError as e:
+        raise HTTPException(status_code=403, detail="Not a publishable path") from e
+    if real != parent / folder.rsplit("/", 1)[1]:
+        raise HTTPException(status_code=403, detail="That package folder leads somewhere else")
 
 
 def publish_path(rel: str) -> str:
@@ -60,9 +73,21 @@ def publish_path(rel: str) -> str:
         raise HTTPException(status_code=403, detail="Not a publishable path")
     head, _, name = path.rpartition("/")
     if head == graphics and name.endswith(".zip") and PACKAGE_RE.match(name[:-4]):
-        return path
+        return _inside(path, graphics)
     depth = len(resources.split("/"))
     if path.startswith(resources + "/") and len(parts) > depth + 1 and PACKAGE_RE.match(parts[depth]) \
             and name != MANIFEST_NAME:
-        return path
+        _not_linked_away(f"{resources}/{parts[depth]}")
+        return _inside(path, f"{resources}/{parts[depth]}")
     raise HTTPException(status_code=403, detail="Only package folders and package zips can be published")
+
+
+def _inside(path: str, base: str) -> str:
+    """The same rule on disk: a symlink inside a package folder must not lead out of it."""
+    try:
+        real, root = resolve_rel(path), resolve_rel(base)
+    except FSError as e:
+        raise HTTPException(status_code=403, detail="Not a publishable path") from e
+    if real != root and root not in real.parents:
+        raise HTTPException(status_code=403, detail="That path leads outside the package")
+    return path
