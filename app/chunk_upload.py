@@ -27,6 +27,8 @@ CHUNK_SIZE_MIN = 1 * 1024 * 1024
 CHUNK_SIZE_MAX = 32 * 1024 * 1024
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024 * 1024  # 50 GiB
 SESSION_TTL_SEC = 24 * 3600
+# A session folder without meta.json younger than this may still be starting.
+ORPHAN_GRACE_SEC = 10 * 60
 SESSION_ROOT = Path(os.environ.get("IFD_CHUNK_UPLOAD_DIR", "") or (Path("/tmp") / "ifd-chunk-uploads"))
 
 _lock = threading.Lock()
@@ -81,8 +83,18 @@ def cleanup_expired() -> int:
                 if not child.is_dir():
                     continue
                 meta = _load_meta_from_disk(child.name)
-                created = float(meta.get("created", 0)) if meta else 0
-                if not meta or now - created > SESSION_TTL_SEC:
+                if meta:
+                    created = float(meta.get("created", 0))
+                    ttl = SESSION_TTL_SEC
+                else:
+                    # create_session makes the folder before writing meta.json; a folder
+                    # without one is only abandoned once it is old.
+                    try:
+                        created = child.stat().st_mtime
+                    except OSError:
+                        continue
+                    ttl = ORPHAN_GRACE_SEC
+                if now - created > ttl:
                     if meta:
                         _remove_partial(meta)
                     shutil.rmtree(child, ignore_errors=True)

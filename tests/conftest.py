@@ -25,6 +25,8 @@ def deployment_env(monkeypatch, tmp_path):
         monkeypatch.setenv(key, value)
     # Never touch the real /config token store from tests.
     monkeypatch.setenv("CLI_TOKENS_DB_PATH", str(tmp_path / "cli_tokens.sqlite3"))
+    monkeypatch.setenv("TEAM_DB_PATH", str(tmp_path / "team_projects.sqlite3"))
+    monkeypatch.setenv("TEAM_CLEANUP_ENABLED", "0")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

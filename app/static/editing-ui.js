@@ -1,0 +1,95 @@
+// Shared bits of the editing dashboard: sections, empty notes, people and numbers.
+
+import { $, el } from "./dom.js?v=20261118-dash";
+import { formatModified } from "./format.js?v=20261118-dash";
+
+const SECTIONS = ["ed-loading", "ed-signin", "ed-list", "ed-detail", "ed-fail"];
+
+export function showOnly(id) {
+  for (const section of SECTIONS) $(section).hidden = section !== id;
+}
+
+export function fail(title, text) {
+  $("ed-fail-title").textContent = title;
+  $("ed-fail-text").textContent = text;
+  showOnly("ed-fail");
+}
+
+export function notice(text) {
+  return el("p", { class: "ed-note", text });
+}
+
+export function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+// Decimal units (1 MB = 1,000,000 bytes), the same as InFocus Cut and Finder, so the app
+// and this page give the same size for the same footage.
+const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+
+export function sizeText(bytes) {
+  let value = Number(bytes) || 0;
+  let unit = 0;
+  while (value >= 1000 && unit < SIZE_UNITS.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  const decimals = unit === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(decimals)} ${SIZE_UNITS[unit]}`;
+}
+
+/** Unix seconds → "5 minutes ago" / "Yesterday" / "Nov 3, 2026". */
+export function ago(seconds) {
+  return seconds ? formatModified(new Date(seconds * 1000).toISOString()).replace(/^Just now$/, "just now") : "never";
+}
+
+export function dateText(seconds) {
+  return new Date(seconds * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+export function nameList(names) {
+  if (names.length <= 2) return names.join(" and ");
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+/** Unix seconds → "just now" / "3 min ago" / "2 h ago" / "Yesterday" / "Nov 3": fits one line. */
+export function shortAgo(seconds) {
+  if (!seconds) return "never";
+  const delta = Date.now() / 1000 - seconds;
+  if (delta < 60) return "just now";
+  if (delta < 3600) return `${Math.floor(delta / 60)} min ago`;
+  if (delta < 86400) return `${Math.floor(delta / 3600)} h ago`;
+  if (delta < 2 * 86400) return "Yesterday";
+  return new Date(seconds * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** One rule everywhere: first letters of the first and last word ("Student Two" → "ST"),
+ * or the first two letters of a single word. Avatar colours tell same-initial people apart. */
+export function initials(name) {
+  const words = String(name || "?").trim().split(/\s+/).filter(Boolean);
+  const letters = words.length > 1 ? words[0][0] + words.at(-1)[0] : (words[0] || "?").slice(0, 2);
+  return letters.toUpperCase();
+}
+
+function hue(text) {
+  let h = 0;
+  for (const ch of String(text || "")) h = (h * 31 + ch.codePointAt(0)) % 100003;
+  // golden-angle steps, so "student1" and "student2" land far apart on the wheel
+  return Math.round((h * 137.508) % 360);
+}
+
+export function avatar(person, online = false) {
+  const node = el("span", { class: `ed-avatar${online ? " is-online" : ""}`, title: person.name, "aria-hidden": "true" },
+    initials(person.name));
+  node.style.setProperty("--ed-hue", String(hue(person.username || person.name)));
+  return node;
+}
+
+export function avatars(people, max = 4) {
+  const shown = (people || []).slice(0, max);
+  const extra = (people || []).length - shown.length;
+  return el("span", { class: "ed-avatars" }, [
+    ...shown.map((p) => avatar(p)),
+    extra > 0 ? el("span", { class: "ed-avatar ed-avatar--more", text: `+${extra}` }) : null,
+  ]);
+}

@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # the browser, the UI session-handoffs here to skip the tunnel hop.
     # Empty string disables LAN prefer. Example: http://192.168.1.50:8790 (NAS IP + gateway port).
     lan_origin: str = ""
+    # Host of the team-project editing dashboard (e.g. editing.example.org), served by this
+    # same app: its "/" is the dashboard and Google sign-in started there returns there.
+    # Empty disables the host; the dashboard is always at /editing on any host.
+    editing_host: str = ""
     # Auto-switch to LAN when probe succeeds (set false to only show a hint).
     lan_prefer: bool = True
     # Allowed Google email domains (comma-separated). Local-part maps to NAS username.
@@ -31,6 +35,12 @@ class Settings(BaseSettings):
     email_sign_in_db_path: str = "/config/email_sign_in.sqlite3"
     # Terminal (`infocus` CLI) sign-ins; hashed tokens on the persistent config mount.
     cli_tokens_db_path: str = "/config/cli_tokens.sqlite3"
+    # InFocus Cut team projects: locks, revisions, id slots and opens (app/team_store.py).
+    team_db_path: str = "/config/team_projects.sqlite3"
+    # Sequence lock lifetime after the last heartbeat; shorten only for local end-to-end tests.
+    team_lock_ttl_s: int = 120
+    # Daily 03:00 cleanup of team projects nobody opened for 30 days (app/team_cleanup.py).
+    team_cleanup_enabled: bool = True
 
     session_cookie: str = "infocus_drive_session"
     session_max_age: int = 60 * 60 * 24 * 5  # 5 days
@@ -112,6 +122,10 @@ class Settings(BaseSettings):
 
     host: str = "0.0.0.0"
     port: int = 8787
+
+
+# Drive folder (under the drive root) that holds every InFocus Cut team project.
+TEAM_ROOT_REL = "Team Projects"
 
 
 @lru_cache

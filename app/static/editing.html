@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="color-scheme" content="dark light" />
+  <title>Team projects · InFocus Editing</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32.png?v=20261002-foldershare" />
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png?v=20261002-foldershare" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&amp;family=Geist+Mono:wght@400;500&amp;display=swap" />
+  <link rel="stylesheet" href="/assets/app.css?v=20261118-dash" />
+  <link rel="stylesheet" href="/assets/editing.css?v=20261118-dash" />
+  <script type="module" src="/assets/editing.js?v=20261118-dash"></script>
+</head>
+<body class="share-body ed-body">
+<div class="ed" id="editing-app">
+  <header class="ed-bar">
+    <a class="wordmark ed-bar__home" href="?" id="ed-home" aria-label="Team projects">
+      <img class="wm-dark" src="/assets/infocus-wordmark.png?v=20261002-foldershare" alt="InFocus" width="70" height="30" decoding="async" />
+      <img class="wm-light" src="/assets/infocus-wordmark-light.png?v=20261002-foldershare" alt="InFocus" width="70" height="30" loading="lazy" decoding="async" />
+      <span>Editing</span>
+    </a>
+    <div class="ed-bar__me" id="ed-me" hidden>
+      <span class="ed-avatar ed-bar__avatar" id="ed-me-avatar" role="img" aria-label="Signed in"></span>
+      <span class="ed-bar__who">Signed in as <strong id="ed-me-name"></strong></span>
+      <button type="button" class="btn btn--quiet" id="ed-signout">Sign out</button>
+    </div>
+  </header>
+
+  <main class="ed-main" id="ed-main" aria-live="polite">
+    <p class="ed-loading" id="ed-loading">Loading…</p>
+
+    <section class="ed-signin" id="ed-signin" hidden>
+      <p class="eyebrow ed-signin__eyebrow">InFocus Cut team projects</p>
+      <h1 class="ed-signin__title">Sign in to see your team projects</h1>
+      <p class="ed-signin__text">Your team's footage and sequences live on InFocus Drive, the club's file server. Use the same Google account you use for the Drive.</p>
+      <p class="ed-error" id="ed-signin-error" hidden></p>
+      <a class="btn btn--primary btn--modal" id="ed-google" href="/auth/login">Continue with Google</a>
+    </section>
+
+    <section id="ed-list" hidden></section>
+    <section id="ed-detail" hidden></section>
+
+    <section class="ed-signin" id="ed-fail" hidden>
+      <h1 class="ed-signin__title" id="ed-fail-title">Something went wrong</h1>
+      <p class="ed-signin__text" id="ed-fail-text"></p>
+      <a class="btn" href="?">Back to team projects</a>
+    </section>
+  </main>
+</div>
+</body>
+</html>

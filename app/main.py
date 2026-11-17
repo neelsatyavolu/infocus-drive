@@ -42,6 +42,13 @@ import personal_folders
 from email_auth import check_origin, router as email_auth_router
 from meetings_service import internal_router as scribe_internal_router, router as meetings_router
 from wordpress_relay import router as wordpress_router
+import team_cleanup
+import team_dashboard
+import team_files
+import team_media
+import team_members
+import team_projects
+import team_web_access
 from ugos_sso import router as ugos_sso_router
 from file_links import (
     DEFAULT_DAYS,
@@ -126,10 +133,12 @@ async def lifespan(app):
     # process owns background jobs.
     if os.environ.get("IFD_UPLOAD_WORKER") != "1":
         personal_folders.start_worker()
+        team_cleanup.start_worker()
     try:
         yield
     finally:
         personal_folders.stop_worker()
+        team_cleanup.stop_worker()
 
 
 app = FastAPI(title="InFocus Drive", docs_url=None, redoc_url=None, lifespan=lifespan)
@@ -138,6 +147,16 @@ app.include_router(ugos_sso_router)
 app.include_router(meetings_router)
 app.include_router(scribe_internal_router)
 app.include_router(wordpress_router)
+app.include_router(team_projects.router)
+app.include_router(team_members.router)
+app.include_router(team_media.router)
+app.include_router(team_dashboard.router)
+# Late-bound so tests that patch main's auth helpers reach the team routes too.
+team_projects.bind(
+    require_user=lambda request: _require_user(request),
+    is_admin=lambda name: is_nas_admin(name),
+    file_response=lambda opened: _user_file_response(opened, False),
+)
 
 # Allow infocus-packages (and local dev) browsers to upload/play Package Cycles media.
 app.add_middleware(
@@ -171,6 +190,15 @@ app.add_middleware(
 
 STATIC = Path(__file__).parent / "static"
 app.mount("/assets", StaticFiles(directory=STATIC), name="assets")
+
+
+@app.middleware("http")
+async def editing_host_root(request: Request, call_next):  # type: ignore[no-untyped-def]
+    """The editing host's front page is the team-project dashboard (`team_dashboard`)."""
+    if (request.url.path == "/" and request.method in ("GET", "HEAD")
+            and team_dashboard.is_editing_host(request.headers.get("host"))):
+        return team_dashboard.page()
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -1277,7 +1305,8 @@ def auth_login(request: Request) -> RedirectResponse:
             "next": _safe_next_url(request.query_params.get("next")),
         }
     )
-    redirect_uri = f"{settings.public_base_url.rstrip('/')}/auth/callback"
+    # The editing dashboard's host gets its own cookie, so Google returns there (team_dashboard).
+    redirect_uri = f"{team_dashboard.oauth_origin(request.headers.get('host'), settings.public_base_url)}/auth/callback"
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": redirect_uri,
@@ -1498,7 +1527,8 @@ async def auth_callback(request: Request, code: str | None = None, state: str | 
             raise HTTPException(status_code=400, detail="Google sign-in belongs to another browser or was already used")
         browser_verified = True
 
-    redirect_uri = f"{settings.public_base_url.rstrip('/')}/auth/callback"
+    # The editing dashboard's host gets its own cookie, so Google returns there (team_dashboard).
+    redirect_uri = f"{team_dashboard.oauth_origin(request.headers.get('host'), settings.public_base_url)}/auth/callback"
     async with httpx.AsyncClient(timeout=20) as client:
         token_res = await client.post(
             GOOGLE_TOKEN,
@@ -1584,8 +1614,11 @@ def api_list(request: Request, path: str = "") -> dict[str, Any]:
     user = _require_user(request)
     share = _active_share(request, user)
     try:
-        with use_share_root(share_path(share)):
+        with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
+            checker.check(resolve_rel(path), write=False)
             data = list_dir(path, user["uid"], user["gid"])
+            data["items"] = checker.visible(root, data["items"])
             data["has_recycle"] = has_recycle_bin()
             data["in_recycle"] = is_under_recycle(path or "")
         data["share"] = share
@@ -1600,6 +1633,7 @@ def api_upload_fingerprint(request: Request, path: str = Form(...), size: int = 
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, path, write=False)
             return {"fingerprint": upload_fingerprint(path, size, user["uid"], user["gid"])}
     except FSError as e:
         raise _fs_http(e) from e
@@ -1622,6 +1656,7 @@ def api_folder_sizes(
         return {"sizes": {}, "share": share}
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, *path, write=False)
             data = folder_sizes(path, user["uid"], user["gid"])
         data["share"] = share
         return data
@@ -1640,8 +1675,12 @@ def api_search(
     user = _require_user(request)
     share = _active_share(request, user)
     try:
-        with use_share_root(share_path(share)):
+        with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
+            checker.check(resolve_rel(path), write=False)
             data = search(q, path, user["uid"], user["gid"], limit=limit)
+            data["results"] = checker.visible(root, data.get("results") or [])
+            data["count"] = len(data["results"])
         data["share"] = share
         return data
     except FSError as e:
@@ -1664,12 +1703,36 @@ def api_usage(request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="Storage usage unavailable") from e
 
 
+def _team_checker(user: dict[str, Any]) -> team_web_access.Checker:
+    """Team project membership for the website file routes (team_web_access)."""
+    return team_web_access.Checker(user, bool(is_nas_admin(str(user.get("username") or ""))))
+
+
+def _team_check(user: dict[str, Any], *rels: str, write: bool) -> None:
+    """Inside a `use_share_root` block: refuse paths of team projects this person isn't in."""
+    checker = _team_checker(user)
+    for rel in rels:
+        checker.check(resolve_rel(rel or ""), write=write)
+
+
+def _note_team_media(share: str, rels: list[Any], user: dict[str, Any]) -> None:
+    """A website change inside a team project's media folder → `media_changed` (team_media)."""
+    try:
+        root = share_path(share)
+    except FSError:
+        return
+    team_media.note_web_change(root, [str(r or "") for r in rels], str(user.get("username") or ""))
+
+
 @app.post("/api/mkdir")
 def api_mkdir(request: Request, path: str = Form(""), name: str = Form(...)) -> dict[str, Any]:
     user = _require_user(request)
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            team_files.guard_web_path(path)
+            team_files.guard_new_name(name)
+            _team_check(user, path, write=True)
             return mkdir(path, name, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -1681,7 +1744,12 @@ def api_rename(request: Request, path: str = Form(...), new_name: str = Form(...
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
-            return rename(path, new_name, user["uid"], user["gid"])
+            team_files.guard_web_path(path)
+            team_files.guard_new_name(new_name)
+            _team_check(user, path, write=True)
+            result = rename(path, new_name, user["uid"], user["gid"])
+        _note_team_media(share, [path, result.get("path")], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -1692,7 +1760,12 @@ def api_move(request: Request, path: str = Form(...), dest: str = Form(...)) -> 
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
-            return move_item(path, dest, user["uid"], user["gid"])
+            team_files.guard_web_path(path)
+            team_files.guard_web_path(dest)
+            _team_check(user, path, dest, write=True)
+            result = move_item(path, dest, user["uid"], user["gid"])
+        _note_team_media(share, [path, result.get("path")], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -1704,7 +1777,11 @@ def api_delete(request: Request, path: str = Form(...)) -> dict[str, Any]:
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
-            return delete(path, user["uid"], user["gid"])
+            team_files.guard_web_path(path, whole_project_ok=True)
+            _team_check(user, path, write=True)
+            result = delete(path, user["uid"], user["gid"])
+        _note_team_media(share, [path], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -1743,6 +1820,13 @@ async def api_upload(
     user = _require_user(request)
     share = _active_share(request, user)
     share_root = share_path(share)
+    try:
+        with use_share_root(share_root):
+            team_files.guard_web_path(path)
+            team_files.guard_new_name(file.filename or "")
+            _team_check(user, path, write=True)
+    except FSError as e:
+        raise _fs_http(e) from e
     max_bytes = MAX_UPLOAD_BYTES
     # Prefer declared multipart size when present so a truncated stream never
     # becomes the final file. Unknown size still refuses commit on pump errors.
@@ -1812,6 +1896,7 @@ async def api_upload(
         await pump_task
         if pump_error:
             raise pump_error[0]
+        _note_team_media(share, [result.get("path") if isinstance(result, dict) else ""], user)
         return result
     except FSError as e:
         pump_task.cancel()
@@ -1842,6 +1927,9 @@ def api_upload_init(
         # Folder uploads pass nested paths (webkitRelativePath) that may not
         # exist yet — mirror write_upload_stream and mkdir -p the parents.
         with use_share_root(share_path(share)):
+            team_files.guard_web_path(path or "")
+            team_files.guard_new_name(name)
+            _team_check(user, path or "", write=True)
             parent = resolve_rel(path or "")
             if not parent.is_dir():
                 rel = (path or "").strip().lstrip("/")
@@ -1972,12 +2060,14 @@ def api_upload_complete(
             # Prefer the share recorded at init (client header should match).
             share = str(meta["share"])
         with use_share_root(share_path(share)):
-            return complete_session(
+            result = complete_session(
                 upload_id,
                 username=str(user.get("username") or ""),
                 uid=int(user["uid"]),
                 expect_mtime_ns=expect_mtime_ns,
             )
+        _note_team_media(share, [result.get("path")], user)
+        return result
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -2138,6 +2228,7 @@ def api_download(
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, path, write=False)
             opened = open_for_download(path, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -2156,6 +2247,7 @@ def api_thumbnail(
     share = _active_share(request, user)
     try:
         with use_share_root(share_path(share)):
+            _team_check(user, path, write=False)
             opened = open_for_download(path, user["uid"], user["gid"])
     except FSError as e:
         raise _fs_http(e) from e
@@ -2183,13 +2275,16 @@ def api_thumbnail_warm(
     targets: list[Path] = []
     try:
         with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
             for rel in path[:_THUMB_WARM_MAX]:
                 if thumbs.thumb_kind(rel) is None:
                     continue
                 try:
-                    targets.append(resolve_rel(rel))
+                    target = resolve_rel(rel)
                 except FSError:
                     continue
+                if checker.may_read(target):
+                    targets.append(target)
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -2228,6 +2323,9 @@ def api_download_zip(
 
     try:
         with use_share_root(share_path(share)) as root:
+            checker = _team_checker(user)
+            for rel in paths:
+                checker.check(resolve_rel(rel), write=False)
             entries = collect_zip_entries(
                 paths,
                 user["uid"],
@@ -2235,6 +2333,8 @@ def api_download_zip(
                 max_files=_ZIP_MAX_FILES,
                 max_total=_ZIP_MAX_TOTAL,
             )
+            # A folder above Team Projects (the drive root) leaves out other teams' files.
+            entries = [(arc, src) for arc, src in entries if checker.may_read(src)]
     except FSError as e:
         raise _fs_http(e) from e
 
@@ -2390,6 +2490,9 @@ async def api_mint_file_link(request: Request) -> dict[str, Any]:
     try:
         with use_share_root(share_path(share)) as root:
             target = resolve_rel(rel)
+            _team_checker(user).check(target, write=False)
+            if target == team_web_access.team_dir():
+                raise FSError("This folder can't be shared", 400)
             with as_user(uid, gid):
                 is_dir = target.is_dir()
             if is_dir:
@@ -2589,6 +2692,16 @@ _CLI_PAGE_HEADERS = {
     # `Origin: null`, which check_origin rightly rejects.
     "Referrer-Policy": "same-origin",
 }
+# Keep page for team-project cleanup notices: same lockdown, no form posts.
+_TEAM_KEEP_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+        "form-action 'none'; base-uri 'none'; frame-ancestors 'none'"
+    ),
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "same-origin",
+}
 
 
 def _cli_request_params(port: Any, state: Any, challenge: Any) -> tuple[int, str, str]:
@@ -2609,6 +2722,12 @@ def _cli_request_params(port: Any, state: Any, challenge: Any) -> tuple[int, str
 def cli_authorize_page() -> FileResponse:
     # Static page; it validates via /api/me and POST /api/cli/authorize.
     return FileResponse(STATIC / "cli-authorize.html", headers=_CLI_PAGE_HEADERS)
+
+
+@app.get("/team/keep")
+def team_keep_page() -> FileResponse:
+    # Static page from the cleanup notice email; it calls POST /api/team/projects/{id}/open.
+    return FileResponse(STATIC / "team-keep.html", headers=_TEAM_KEEP_HEADERS)
 
 
 @app.post("/api/cli/authorize")

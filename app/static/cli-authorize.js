@@ -10,6 +10,27 @@ const request = {
   challenge: params.get("challenge") || "",
   device: params.get("device") || "",
 };
+// `switch=1` (InFocus Cut's Switch Account) signs this browser out first, so the
+// person can pick another account instead of being handed the one they had.
+const switching = params.get("switch") === "1";
+params.delete("switch");
+const backHere = location.pathname + (params.toString() ? `?${params}` : "");
+
+function showSignIn() {
+  $("cli-google").href = `/auth/login?next=${encodeURIComponent(backHere)}`;
+  show("cli-signin");
+}
+
+async function useAnotherAccount() {
+  try {
+    await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+  } catch {
+    fail("Couldn't reach InFocus Drive. Check your connection and try again.");
+    return;
+  }
+  history.replaceState(null, "", backHere);
+  showSignIn();
+}
 
 function applyTheme() {
   let light = false;
@@ -43,6 +64,12 @@ function looksValid() {
   );
 }
 
+/** InFocus Cut signs in as "InFocus Cut" or "InFocus Cut on <Mac name>". */
+function isInFocusCut(device) {
+  const d = String(device || "").trim();
+  return d === "InFocus Cut" || d.startsWith("InFocus Cut on ");
+}
+
 /** Same code the terminal prints: first 8 hex digits of SHA-256("infocus-verify:" + state). */
 async function confirmationCode(state) {
   const bytes = new TextEncoder().encode(`infocus-verify:${state}`);
@@ -61,11 +88,26 @@ async function refresh() {
     return;
   }
   if (!me.authenticated) {
-    $("cli-google").href = `/auth/login?next=${encodeURIComponent(location.pathname + location.search)}`;
-    show("cli-signin");
+    showSignIn();
     return;
   }
-  $("cli-device").textContent = `InFocus CLI on ${request.device.trim() || "an unnamed device"}`;
+  if (switching && !refresh.switched) {
+    refresh.switched = true;
+    await useAnotherAccount();
+    return;
+  }
+  if (isInFocusCut(request.device)) {
+    // InFocus Cut shows no code: say what is being connected in its words, not the terminal's.
+    document.title = "Connect InFocus Cut · InFocus Drive";
+    $("cli-title").textContent = "Connect InFocus Cut?";
+    $("cli-device").textContent = request.device.trim();
+    $("cli-code-hint").hidden = true;
+    $("cli-code").hidden = true;
+    $("cli-note").textContent =
+      "InFocus Cut will open and save your team projects and footage on the Drive. Only allow this if you just clicked Sign in with InFocus Drive in InFocus Cut.";
+  } else {
+    $("cli-device").textContent = `InFocus CLI on ${request.device.trim() || "an unnamed device"}`;
+  }
   $("cli-user").textContent = me.nas_username;
   $("cli-code").textContent = await confirmationCode(request.state);
   $("cli-port").value = request.port;
@@ -87,6 +129,7 @@ if (!looksValid()) {
       for (const button of $("cli-consent").querySelectorAll("button")) button.disabled = true;
     });
   });
+  $("cli-switch").addEventListener("click", useAnotherAccount);
   // Signing in with email/NAS happens in another tab; re-check when we're back.
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && !$("cli-signin").hidden) refresh();

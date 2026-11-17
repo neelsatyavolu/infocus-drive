@@ -2,12 +2,14 @@
  * InFocus Drive — file browser front end.
  * Talks to the FastAPI backend in api.js and renders the InFocus design system UI.
  */
-import { bindEmailSignIn } from "./email-sign-in.js?v=20261115-filelink2";
-import * as api from "./api.js?v=20261115-filelink2";
-import { ApiError } from "./api.js?v=20261115-filelink2";
+import { bindEmailSignIn } from "./email-sign-in.js?v=20261117-teamproj";
+import * as api from "./api.js?v=20261117-teamproj";
+import { ApiError } from "./api.js?v=20261117-teamproj";
 import {
   describeKind,
   displayName,
+  isBrowsableFolder,
+  isTeamProject,
   fileExt,
   folderLabel,
   formatEta,
@@ -21,8 +23,8 @@ import {
   isUnderRecycle,
   pathParts,
   previewKind,
-} from "./format.js?v=20261115-filelink2";
-import { $, el, icon, show } from "./dom.js?v=20261115-filelink2";
+} from "./format.js?v=20261117-teamproj";
+import { $, el, icon, show } from "./dom.js?v=20261117-teamproj";
 import {
   setQuickScope,
   listFavorites,
@@ -31,7 +33,7 @@ import {
   listRecents,
   pushRecent,
   removePath,
-} from "./quick.js?v=20261115-filelink2";
+} from "./quick.js?v=20261117-teamproj";
 
 const THEME_KEY = "ifd-theme";
 const VIEW_KEY = "ifd-view";
@@ -274,7 +276,7 @@ function highlightMatch(text, query) {
 
 /** Folders open on click; a Mac .app is a folder on disk but downloads like a file. */
 function isOpenableFolder(item) {
-  return item.is_dir && !isAppBundle(item);
+  return isBrowsableFolder(item) && !isAppBundle(item);
 }
 
 function formatSearchPath(item) {
@@ -391,7 +393,7 @@ function renderSearchPanel() {
   searchUi.results.forEach((item, index) => {
     const kind = describeKind(item);
     const isActive = index === searchUi.active;
-    const meta = item.is_dir ? "Folder" : formatSize(item.size);
+    const meta = isTeamProject(item) ? describeKind(item).label : item.is_dir ? "Folder" : formatSize(item.size);
     const row = el(
       "button",
       {
@@ -533,6 +535,10 @@ async function openSearchResult(item, revealOnly = false) {
   state.query = "";
   if ($("search")) $("search").value = "";
 
+  if (isTeamProject(item)) {
+    openItem(item);
+    return;
+  }
   if (isOpenableFolder(item)) {
     navigate(item.path);
     return;
@@ -977,7 +983,7 @@ function cssPath(path) {
 async function refreshShortcuts() {
   try {
     const data = await api.listFiles("");
-    state.shortcuts = (data.items || []).filter((item) => item.is_dir);
+    state.shortcuts = (data.items || []).filter(isOpenableFolder);
     state.treeChildren[""] = state.shortcuts;
   } catch {
     state.shortcuts = [];
@@ -2132,6 +2138,9 @@ function buildRowMenu(item) {
       symbol: "#i-move",
       run: () => openMoveModal(selected),
     });
+  } else if (isTeamProject(item)) {
+    // Edited in InFocus Cut only: no open, share, rename or move here (the server refuses them too).
+    entries.push({ label: "Download as ZIP", symbol: "#i-download", run: () => downloadItems([item]) });
   } else {
     if (isAppBundle(item)) {
       entries.push({ label: "Download", symbol: "#i-download", run: () => downloadItems([item]) });
@@ -2392,6 +2401,10 @@ function jumpToTyped(ch) {
 }
 
 function openItem(item) {
+  if (isTeamProject(item)) {
+    toast("Open this team project in InFocus Cut.");
+    return;
+  }
   if (isOpenableFolder(item)) {
     navigate(item.path);
     return;
@@ -2458,7 +2471,7 @@ function openPreview(item) {
     downloadItems([item]);
     return;
   }
-  import("./viewer.js?v=20261115-filelink2").then(({ openPreview: openViewer }) => {
+  import("./viewer.js?v=20261117-teamproj").then(({ openPreview: openViewer }) => {
     openViewer(item, {
       siblings: visibleItems().filter((entry) => previewKind(entry)),
       downloadUrl: api.downloadUrl,
@@ -3267,7 +3280,7 @@ function openMoveModal(items) {
     let folders = [];
     try {
       const data = await api.listFiles(path);
-      folders = (data.items || []).filter((item) => item.is_dir && !movingPaths.has(item.path));
+      folders = (data.items || []).filter((item) => isOpenableFolder(item) && !movingPaths.has(item.path));
     } catch (error) {
       listRow.textContent = "";
       listRow.append(el("div", { class: "picker__empty" }, [icon("#i-lock", 20), error.message]));

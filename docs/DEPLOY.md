@@ -84,6 +84,8 @@ Use **one** new tag everywhere (e.g. `20260729-rootcrumb`):
 | `app/static/app.js` | every `import … from "./…js?v="` |
 | `app/static/viewer.js` | its imports (`dom`, `format`, `player`) |
 | `app/static/player.js` | its `dom` import |
+| `app/static/editing.html` | `editing.css?v=` and `editing.js?v=` |
+| `app/static/editing*.js` | every `import … from "./…js?v="` |
 
 Without this, Cloudflare may keep serving old JS/CSS for hours. Grep to confirm one tag:
 
@@ -171,6 +173,20 @@ Hard-refresh the browser after deploy (CF + browser cache).
 | Copy OK, old UI in container | Forgot `docker compose up -d --build` — static is image-baked |
 | `MISSING_ENV` after copy | NAS `.env` was deleted — restore it before rebuilding |
 | Compose `requires buildx plugin` warning | Harmless; classic builder still tags `infocus-drive:local` |
+
+## Editing dashboard (editing.infocuspaly.com)
+
+The team-project dashboard runs inside the Drive app (same container, same process); there is nothing new to build or run. It is always at `/editing` on the Drive's own address, so you can try it there first. To give it its own hostname:
+
+1. **Env.** In the NAS `.env`, add `EDITING_HOST=editing.infocuspaly.com` (host only, no scheme). Leave `PUBLIC_BASE_URL` as it is. Rebuild (`docker compose up -d --build`).
+2. **Tunnel ingress.** In the Cloudflare dashboard (Zero Trust → Networks → Tunnels → the Drive's tunnel → Public hostnames), add `editing.infocuspaly.com` pointing at the same service as the Drive's hostname (the nginx gateway, `http://localhost:8790`). Keep the same origin settings as the Drive's entry. nginx needs no change: it already forwards `Host`, and `server_name _` answers any hostname.
+3. **DNS.** Adding the public hostname creates a proxied `CNAME editing → <tunnel-id>.cfargotunnel.com` in the `infocuspaly.com` zone. If the zone isn't in the tunnel's Cloudflare account, add that CNAME by hand (proxied).
+4. **Google OAuth.** In Google Cloud Console → APIs & Services → Credentials → the Drive's OAuth client, add the authorized redirect URI `https://editing.infocuspaly.com/auth/callback`. Keep the Drive's existing one. Sign-in started on the editing host returns there, so its session cookie is set on that host.
+5. **Cookies.** The session cookie stays host-only (no `Domain`), so the Drive and the dashboard each have their own sign-in; people sign in once on each. Don't set a cookie domain to share them: that would send the Drive session to every `*.infocuspaly.com` site. Only Google sign-in is offered on the dashboard; the Drive's email-code and NAS-password sign-ins stay on the Drive.
+6. **Cloudflare cache.** Nothing to set: `/` on the editing host is the static page (60 s edge cache, no user data), and `/api/*`, `/auth/*` are `no-store` as on the Drive.
+7. **Verify.** `curl -sI https://editing.infocuspaly.com/` → 200 with `content-security-policy: default-src 'none'; script-src 'self'…`; open it in a browser, Continue with Google, and check your team projects appear. As a Drive admin, check that "All projects" shows every project and that a project you're not in opens read-only. As someone who isn't in a project, its `?project=<id>` link must say "Project not found".
+
+Rollback: remove `EDITING_HOST` (the page stays at `/editing`) or delete the public hostname.
 
 ## Tunnel / ports reminder
 
