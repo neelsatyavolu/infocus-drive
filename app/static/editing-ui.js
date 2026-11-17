@@ -1,7 +1,7 @@
 // Shared bits of the editing dashboard: sections, empty notes, people and numbers.
 
 import { $, el } from "./dom.js?v=20261117-dash";
-import { formatModified, formatSize } from "./format.js?v=20261117-dash";
+import { formatModified } from "./format.js?v=20261117-dash";
 
 const SECTIONS = ["ed-loading", "ed-signin", "ed-list", "ed-detail", "ed-fail"];
 
@@ -23,8 +23,19 @@ export function plural(n, word) {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
+// Decimal units (1 MB = 1,000,000 bytes), the same as InFocus Cut and Finder, so the app
+// and this page give the same size for the same footage.
+const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+
 export function sizeText(bytes) {
-  return bytes ? formatSize(bytes) : "0 B";
+  let value = Number(bytes) || 0;
+  let unit = 0;
+  while (value >= 1000 && unit < SIZE_UNITS.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  const decimals = unit === 0 || value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(decimals)} ${SIZE_UNITS[unit]}`;
 }
 
 /** Unix seconds → "5 minutes ago" / "Yesterday" / "Nov 3, 2026". */

@@ -241,6 +241,11 @@ def _recycle(store: TeamStore, info: dict[str, Any]) -> None:
         team_files.recycle_project(info["folder"], info["id"])
 
 
+def recycle_now(store: TeamStore, info: dict[str, Any]) -> None:
+    """An admin's "Recycle now": the same checks and move as the daily cleanup."""
+    _recycle(store, info)
+
+
 def run_daily(store: TeamStore) -> CleanupReport:
     return run_cleanup(store, time.time(), send_notice_email, lambda info: _recycle(store, info), log.info,
                        present=team_files.project_present)

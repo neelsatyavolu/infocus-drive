@@ -8,7 +8,8 @@ read route the page needs beyond the app's: `GET /api/team/projects/{id}/overvie
 
 Members see their projects. A Drive admin also sees every other project, read-only
 (role "admin"): overview and footage list only, plus the admin actions the team API
-already has (Keep, force-release a lock).
+already has (Keep, force-release a lock) and `POST .../recycle`, which moves the project to
+the Recycle bin the same way the 30-day cleanup does.
 """
 
 from __future__ import annotations
@@ -16,8 +17,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 import team_access
 import team_cleanup
@@ -37,6 +41,7 @@ from team_projects import (
 )
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 STATIC = Path(__file__).parent / "static"
 
 # Same lockdown as the other standalone pages (team keep, CLI consent): own scripts only,
@@ -133,6 +138,7 @@ def _overview(user: dict[str, Any], info: dict[str, Any]) -> dict[str, Any]:
         "keep": st.is_keep(project_id),
         "can_edit": role in ("member", "open"),
         "can_keep": admin or username == info["creator"],
+        "can_recycle": admin,
         "is_admin": admin,
     }
 
@@ -146,3 +152,27 @@ def overview(request: Request, project_id: str) -> Any:
         return _overview(user, info)
     except FSError as e:
         return _fs_error(e)
+
+
+@router.post("/api/team/projects/{project_id}/recycle")
+async def recycle(request: Request, project_id: str) -> Any:
+    """Drive admins only: move the project and its media folder to the Recycle bin now,
+    with the cleanup's own checks (nobody editing, no export running)."""
+    user = _user(request)
+    info = _project_or_404(project_id)
+    if not _is_admin(user):
+        raise HTTPException(status_code=404, detail="Team project not found")
+    st = store()
+    try:
+        await run_in_threadpool(lambda: team_cleanup.recycle_now(st, info))
+    except team_cleanup.Busy as e:
+        why = {"lock held": "someone is editing a sequence", "export in progress": "someone is exporting"}
+        return JSONResponse({"error": "busy", "message": f"Not moved: {why.get(e.reason, e.reason)}. Try again once they're done."},
+                            status_code=409)
+    except FSError as e:
+        if e.status == 404:
+            st.forget(project_id)
+        return _fs_error(e)
+    st.forget(project_id)
+    log.info("team: admin recycled project %s", project_id)
+    return {"recycled": True}

@@ -181,6 +181,39 @@ def test_admin_overview_and_footage_list_are_read_only(team):
     assert team.get(f"/api/team/projects/{pid}", headers=as_("admin1")).status_code == 404
 
 
+def test_admin_can_recycle_a_project_now(team):
+    pid = make(team)
+    (team.drive / "#recycle").mkdir()
+    (team.drive / MEDIA / "A001.mov").write_bytes(b"abc")
+    assert overview(team, pid, "admin1").json()["can_recycle"] is True
+    r = team.post(f"/api/team/projects/{pid}/recycle", headers=as_("admin1"))
+    assert r.status_code == 200, r.text
+    assert (team.drive / "#recycle" / MEDIA / "A001.mov").is_file()
+    assert not (team.drive / MEDIA).exists()
+    assert overview(team, pid, "student1").status_code == 404
+    assert pid not in listed(team, "student1")
+
+
+def test_recycle_waits_while_someone_is_editing(team):
+    pid = make(team)
+    (team.drive / "#recycle").mkdir()
+    assert lock(team, pid, 2).status_code == 200
+    r = team.post(f"/api/team/projects/{pid}/recycle", headers=as_("admin1"))
+    assert r.status_code == 409 and r.json()["error"] == "busy"
+    assert "editing" in r.json()["message"]
+    assert (team.drive / MEDIA).is_dir()
+
+
+@pytest.mark.parametrize("user", ["student1", "student2"])
+def test_only_admins_can_recycle_now(team, user):
+    pid = make(team)
+    joined(team, pid)
+    (team.drive / "#recycle").mkdir()
+    assert overview(team, pid, user).json()["can_recycle"] is False
+    assert team.post(f"/api/team/projects/{pid}/recycle", headers=as_(user)).status_code == 404
+    assert (team.drive / MEDIA).is_dir()
+
+
 @pytest.mark.parametrize("user", ["student2", "student3"])
 def test_non_admin_non_members_get_404_on_dashboard_routes(team, user):
     pid = make(team)

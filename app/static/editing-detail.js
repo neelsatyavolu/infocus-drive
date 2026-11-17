@@ -209,13 +209,19 @@ function storage(ov) {
       await api.keep(ov.id, !ov.keep);
       refresh();
     }) }) : null;
+  const recycle = ov.can_recycle ? el("button", { type: "button", class: "btn", text: "Recycle now",
+    onclick: (event) => guarded(event.currentTarget, line, async () => {
+      if (!confirm(`Move ${ov.name} and its footage to the Recycle bin? Its team loses it in InFocus Cut.`)) return;
+      await api.recycle(ov.id);
+      location.search = "?all=1";
+    }) }) : null;
   return [
     el("dl", { class: "ed-facts" }, [
       el("dt", { text: "Footage" }), el("dd", { class: "mono", text: `${sizeText(ov.media_bytes)} · ${plural(ov.media_count, "file")}` }),
       el("dt", { text: "Folder" }), el("dd", { class: "ed-path", text: ov.media_folder }),
       el("dt", { text: "Cleanup" }), el("dd", { text: cleanup }),
     ]),
-    keep ? el("div", { class: "ed-actions" }, [keep]) : null,
+    keep || recycle ? el("div", { class: "ed-actions" }, [keep, recycle]) : null,
     line,
   ];
 }

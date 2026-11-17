@@ -53,6 +53,7 @@ export const cancelInvite = (id, user) =>
 export const join = (id) => api(team(id, "/join"), { method: "POST" });
 export const decline = (id) => api(team(id, "/decline"), { method: "POST" });
 export const keep = (id, value) => api(team(id, "/keep"), { method: "POST", json: { keep: value } });
+export const recycle = (id) => api(team(id, "/recycle"), { method: "POST" });
 export const forceRelease = (id, seq) => api(team(id, `/sequences/${seq}/lock/force`), { method: "POST" });
 export const eventsUrl = (id) => team(id, "/events");
 export const uploadInit = (id, body) => api(team(id, "/media/upload/init"), { method: "POST", json: body });
